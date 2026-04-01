@@ -1,0 +1,188 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>40k Headquarters - Admin</title>
+  </head>
+  <body>
+    <div class="admin-shell">
+      <header class="admin-topbar">
+        <div>
+          <h1>40k HQ Admin</h1>
+          <p id="statusLine">Not authenticated</p>
+        </div>
+        <a class="back-link" href="/">Back To Game</a>
+      </header>
+
+      <main class="admin-workspace">
+        <section class="panel auth-panel">
+          <h2>Authentication</h2>
+          <label for="loginUser">Username</label>
+          <input id="loginUser" autocomplete="username" />
+          <label for="loginPass">Password</label>
+          <input id="loginPass" type="password" autocomplete="current-password" />
+          <div class="row">
+            <button id="loginBtn">Login</button>
+            <button id="logoutBtn" class="ghost">Logout</button>
+          </div>
+          <p id="authLine">Not logged in</p>
+          <p class="hint">Default: <code>admin/admin123</code></p>
+        </section>
+
+        <section id="adminPanel" class="panel hidden">
+          <h2>Players</h2>
+          <div class="grid add-grid">
+            <div>
+              <label for="addPlayerId">Player ID</label>
+              <input id="addPlayerId" placeholder="player id" />
+            </div>
+            <div>
+              <label for="addPlayerName">Name</label>
+              <input id="addPlayerName" placeholder="name" />
+            </div>
+            <div>
+              <label for="addPlayerUsername">Username</label>
+              <input id="addPlayerUsername" placeholder="username (optional)" />
+            </div>
+            <div>
+              <label for="addPlayerPassword">Password</label>
+              <input id="addPlayerPassword" placeholder="password (optional)" />
+            </div>
+          </div>
+          <button id="addPlayerBtn">Add Player</button>
+          <div id="playersList" class="list"></div>
+        </section>
+
+        <section id="planetsPanel" class="panel hidden">
+          <h2>Planets</h2>
+          <div class="grid add-grid">
+            <div>
+              <label for="addPlanetId">Planet ID</label>
+              <input id="addPlanetId" placeholder="planet id" />
+            </div>
+            <div>
+              <label for="addPlanetQ">Q</label>
+              <input id="addPlanetQ" type="number" placeholder="q" />
+            </div>
+            <div>
+              <label for="addPlanetR">R</label>
+              <input id="addPlanetR" type="number" placeholder="r" />
+            </div>
+            <div>
+              <label for="addPlanetRes">Resource Production</label>
+              <input id="addPlanetRes" type="number" placeholder="resourceProduction" />
+            </div>
+            <div>
+              <label for="addPlanetInf">Influence Value</label>
+              <input id="addPlanetInf" type="number" placeholder="influenceValue" />
+            </div>
+            <div>
+              <label for="addPlanetVision">Vision Range</label>
+              <input id="addPlanetVision" type="number" placeholder="visionRange" value="1" />
+            </div>
+          </div>
+          <button id="addPlanetBtn">Add Planet</button>
+          <div id="planetsList" class="list"></div>
+        </section>
+
+        <section id="fleetsPanel" class="panel hidden">
+          <h2>Fleets</h2>
+          <div class="grid add-grid">
+            <div>
+              <label for="addFleetId">Fleet ID</label>
+              <input id="addFleetId" placeholder="fleet id" />
+            </div>
+            <div>
+              <label for="addFleetOwner">Owner Player ID</label>
+              <input id="addFleetOwner" placeholder="owner player id" />
+            </div>
+            <div>
+              <label for="addFleetQ">Q</label>
+              <input id="addFleetQ" type="number" placeholder="q" />
+            </div>
+            <div>
+              <label for="addFleetR">R</label>
+              <input id="addFleetR" type="number" placeholder="r" />
+            </div>
+            <div>
+              <label for="addFleetPower">Combat Power</label>
+              <input id="addFleetPower" type="number" placeholder="combatPower" value="10" />
+            </div>
+            <div>
+              <label for="addFleetHealth">Health</label>
+              <input id="addFleetHealth" type="number" placeholder="health" value="100" />
+            </div>
+            <div>
+              <label for="addFleetInfluence">Influence</label>
+              <input id="addFleetInfluence" type="number" placeholder="influence" value="5" />
+            </div>
+            <div>
+              <label for="addFleetAp">Action Points</label>
+              <input id="addFleetAp" type="number" placeholder="actionPoints" value="3" />
+            </div>
+            <div>
+              <label for="addFleetVision">Vision Range</label>
+              <input id="addFleetVision" type="number" placeholder="visionRange" value="2" />
+            </div>
+            <div>
+              <label for="addFleetCapacity">Capacity</label>
+              <input id="addFleetCapacity" type="number" placeholder="capacity" value="10" />
+            </div>
+            <div>
+              <label for="addFleetStance">Stance</label>
+              <select id="addFleetStance">
+                <option value="ATTACK">ATTACK</option>
+                <option value="DEFENSE">DEFENSE</option>
+              </select>
+            </div>
+          </div>
+          <button id="addFleetBtn">Add Fleet</button>
+          <div id="fleetsList" class="list"></div>
+        </section>
+
+        <section id="relationsPanel" class="panel hidden">
+          <h2>Relations</h2>
+          <div class="row">
+            <div>
+              <label for="relType">Relation Type</label>
+              <select id="relType">
+                <option value="ALLIANCE">ALLIANCE</option>
+                <option value="WAR">WAR</option>
+              </select>
+            </div>
+            <div>
+              <label for="relPlayerA">Player A ID</label>
+              <input id="relPlayerA" placeholder="player A id" />
+            </div>
+            <div>
+              <label for="relPlayerB">Player B ID</label>
+              <input id="relPlayerB" placeholder="player B id" />
+            </div>
+          </div>
+          <div class="row">
+            <button id="addRelationBtn">Add Relation</button>
+            <button id="removeRelationBtn" class="danger">Remove Relation</button>
+          </div>
+          <div class="relations-wrap">
+            <div>
+              <h3>Alliances</h3>
+              <ul id="alliancesList"></ul>
+            </div>
+            <div>
+              <h3>Wars</h3>
+              <ul id="warsList"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Events</h2>
+          <pre id="eventsLog"></pre>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/admin.ts"></script>
+  </body>
+</html>

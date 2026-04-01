@@ -1,0 +1,29 @@
+{
+  "name": "40k-headquarters-core",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx src/demo.ts",
+    "dev:server": "tsx src/server.ts",
+    "dev:client": "vite",
+    "dev:game": "concurrently -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "build": "npm run build:core && npm run build:client",
+    "build:core": "tsc -p tsconfig.json",
+    "build:client": "vite build",
+    "start": "node dist/demo.js",
+    "start:server": "node dist/server.js",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pixi.js": "^7.4.3",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@types/ws": "^8.18.1",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.10"
+  }
+}

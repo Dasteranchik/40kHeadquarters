@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>40k Headquarters - Tactical View</title>
+  </head>
+  <body>
+    <div id="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>40k Headquarters</h1>
+          <p id="statusLine">Not authenticated</p>
+        </div>
+        <div class="meta">
+          <span>User <strong id="userValue">-</strong></span>
+          <span>Turn <strong id="turnNumber">-</strong></span>
+          <span>Phase <strong id="phaseValue">-</strong></span>
+          <span>Resources <strong id="resourceValue">-</strong></span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="panel">
+          <section>
+            <h2>Authentication</h2>
+            <label for="loginUser">Username</label>
+            <input id="loginUser" autocomplete="username" />
+            <label for="loginPass">Password</label>
+            <input id="loginPass" type="password" autocomplete="current-password" />
+            <div class="actions-row">
+              <button id="loginBtn">Login</button>
+              <button id="logoutBtn" class="ghost">Logout</button>
+            </div>
+            <p id="authState">Not logged in</p>
+            <p class="hint">Default: <code>admin/admin123</code>, <code>p1/p1</code></p>
+          </section>
+
+          <section>
+            <h2>Connection</h2>
+            <p id="playerInfo">Player: -</p>
+            <p class="hint">Query params: <code>?api=http://localhost:8080&ws=ws://localhost:8080</code></p>
+            <p class="hint">Admin page: <a href="/admin.html">/admin.html</a></p>
+          </section>
+
+          <section>
+            <h2>Fleet Orders</h2>
+            <p id="selectedFleetLine">Selected fleet: none</p>
+            <pre id="selectedFleetDetails" class="fleet-details">-</pre>
+            <p id="pathLine">Planned path: 0 steps</p>
+            <div class="actions-row">
+              <button id="submitMoveBtn">Submit Move</button>
+              <button id="clearPathBtn" class="ghost">Clear Path</button>
+            </div>
+            <div class="actions-row">
+              <button id="setAttackBtn">Set Attack</button>
+              <button id="setDefenseBtn" class="ghost">Set Defense</button>
+            </div>
+          </section>
+
+          <section>
+            <h2>Diplomacy</h2>
+            <label for="targetSelect">Target player</label>
+            <select id="targetSelect"></select>
+            <div class="actions-col">
+              <button id="warBtn" class="danger">Declare War</button>
+              <button id="allyBtn">Propose Alliance</button>
+            </div>
+          </section>
+
+          <section>
+            <h2>Turn Control</h2>
+            <div class="actions-row">
+              <button id="readyBtn" class="ghost">Player Ready</button>
+              <button id="endTurnBtn">End Turn (Admin)</button>
+            </div>
+          </section>
+
+          <section id="adminSection" class="admin-hidden">
+            <h2>Admin Panel</h2>
+
+            <div class="admin-block">
+              <h3>Add Player</h3>
+              <input id="adminPlayerId" placeholder="player id" />
+              <input id="adminPlayerName" placeholder="player name" />
+              <input id="adminPlayerUsername" placeholder="login username (optional)" />
+              <input id="adminPlayerPassword" placeholder="login password (optional)" />
+              <button id="adminAddPlayerBtn">Add Player</button>
+              <div id="adminPlayerList" class="entity-list"></div>
+            </div>
+
+            <div class="admin-block">
+              <h3>Add Planet</h3>
+              <input id="adminPlanetId" placeholder="planet id" />
+              <div class="grid2">
+                <input id="adminPlanetQ" placeholder="q" type="number" />
+                <input id="adminPlanetR" placeholder="r" type="number" />
+              </div>
+              <div class="grid2">
+                <input id="adminPlanetRes" placeholder="resourceProduction" type="number" />
+                <input id="adminPlanetInf" placeholder="influenceValue" type="number" />
+              </div>
+              <button id="adminAddPlanetBtn">Add Planet</button>
+              <div id="adminPlanetList" class="entity-list"></div>
+            </div>
+
+            <div class="admin-block">
+              <h3>Add Fleet</h3>
+              <input id="adminFleetId" placeholder="fleet id" />
+              <select id="adminFleetOwner"></select>
+              <div class="grid2">
+                <input id="adminFleetQ" placeholder="q" type="number" />
+                <input id="adminFleetR" placeholder="r" type="number" />
+              </div>
+              <div class="grid2">
+                <input id="adminFleetPower" placeholder="combatPower" type="number" />
+                <input id="adminFleetHealth" placeholder="health" type="number" />
+              </div>
+              <div class="grid2">
+                <input id="adminFleetInfluence" placeholder="influence" type="number" />
+                <input id="adminFleetVision" placeholder="visionRange" type="number" />
+              </div>
+              <input id="adminFleetCapacity" placeholder="capacity" type="number" />
+              <button id="adminAddFleetBtn">Add Fleet</button>
+              <div id="adminFleetList" class="entity-list"></div>
+            </div>
+          </section>
+
+          <section>
+            <h2>Events</h2>
+            <pre id="eventsLog"></pre>
+          </section>
+        </aside>
+
+        <section class="stage-zone">
+          <div id="stage"></div>
+          <div id="relationsWindow" class="relations-window">
+            <h2>Relations</h2>
+            <div class="relations-group">
+              <h3>Alliances</h3>
+              <ul id="alliancesList" class="relations-list"></ul>
+            </div>
+            <div class="relations-group">
+              <h3>Wars</h3>
+              <ul id="warsList" class="relations-list"></ul>
+            </div>
+          </div>
+          <div id="hoverHexInfo" class="hover-hex-info">Hex: -</div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+
+
+
+
