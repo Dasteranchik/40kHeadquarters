@@ -179,15 +179,3 @@ httpServer.listen(PORT, () => {
   console.log(`[server] default admin: admin / admin123`);
   console.log(`[server] default player creds: p1/p1, p2/p2, p3/p3`);
 });
-
-
-
-
-
-
-
-
-
-
-
-

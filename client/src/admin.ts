@@ -68,12 +68,14 @@ const addPlayerPassword = document.getElementById("addPlayerPassword") as HTMLIn
 const addPlayerAlignment = document.getElementById("addPlayerAlignment") as HTMLSelectElement;
 const addPlayerFaction = document.getElementById("addPlayerFaction") as HTMLSelectElement;
 const addPlayerBtn = document.getElementById("addPlayerBtn") as HTMLButtonElement;
+const playersSearch = document.getElementById("playersSearch") as HTMLInputElement;
 const playersList = document.getElementById("playersList") as HTMLDivElement;
 
 const addFactionId = document.getElementById("addFactionId") as HTMLInputElement;
 const addFactionName = document.getElementById("addFactionName") as HTMLInputElement;
 const addFactionDescription = document.getElementById("addFactionDescription") as HTMLInputElement;
 const addFactionBtn = document.getElementById("addFactionBtn") as HTMLButtonElement;
+const factionsSearch = document.getElementById("factionsSearch") as HTMLInputElement;
 const factionsList = document.getElementById("factionsList") as HTMLDivElement;
 
 const addPlanetId = document.getElementById("addPlanetId") as HTMLInputElement;
@@ -89,6 +91,7 @@ const addPlanetInf = document.getElementById("addPlanetInf") as HTMLInputElement
 const addPlanetVision = document.getElementById("addPlanetVision") as HTMLInputElement;
 const addPlanetOverview = document.getElementById("addPlanetOverview") as HTMLInputElement;
 const addPlanetBtn = document.getElementById("addPlanetBtn") as HTMLButtonElement;
+const planetsSearch = document.getElementById("planetsSearch") as HTMLInputElement;
 const planetsList = document.getElementById("planetsList") as HTMLDivElement;
 
 const addFleetId = document.getElementById("addFleetId") as HTMLInputElement;
@@ -105,6 +108,7 @@ const addFleetStance = document.getElementById("addFleetStance") as HTMLSelectEl
 const addFleetDomain = document.getElementById("addFleetDomain") as HTMLSelectElement;
 const addFleetInventory = document.getElementById("addFleetInventory") as HTMLInputElement;
 const addFleetBtn = document.getElementById("addFleetBtn") as HTMLButtonElement;
+const fleetsSearch = document.getElementById("fleetsSearch") as HTMLInputElement;
 const fleetsList = document.getElementById("fleetsList") as HTMLDivElement;
 
 const relType = document.getElementById("relType") as HTMLSelectElement;
@@ -112,6 +116,7 @@ const relPlayerA = document.getElementById("relPlayerA") as HTMLSelectElement;
 const relPlayerB = document.getElementById("relPlayerB") as HTMLSelectElement;
 const addRelationBtn = document.getElementById("addRelationBtn") as HTMLButtonElement;
 const removeRelationBtn = document.getElementById("removeRelationBtn") as HTMLButtonElement;
+const relationsSearch = document.getElementById("relationsSearch") as HTMLInputElement;
 const alliancesList = document.getElementById("alliancesList") as HTMLUListElement;
 const warsList = document.getElementById("warsList") as HTMLUListElement;
 
@@ -268,6 +273,15 @@ function parseCommaTags(value: string): string[] {
 function toJsonCompact(value: unknown): string {
   const json = JSON.stringify(value);
   return json === "{}" ? "" : json;
+}
+
+function matchesSearch(haystack: string, query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) {
+    return true;
+  }
+
+  return haystack.toLowerCase().includes(trimmed);
 }
 
 function populateSelect(select: HTMLSelectElement, values: string[]): void {
@@ -439,25 +453,33 @@ function renderRelationsLists(): void {
   alliancesList.innerHTML = "";
   warsList.innerHTML = "";
 
-  if (runtime.alliances.length === 0) {
+  const query = relationsSearch.value;
+  const filteredAlliances = runtime.alliances.filter((pair) =>
+    matchesSearch(`${pair.playerAId} ${pair.playerBId} alliance`, query),
+  );
+  const filteredWars = runtime.wars.filter((pair) =>
+    matchesSearch(`${pair.playerAId} ${pair.playerBId} war`, query),
+  );
+
+  if (filteredAlliances.length === 0) {
     const li = document.createElement("li");
     li.textContent = "none";
     alliancesList.appendChild(li);
   }
 
-  if (runtime.wars.length === 0) {
+  if (filteredWars.length === 0) {
     const li = document.createElement("li");
     li.textContent = "none";
     warsList.appendChild(li);
   }
 
-  for (const pair of runtime.alliances) {
+  for (const pair of filteredAlliances) {
     const li = document.createElement("li");
     li.textContent = `${pair.playerAId} <-> ${pair.playerBId}`;
     alliancesList.appendChild(li);
   }
 
-  for (const pair of runtime.wars) {
+  for (const pair of filteredWars) {
     const li = document.createElement("li");
     li.textContent = `${pair.playerAId} vs ${pair.playerBId}`;
     warsList.appendChild(li);
@@ -467,11 +489,23 @@ function renderRelationsLists(): void {
 function renderPlayers(): void {
   playersList.innerHTML = "";
 
-  for (const player of runtime.players) {
-    const item = document.createElement("div");
-    item.className = "item";
+  const query = playersSearch.value;
+  for (const player of sortedPlayers()) {
+    const searchText = [
+      player.id,
+      player.name,
+      player.factionId,
+      player.alignment,
+      player.login?.username ?? "",
+    ].join(" ");
+    if (!matchesSearch(searchText, query)) {
+      continue;
+    }
 
-    const title = document.createElement("div");
+    const item = document.createElement("details");
+    item.className = "item item-collapsible";
+
+    const title = document.createElement("summary");
     title.className = "title";
     title.textContent = `${player.id} (${player.name}) [${player.factionId}]`;
     item.appendChild(title);
@@ -549,11 +583,17 @@ function renderPlayers(): void {
 function renderFactions(): void {
   factionsList.innerHTML = "";
 
+  const query = factionsSearch.value;
   for (const faction of sortedFactions()) {
-    const item = document.createElement("div");
-    item.className = "item";
+    const searchText = `${faction.id} ${faction.name} ${faction.description ?? ""}`;
+    if (!matchesSearch(searchText, query)) {
+      continue;
+    }
 
-    const title = document.createElement("div");
+    const item = document.createElement("details");
+    item.className = "item item-collapsible";
+
+    const title = document.createElement("summary");
     title.className = "title";
     title.textContent = `${faction.id} (${faction.name})`;
     item.appendChild(title);
@@ -615,11 +655,24 @@ function renderFactions(): void {
 function renderPlanets(): void {
   planetsList.innerHTML = "";
 
-  for (const planet of runtime.planets) {
-    const item = document.createElement("div");
-    item.className = "item";
+  const query = planetsSearch.value;
+  const planets = [...runtime.planets].sort((a, b) => a.id.localeCompare(b.id));
+  for (const planet of planets) {
+    const searchText = [
+      planet.id,
+      planet.worldType,
+      planet.position.q,
+      planet.position.r,
+      ...planet.worldTags,
+    ].join(" ");
+    if (!matchesSearch(searchText, query)) {
+      continue;
+    }
 
-    const title = document.createElement("div");
+    const item = document.createElement("details");
+    item.className = "item item-collapsible";
+
+    const title = document.createElement("summary");
     title.className = "title";
     title.textContent = `${planet.id} [${planet.position.q},${planet.position.r}] ${planet.worldType}`;
     item.appendChild(title);
@@ -722,11 +775,25 @@ function renderPlanets(): void {
 function renderFleets(): void {
   fleetsList.innerHTML = "";
 
-  for (const fleet of runtime.fleets) {
-    const item = document.createElement("div");
-    item.className = "item";
+  const query = fleetsSearch.value;
+  const fleets = [...runtime.fleets].sort((a, b) => a.id.localeCompare(b.id));
+  for (const fleet of fleets) {
+    const searchText = [
+      fleet.id,
+      fleet.ownerPlayerId,
+      fleet.stance,
+      fleet.domain,
+      fleet.position.q,
+      fleet.position.r,
+    ].join(" ");
+    if (!matchesSearch(searchText, query)) {
+      continue;
+    }
 
-    const title = document.createElement("div");
+    const item = document.createElement("details");
+    item.className = "item item-collapsible";
+
+    const title = document.createElement("summary");
     title.className = "title";
     title.textContent = `${fleet.id} (${fleet.ownerPlayerId}) [${fleet.position.q},${fleet.position.r}]`;
     item.appendChild(title);
@@ -1060,11 +1127,27 @@ removeRelationBtn.addEventListener("click", () => {
   void mutateRelation(true);
 });
 
+playersSearch.addEventListener("input", () => {
+  renderPlayers();
+});
+
+factionsSearch.addEventListener("input", () => {
+  renderFactions();
+});
+
+planetsSearch.addEventListener("input", () => {
+  renderPlanets();
+});
+
+fleetsSearch.addEventListener("input", () => {
+  renderFleets();
+});
+
+relationsSearch.addEventListener("input", () => {
+  renderRelationsLists();
+});
+
 initStaticSelects();
 setPanelsVisible(false);
 renderAll();
 void restoreSession();
-
-
-
-
