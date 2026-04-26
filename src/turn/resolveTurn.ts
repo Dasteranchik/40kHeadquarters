@@ -1,4 +1,4 @@
-import {
+﻿import {
   Action,
   CombatReport,
   GameState,
@@ -11,6 +11,7 @@ import { applyDiplomacy } from "../systems/diplomacySystem";
 import { resolveCombat } from "../systems/combatSystem";
 import { applyEconomy } from "../systems/economySystem";
 import { recalcVisibility } from "../systems/fogOfWarSystem";
+import { applyPlanetSystems } from "../systems/planetSystem";
 
 const DEFAULT_ACTION_POINTS = 3;
 
@@ -53,6 +54,8 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
   // can affect both combat rounds in the same turn.
   const diplomacy = applyDiplomacy(state, validated.diplomacyActions);
 
+  const planet = applyPlanetSystems(state, validated.planetActions);
+
   // Combat resolves twice per turn: opening clash and end-of-turn clash.
   const combatStart = resolveCombat(state);
   const combatEnd = resolveCombat(state);
@@ -73,6 +76,7 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
     diplomacy,
     combat,
     economy,
+    planet,
     visibility,
   };
 }

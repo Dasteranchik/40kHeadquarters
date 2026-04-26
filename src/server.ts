@@ -1,10 +1,11 @@
-import { randomUUID } from "crypto";
+﻿import { randomUUID } from "crypto";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { RawData, WebSocket, WebSocketServer } from "ws";
 
 import { ClientMessage } from "./api/ws";
 import {
   Account,
+  AddFactionRequest,
   AddFleetRequest,
   AddPlanetRequest,
   AddPlayerRequest,
@@ -12,6 +13,7 @@ import {
   LoginRequest,
   RelationRequest,
   Session,
+  UpdateFactionRequest,
   UpdateFleetRequest,
   UpdatePlanetRequest,
   UpdatePlayerRequest,
@@ -21,6 +23,7 @@ import {
   clearAllianceProposalsForPair,
   clearAllianceProposalsForPlayer,
 } from "./server/immediateDiplomacy";
+import { normalizeGameState } from "./server/normalization";
 import { createInitialDocumentSnapshot } from "./server/seed";
 import {
   getBearerToken,
@@ -34,13 +37,42 @@ import { buildResolutionForSession, buildStateForSession } from "./server/visibi
 import { resolveTurn } from "./turn/resolveTurn";
 import { DbAccount, DocumentDb } from "./storage/documentDb";
 import {
+  computePopulationProduction,
+  INFO_CATEGORIES,
+  isInfoCategory,
+  isPlanetTag,
+  isPlanetWorldType,
+  isResourceKey,
+  isTitheLevel,
+  RAW_OUTPUTS_BY_WORLD_TYPE,
+  titheValue,
+} from "./planetDomain";
+import {
   collectRelationPairs,
   linkPlayers,
   removeFromArray,
   unlinkPlayers,
 } from "./utils/relations";
-import { isFiniteNumber, isFleetStance, isValidId } from "./utils/validation";
-import { Action, Fleet, GameState, HexCoord, Planet, Player, Tile } from "./types";
+import {
+  isFiniteNumber,
+  isFleetDomain,
+  isFleetStance,
+  isNonEmptyString,
+  isPlayerAlignment,
+  isValidId,
+} from "./utils/validation";
+import {
+  Action,
+  Faction,
+  Fleet,
+  GameState,
+  HexCoord,
+  IntelFragmentMap,
+  Planet,
+  Player,
+  ResourceStore,
+  Tile,
+} from "./types";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24;
@@ -48,7 +80,7 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24;
 const db = new DocumentDb(createInitialDocumentSnapshot());
 const persisted = db.getSnapshot();
 
-const state = persisted.gameState;
+const state = normalizeGameState(persisted.gameState);
 const pendingActions = new Map<string, Action>();
 const pendingAllianceProposals = new Set<string>();
 const readyPlayers = new Set<string>();
@@ -84,6 +116,8 @@ function persistDatabase(): void {
     accounts: storedAccounts,
   });
 }
+
+persistDatabase();
 
 const sessions = new Map<string, Session>();
 
@@ -156,6 +190,60 @@ function ensurePlanningPhase(res: ServerResponse): boolean {
 
 function getTileAt(coord: HexCoord): Tile | null {
   return state.map.tiles.find((tile) => tile.q === coord.q && tile.r === coord.r) ?? null;
+}
+
+function parseResourceStore(value: unknown): ResourceStore | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const result: ResourceStore = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!isResourceKey(key) || !isFiniteNumber(raw)) {
+      return null;
+    }
+
+    const amount = Math.max(0, Math.trunc(raw));
+    if (amount > 0) {
+      result[key] = amount;
+    }
+  }
+
+  return result;
+}
+
+function parseIntelFragments(value: unknown): IntelFragmentMap | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const result: IntelFragmentMap = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!isInfoCategory(key) || !isFiniteNumber(raw)) {
+      return null;
+    }
+
+    const amount = Math.max(0, Math.trunc(raw));
+    if (amount > 0) {
+      result[key] = amount;
+    }
+  }
+
+  return result;
+}
+
+function computePlanetResourceProduction(planet: Planet): number {
+  const outputs = RAW_OUTPUTS_BY_WORLD_TYPE[planet.worldType] ?? [];
+  return computePopulationProduction(planet.population) * outputs.length;
+}
+
+function setPlanetResourceProduction(planet: Planet): void {
+  planet.resourceProduction = computePlanetResourceProduction(planet);
+}
+
+function getDefaultFactionId(): string | null {
+  const factionIds = Object.keys(state.factions).sort((a, b) => a.localeCompare(b));
+  return factionIds.length > 0 ? factionIds[0] : null;
 }
 
 function findPlayerAccount(playerId: string): [string, Account] | null {
@@ -392,6 +480,27 @@ async function handleAddPlayer(req: IncomingMessage, res: ServerResponse): Promi
     return;
   }
 
+  if (body.alignment !== undefined && !isPlayerAlignment(body.alignment)) {
+    writeJson(res, 400, { error: "alignment must be IMPERIAL or NON_IMPERIAL" });
+    return;
+  }
+
+  if (body.factionId !== undefined && !isValidId(body.factionId)) {
+    writeJson(res, 400, { error: "factionId must match [a-zA-Z0-9_-]{2,32}" });
+    return;
+  }
+
+  if (body.factionId !== undefined && !state.factions[body.factionId]) {
+    writeJson(res, 400, { error: "factionId is invalid" });
+    return;
+  }
+
+  const defaultFactionId = body.factionId ?? getDefaultFactionId();
+  if (!defaultFactionId) {
+    writeJson(res, 400, { error: "No factions configured" });
+    return;
+  }
+
   const username = body.username ?? body.id;
   const password = body.password ?? body.id;
 
@@ -410,8 +519,11 @@ async function handleAddPlayer(req: IncomingMessage, res: ServerResponse): Promi
     name: body.name,
     resources: 100,
     alliances: [],
-        wars: [],
-        exploredTiles: [],
+    wars: [],
+    exploredTiles: [],
+    alignment: body.alignment ?? "NON_IMPERIAL",
+    factionId: defaultFactionId,
+    intelFragments: {},
   };
 
   state.players[player.id] = player;
@@ -461,6 +573,12 @@ function handleDeletePlayer(req: IncomingMessage, res: ServerResponse, playerId:
   removeAccountsForPlayer(playerId);
   removeSessionsForPlayer(playerId);
   clearAllianceProposalsForPlayer(pendingAllianceProposals, playerId);
+  state.pendingInformantActions = state.pendingInformantActions.filter(
+    (entry) => entry.playerId !== playerId,
+  );
+  state.pendingTitheChanges = state.pendingTitheChanges.filter(
+    (entry) => entry.requestedByPlayerId !== playerId,
+  );
 
   persistDatabase();
   broadcastState();
@@ -477,10 +595,7 @@ async function handleAddPlanet(req: IncomingMessage, res: ServerResponse): Promi
     !body ||
     typeof body.id !== "string" ||
     !isFiniteNumber(body.q) ||
-    !isFiniteNumber(body.r) ||
-    !isFiniteNumber(body.resourceProduction) ||
-    !isFiniteNumber(body.influenceValue) ||
-    (body.visionRange !== undefined && !isFiniteNumber(body.visionRange))
+    !isFiniteNumber(body.r)
   ) {
     writeJson(res, 400, { error: "Invalid planet payload" });
     return;
@@ -493,6 +608,61 @@ async function handleAddPlanet(req: IncomingMessage, res: ServerResponse): Promi
 
   if (state.planets[body.id]) {
     writeJson(res, 409, { error: "Planet id already exists" });
+    return;
+  }
+
+  if (body.worldType !== undefined && !isPlanetWorldType(body.worldType)) {
+    writeJson(res, 400, { error: "worldType is invalid" });
+    return;
+  }
+
+  if (
+    body.worldTags !== undefined &&
+    (!Array.isArray(body.worldTags) || body.worldTags.some((tag) => !isPlanetTag(tag)))
+  ) {
+    writeJson(res, 400, { error: "worldTags must be an array of valid tags" });
+    return;
+  }
+
+  const numericChecks: Array<[unknown, string]> = [
+    [body.population, "population"],
+    [body.morale, "morale"],
+    [body.tithePaid, "tithePaid"],
+    [body.influenceValue, "influenceValue"],
+    [body.visionRange, "visionRange"],
+    [body.overviewRange, "overviewRange"],
+  ];
+
+  for (const [value, field] of numericChecks) {
+    if (value !== undefined && !isFiniteNumber(value)) {
+      writeJson(res, 400, { error: `${field} must be a number` });
+      return;
+    }
+  }
+
+  if (body.titheLevel !== undefined && !isTitheLevel(body.titheLevel)) {
+    writeJson(res, 400, { error: "titheLevel is invalid" });
+    return;
+  }
+
+  const parsedRawStock =
+    body.rawStock === undefined ? {} : parseResourceStore(body.rawStock);
+  if (parsedRawStock === null) {
+    writeJson(res, 400, { error: "rawStock must be an object<ResourceKey, number>" });
+    return;
+  }
+
+  const parsedProductStorage =
+    body.productStorage === undefined ? {} : parseResourceStore(body.productStorage);
+  if (parsedProductStorage === null) {
+    writeJson(res, 400, { error: "productStorage must be an object<ResourceKey, number>" });
+    return;
+  }
+
+  const parsedInfoFragments =
+    body.infoFragments === undefined ? {} : parseIntelFragments(body.infoFragments);
+  if (parsedInfoFragments === null) {
+    writeJson(res, 400, { error: "infoFragments must be an object<InfoCategory, number>" });
     return;
   }
 
@@ -513,13 +683,28 @@ async function handleAddPlanet(req: IncomingMessage, res: ServerResponse): Promi
     return;
   }
 
+  const titheLevel = body.titheLevel ?? "DECUMA_PRIMA";
+  const visionRange = Math.max(0, Math.trunc(body.visionRange ?? 1));
   const planet: Planet = {
     id: body.id,
     position: coord,
-    resourceProduction: Math.max(0, Math.trunc(body.resourceProduction)),
-    influenceValue: Math.max(0, Math.trunc(body.influenceValue)),
-    visionRange: Math.max(0, Math.trunc(body.visionRange ?? 1)),
+    worldType: body.worldType ?? "AGRI_WORLD",
+    worldTags: body.worldTags ? [...new Set(body.worldTags)] : [],
+    population: Math.max(0, Math.trunc(body.population ?? 60)),
+    morale: Math.max(0, Math.trunc(body.morale ?? 5)),
+    titheLevel,
+    titheTarget: titheValue(titheLevel),
+    tithePaid: Math.max(0, Math.trunc(body.tithePaid ?? 0)),
+    resourceProduction: 0,
+    influenceValue: Math.max(0, Math.trunc(body.influenceValue ?? 1)),
+    visionRange,
+    overviewRange: Math.max(0, Math.trunc(body.overviewRange ?? visionRange)),
+    rawStock: parsedRawStock,
+    productStorage: parsedProductStorage,
+    infoFragments: parsedInfoFragments,
   };
+
+  setPlanetResourceProduction(planet);
 
   state.planets[planet.id] = planet;
   tile.planetId = planet.id;
@@ -546,6 +731,12 @@ function handleDeletePlanet(req: IncomingMessage, res: ServerResponse, planetId:
   }
 
   delete state.planets[planetId];
+  state.pendingInformantActions = state.pendingInformantActions.filter(
+    (entry) => entry.planetId !== planetId,
+  );
+  state.pendingTitheChanges = state.pendingTitheChanges.filter(
+    (entry) => entry.planetId !== planetId,
+  );
 
   persistDatabase();
   broadcastState();
@@ -589,6 +780,18 @@ async function handleAddFleet(req: IncomingMessage, res: ServerResponse): Promis
     return;
   }
 
+  if (body.domain !== undefined && !isFleetDomain(body.domain)) {
+    writeJson(res, 400, { error: "domain must be SPACE or GROUND" });
+    return;
+  }
+
+  const parsedInventory =
+    body.inventory === undefined ? {} : parseResourceStore(body.inventory);
+  if (parsedInventory === null) {
+    writeJson(res, 400, { error: "inventory must be an object<ResourceKey, number>" });
+    return;
+  }
+
   const position = { q: Math.trunc(body.q), r: Math.trunc(body.r) };
   const tile = getTileAt(position);
   if (!tile) {
@@ -612,6 +815,8 @@ async function handleAddFleet(req: IncomingMessage, res: ServerResponse): Promis
     visionRange: Math.max(0, Math.trunc(body.visionRange ?? 2)),
     capacity: Math.max(0, Math.trunc(body.capacity ?? 10)),
     stance: body.stance ?? "ATTACK",
+    domain: body.domain ?? "SPACE",
+    inventory: parsedInventory,
   };
 
   state.fleets[fleet.id] = fleet;
@@ -635,8 +840,9 @@ function handleDeleteFleet(req: IncomingMessage, res: ServerResponse, fleetId: s
 
   for (const [actionId, action] of pendingActions.entries()) {
     if (
-      (action.type === "MOVE_FLEET" || action.type === "SET_FLEET_STANCE") &&
-      action.payload.fleetId === fleetId
+      ((action.type === "MOVE_FLEET" || action.type === "SET_FLEET_STANCE") &&
+        action.payload.fleetId === fleetId) ||
+      (action.type === "PLANET_ACTION" && action.payload.fleetId === fleetId)
     ) {
       pendingActions.delete(actionId);
     }
@@ -670,6 +876,126 @@ function handleListPlayers(req: IncomingMessage, res: ServerResponse): void {
     }));
 
   writeJson(res, 200, { players });
+}
+
+function handleListFactions(req: IncomingMessage, res: ServerResponse): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+
+  const factions = Object.values(state.factions).sort((a, b) => a.id.localeCompare(b.id));
+  writeJson(res, 200, { factions });
+}
+
+async function handleAddFaction(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!requireAdmin(req, res) || !ensurePlanningPhase(res)) {
+    return;
+  }
+
+  const body = await readJsonBody<AddFactionRequest>(req);
+  if (!body || typeof body.id !== "string" || !isNonEmptyString(body.name)) {
+    writeJson(res, 400, { error: "Invalid faction payload" });
+    return;
+  }
+
+  if (!isValidId(body.id)) {
+    writeJson(res, 400, { error: "Faction id must match [a-zA-Z0-9_-]{2,32}" });
+    return;
+  }
+
+  if (state.factions[body.id]) {
+    writeJson(res, 409, { error: "Faction id already exists" });
+    return;
+  }
+
+  if (body.description !== undefined && typeof body.description !== "string") {
+    writeJson(res, 400, { error: "description must be a string" });
+    return;
+  }
+
+  const faction: Faction = {
+    id: body.id,
+    name: body.name.trim(),
+    description:
+      typeof body.description === "string" && body.description.trim().length > 0
+        ? body.description.trim()
+        : undefined,
+  };
+
+  state.factions[faction.id] = faction;
+
+  persistDatabase();
+  broadcastState();
+  writeJson(res, 201, { faction });
+}
+
+async function handleUpdateFaction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  factionId: string,
+): Promise<void> {
+  if (!requireAdmin(req, res) || !ensurePlanningPhase(res)) {
+    return;
+  }
+
+  const faction = state.factions[factionId];
+  if (!faction) {
+    writeJson(res, 404, { error: "Faction not found" });
+    return;
+  }
+
+  const body = await readJsonBody<UpdateFactionRequest>(req);
+  if (!body) {
+    writeJson(res, 400, { error: "Invalid faction payload" });
+    return;
+  }
+
+  if (body.name !== undefined && !isNonEmptyString(body.name)) {
+    writeJson(res, 400, { error: "name must be a non-empty string" });
+    return;
+  }
+
+  if (body.description !== undefined && typeof body.description !== "string") {
+    writeJson(res, 400, { error: "description must be a string" });
+    return;
+  }
+
+  if (body.name !== undefined) {
+    faction.name = body.name.trim();
+  }
+
+  if (body.description !== undefined) {
+    faction.description = body.description.trim().length > 0 ? body.description.trim() : undefined;
+  }
+
+  persistDatabase();
+  broadcastState();
+  writeJson(res, 200, { faction });
+}
+
+function handleDeleteFaction(req: IncomingMessage, res: ServerResponse, factionId: string): void {
+  if (!requireAdmin(req, res) || !ensurePlanningPhase(res)) {
+    return;
+  }
+
+  if (!state.factions[factionId]) {
+    writeJson(res, 404, { error: "Faction not found" });
+    return;
+  }
+
+  const assignedPlayer = Object.values(state.players).find((player) => player.factionId === factionId);
+  if (assignedPlayer) {
+    writeJson(res, 409, {
+      error: `Faction is assigned to player ${assignedPlayer.id}. Reassign players before deletion.`,
+    });
+    return;
+  }
+
+  delete state.factions[factionId];
+
+  persistDatabase();
+  broadcastState();
+  writeJson(res, 200, { removedFactionId: factionId });
 }
 
 function handleListPlanets(req: IncomingMessage, res: ServerResponse): void {
@@ -742,12 +1068,35 @@ async function handleUpdatePlayer(
     return;
   }
 
+  if (body.alignment !== undefined && !isPlayerAlignment(body.alignment)) {
+    writeJson(res, 400, { error: "alignment must be IMPERIAL or NON_IMPERIAL" });
+    return;
+  }
+
+  if (body.factionId !== undefined && !isValidId(body.factionId)) {
+    writeJson(res, 400, { error: "factionId must match [a-zA-Z0-9_-]{2,32}" });
+    return;
+  }
+
+  if (body.factionId !== undefined && !state.factions[body.factionId]) {
+    writeJson(res, 400, { error: "factionId is invalid" });
+    return;
+  }
+
   if (body.name !== undefined) {
     player.name = body.name.trim() || player.name;
   }
 
   if (body.resources !== undefined) {
     player.resources = Math.max(0, Math.trunc(body.resources));
+  }
+
+  if (body.alignment !== undefined) {
+    player.alignment = body.alignment;
+  }
+
+  if (body.factionId !== undefined) {
+    player.factionId = body.factionId;
   }
 
   let entry = findPlayerAccount(playerId);
@@ -841,18 +1190,58 @@ async function handleUpdatePlanet(
     return;
   }
 
-  if (body.resourceProduction !== undefined && !isFiniteNumber(body.resourceProduction)) {
-    writeJson(res, 400, { error: "resourceProduction must be a number" });
+  if (body.worldType !== undefined && !isPlanetWorldType(body.worldType)) {
+    writeJson(res, 400, { error: "worldType is invalid" });
     return;
   }
 
-  if (body.influenceValue !== undefined && !isFiniteNumber(body.influenceValue)) {
-    writeJson(res, 400, { error: "influenceValue must be a number" });
+  if (
+    body.worldTags !== undefined &&
+    (!Array.isArray(body.worldTags) || body.worldTags.some((tag) => !isPlanetTag(tag)))
+  ) {
+    writeJson(res, 400, { error: "worldTags must be an array of valid tags" });
     return;
   }
 
-  if (body.visionRange !== undefined && !isFiniteNumber(body.visionRange)) {
-    writeJson(res, 400, { error: "visionRange must be a number" });
+  const numericChecks: Array<[unknown, string]> = [
+    [body.population, "population"],
+    [body.morale, "morale"],
+    [body.tithePaid, "tithePaid"],
+    [body.influenceValue, "influenceValue"],
+    [body.visionRange, "visionRange"],
+    [body.overviewRange, "overviewRange"],
+  ];
+
+  for (const [value, field] of numericChecks) {
+    if (value !== undefined && !isFiniteNumber(value)) {
+      writeJson(res, 400, { error: `${field} must be a number` });
+      return;
+    }
+  }
+
+  if (body.titheLevel !== undefined && !isTitheLevel(body.titheLevel)) {
+    writeJson(res, 400, { error: "titheLevel is invalid" });
+    return;
+  }
+
+  const parsedRawStock =
+    body.rawStock === undefined ? undefined : parseResourceStore(body.rawStock);
+  if (parsedRawStock === null) {
+    writeJson(res, 400, { error: "rawStock must be an object<ResourceKey, number>" });
+    return;
+  }
+
+  const parsedProductStorage =
+    body.productStorage === undefined ? undefined : parseResourceStore(body.productStorage);
+  if (parsedProductStorage === null) {
+    writeJson(res, 400, { error: "productStorage must be an object<ResourceKey, number>" });
+    return;
+  }
+
+  const parsedInfoFragments =
+    body.infoFragments === undefined ? undefined : parseIntelFragments(body.infoFragments);
+  if (parsedInfoFragments === null) {
+    writeJson(res, 400, { error: "infoFragments must be an object<InfoCategory, number>" });
     return;
   }
 
@@ -891,8 +1280,29 @@ async function handleUpdatePlanet(
     planet.position = nextPosition;
   }
 
-  if (body.resourceProduction !== undefined) {
-    planet.resourceProduction = Math.max(0, Math.trunc(body.resourceProduction));
+  if (body.worldType !== undefined) {
+    planet.worldType = body.worldType;
+  }
+
+  if (body.worldTags !== undefined) {
+    planet.worldTags = [...new Set(body.worldTags)];
+  }
+
+  if (body.population !== undefined) {
+    planet.population = Math.max(0, Math.trunc(body.population));
+  }
+
+  if (body.morale !== undefined) {
+    planet.morale = Math.max(0, Math.trunc(body.morale));
+  }
+
+  if (body.titheLevel !== undefined) {
+    planet.titheLevel = body.titheLevel;
+    planet.titheTarget = titheValue(body.titheLevel);
+  }
+
+  if (body.tithePaid !== undefined) {
+    planet.tithePaid = Math.max(0, Math.trunc(body.tithePaid));
   }
 
   if (body.influenceValue !== undefined) {
@@ -902,6 +1312,24 @@ async function handleUpdatePlanet(
   if (body.visionRange !== undefined) {
     planet.visionRange = Math.max(0, Math.trunc(body.visionRange));
   }
+
+  if (body.overviewRange !== undefined) {
+    planet.overviewRange = Math.max(0, Math.trunc(body.overviewRange));
+  }
+
+  if (parsedRawStock !== undefined) {
+    planet.rawStock = parsedRawStock;
+  }
+
+  if (parsedProductStorage !== undefined) {
+    planet.productStorage = parsedProductStorage;
+  }
+
+  if (parsedInfoFragments !== undefined) {
+    planet.infoFragments = parsedInfoFragments;
+  }
+
+  setPlanetResourceProduction(planet);
 
   persistDatabase();
   broadcastState();
@@ -962,6 +1390,18 @@ async function handleUpdateFleet(
     return;
   }
 
+  if (body.domain !== undefined && !isFleetDomain(body.domain)) {
+    writeJson(res, 400, { error: "domain must be SPACE or GROUND" });
+    return;
+  }
+
+  const parsedInventory =
+    body.inventory === undefined ? undefined : parseResourceStore(body.inventory);
+  if (parsedInventory === null) {
+    writeJson(res, 400, { error: "inventory must be an object<ResourceKey, number>" });
+    return;
+  }
+
   const nextPosition = {
     q: body.q !== undefined ? Math.trunc(body.q) : fleet.position.q,
     r: body.r !== undefined ? Math.trunc(body.r) : fleet.position.r,
@@ -1010,6 +1450,14 @@ async function handleUpdateFleet(
 
   if (body.stance !== undefined) {
     fleet.stance = body.stance;
+  }
+
+  if (body.domain !== undefined) {
+    fleet.domain = body.domain;
+  }
+
+  if (parsedInventory !== undefined) {
+    fleet.inventory = parsedInventory;
   }
 
   persistDatabase();
@@ -1140,6 +1588,16 @@ async function handleApiRequest(req: IncomingMessage, res: ServerResponse): Prom
     return;
   }
 
+  if (path === "/api/admin/factions" && method === "GET") {
+    handleListFactions(req, res);
+    return;
+  }
+
+  if (path === "/api/admin/factions" && method === "POST") {
+    await handleAddFaction(req, res);
+    return;
+  }
+
   if (path === "/api/admin/planets" && method === "GET") {
     handleListPlanets(req, res);
     return;
@@ -1172,6 +1630,17 @@ async function handleApiRequest(req: IncomingMessage, res: ServerResponse): Prom
 
   if (path === "/api/admin/relations" && method === "DELETE") {
     await handleDeleteRelation(req, res);
+    return;
+  }
+
+  const factionMatch = path.match(/^\/api\/admin\/factions\/([^/]+)$/);
+  if (factionMatch && method === "DELETE") {
+    handleDeleteFaction(req, res, decodeURIComponent(factionMatch[1]));
+    return;
+  }
+
+  if (factionMatch && method === "PUT") {
+    await handleUpdateFaction(req, res, decodeURIComponent(factionMatch[1]));
     return;
   }
 
@@ -1265,3 +1734,15 @@ httpServer.listen(PORT, () => {
   console.log(`[server] default admin: admin / admin123`);
   console.log(`[server] default player creds: p1/p1, p2/p2, p3/p3`);
 });
+
+
+
+
+
+
+
+
+
+
+
+

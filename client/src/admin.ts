@@ -1,6 +1,15 @@
 ﻿import "./admin.css";
 
-import type { Fleet, FleetStance, Planet, Player } from "../../src/types";
+import { PLANET_WORLD_TYPES, TITHE_LEVEL_ORDER } from "../../src/planetDomain";
+import type {
+  Faction,
+  Fleet,
+  FleetDomain,
+  FleetStance,
+  Planet,
+  Player,
+  ResourceStore,
+} from "../../src/types";
 
 interface SessionInfo {
   token: string;
@@ -25,6 +34,7 @@ interface RelationPair {
 interface AdminState {
   session: SessionInfo | null;
   players: AdminPlayer[];
+  factions: Faction[];
   planets: Planet[];
   fleets: Fleet[];
   alliances: RelationPair[];
@@ -46,6 +56,7 @@ const loginBtn = document.getElementById("loginBtn") as HTMLButtonElement;
 const logoutBtn = document.getElementById("logoutBtn") as HTMLButtonElement;
 
 const adminPanel = document.getElementById("adminPanel") as HTMLElement;
+const factionsPanel = document.getElementById("factionsPanel") as HTMLElement;
 const planetsPanel = document.getElementById("planetsPanel") as HTMLElement;
 const fleetsPanel = document.getElementById("fleetsPanel") as HTMLElement;
 const relationsPanel = document.getElementById("relationsPanel") as HTMLElement;
@@ -54,15 +65,29 @@ const addPlayerId = document.getElementById("addPlayerId") as HTMLInputElement;
 const addPlayerName = document.getElementById("addPlayerName") as HTMLInputElement;
 const addPlayerUsername = document.getElementById("addPlayerUsername") as HTMLInputElement;
 const addPlayerPassword = document.getElementById("addPlayerPassword") as HTMLInputElement;
+const addPlayerAlignment = document.getElementById("addPlayerAlignment") as HTMLSelectElement;
+const addPlayerFaction = document.getElementById("addPlayerFaction") as HTMLSelectElement;
 const addPlayerBtn = document.getElementById("addPlayerBtn") as HTMLButtonElement;
 const playersList = document.getElementById("playersList") as HTMLDivElement;
+
+const addFactionId = document.getElementById("addFactionId") as HTMLInputElement;
+const addFactionName = document.getElementById("addFactionName") as HTMLInputElement;
+const addFactionDescription = document.getElementById("addFactionDescription") as HTMLInputElement;
+const addFactionBtn = document.getElementById("addFactionBtn") as HTMLButtonElement;
+const factionsList = document.getElementById("factionsList") as HTMLDivElement;
 
 const addPlanetId = document.getElementById("addPlanetId") as HTMLInputElement;
 const addPlanetQ = document.getElementById("addPlanetQ") as HTMLInputElement;
 const addPlanetR = document.getElementById("addPlanetR") as HTMLInputElement;
-const addPlanetRes = document.getElementById("addPlanetRes") as HTMLInputElement;
+const addPlanetWorldType = document.getElementById("addPlanetWorldType") as HTMLSelectElement;
+const addPlanetWorldTags = document.getElementById("addPlanetWorldTags") as HTMLInputElement;
+const addPlanetPopulation = document.getElementById("addPlanetPopulation") as HTMLInputElement;
+const addPlanetMorale = document.getElementById("addPlanetMorale") as HTMLInputElement;
+const addPlanetTitheLevel = document.getElementById("addPlanetTitheLevel") as HTMLSelectElement;
+const addPlanetTithePaid = document.getElementById("addPlanetTithePaid") as HTMLInputElement;
 const addPlanetInf = document.getElementById("addPlanetInf") as HTMLInputElement;
 const addPlanetVision = document.getElementById("addPlanetVision") as HTMLInputElement;
+const addPlanetOverview = document.getElementById("addPlanetOverview") as HTMLInputElement;
 const addPlanetBtn = document.getElementById("addPlanetBtn") as HTMLButtonElement;
 const planetsList = document.getElementById("planetsList") as HTMLDivElement;
 
@@ -77,6 +102,8 @@ const addFleetAp = document.getElementById("addFleetAp") as HTMLInputElement;
 const addFleetVision = document.getElementById("addFleetVision") as HTMLInputElement;
 const addFleetCapacity = document.getElementById("addFleetCapacity") as HTMLInputElement;
 const addFleetStance = document.getElementById("addFleetStance") as HTMLSelectElement;
+const addFleetDomain = document.getElementById("addFleetDomain") as HTMLSelectElement;
+const addFleetInventory = document.getElementById("addFleetInventory") as HTMLInputElement;
 const addFleetBtn = document.getElementById("addFleetBtn") as HTMLButtonElement;
 const fleetsList = document.getElementById("fleetsList") as HTMLDivElement;
 
@@ -91,6 +118,7 @@ const warsList = document.getElementById("warsList") as HTMLUListElement;
 const runtime: AdminState = {
   session: null,
   players: [],
+  factions: [],
   planets: [],
   fleets: [],
   alliances: [],
@@ -98,7 +126,7 @@ const runtime: AdminState = {
 };
 
 function setPanelsVisible(visible: boolean): void {
-  for (const panel of [adminPanel, planetsPanel, fleetsPanel, relationsPanel]) {
+  for (const panel of [adminPanel, factionsPanel, planetsPanel, fleetsPanel, relationsPanel]) {
     panel.classList.toggle("hidden", !visible);
   }
 }
@@ -153,6 +181,7 @@ function setSession(session: SessionInfo | null): void {
     authLine.textContent = "Not logged in";
     setPanelsVisible(false);
     runtime.players = [];
+    runtime.factions = [];
     runtime.planets = [];
     runtime.fleets = [];
     runtime.alliances = [];
@@ -174,6 +203,21 @@ function createNumberInput(value: number): HTMLInputElement {
   return input;
 }
 
+function createSelect(value: string, options: string[]): HTMLSelectElement {
+  const select = document.createElement("select");
+  for (const optionValue of options) {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = optionValue;
+    if (optionValue === value) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  }
+
+  return select;
+}
+
 function createLabeledField(labelText: string, control: HTMLElement): HTMLDivElement {
   const wrapper = document.createElement("div");
   const label = document.createElement("label");
@@ -191,13 +235,116 @@ function createActionButton(label: string, className?: string): HTMLButtonElemen
   return button;
 }
 
+function parseJsonObjectInput(value: string): Record<string, number> | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Expected JSON object");
+  }
+
+  const result: Record<string, number> = {};
+  for (const [key, rawValue] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+      throw new Error(`Value for ${key} must be a number`);
+    }
+
+    result[key] = Math.trunc(rawValue);
+  }
+
+  return result;
+}
+
+function parseCommaTags(value: string): string[] {
+  return value
+    .split(",")
+    .map((tag) => tag.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function toJsonCompact(value: unknown): string {
+  const json = JSON.stringify(value);
+  return json === "{}" ? "" : json;
+}
+
+function populateSelect(select: HTMLSelectElement, values: string[]): void {
+  select.innerHTML = "";
+  for (const value of values) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  }
+}
+
+function initStaticSelects(): void {
+  populateSelect(addPlanetWorldType, [...PLANET_WORLD_TYPES]);
+  populateSelect(addPlanetTitheLevel, [...TITHE_LEVEL_ORDER]);
+}
+
+function sortedFactions(): Faction[] {
+  return [...runtime.factions].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function factionNameById(factionId: string): string {
+  return runtime.factions.find((faction) => faction.id === factionId)?.name ?? factionId;
+}
+
+function buildFactionSelect(selectedFactionId: string): HTMLSelectElement {
+  const options = sortedFactions().map((faction) => faction.id);
+  if (selectedFactionId && !options.includes(selectedFactionId)) {
+    options.unshift(selectedFactionId);
+  }
+
+  if (options.length === 0) {
+    options.push("");
+  }
+
+  const select = createSelect(selectedFactionId, options);
+  return select;
+}
+
+function syncAddPlayerFactionSelect(): void {
+  const prev = addPlayerFaction.value;
+  addPlayerFaction.innerHTML = "";
+
+  const options = sortedFactions().map((faction) => faction.id);
+  if (options.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "(no factions)";
+    addPlayerFaction.appendChild(option);
+    addPlayerFaction.disabled = true;
+    return;
+  }
+
+  addPlayerFaction.disabled = false;
+  for (const id of options) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = `${id} - ${factionNameById(id)}`;
+    if (id === prev) {
+      option.selected = true;
+    }
+    addPlayerFaction.appendChild(option);
+  }
+
+  if (!options.includes(prev)) {
+    addPlayerFaction.value = options[0];
+  }
+}
+
 async function loadAllData(): Promise<void> {
   if (!runtime.session) {
     return;
   }
 
-  const [playersResp, planetsResp, fleetsResp, relationsResp] = await Promise.all([
+  const [playersResp, factionsResp, planetsResp, fleetsResp, relationsResp] = await Promise.all([
     apiRequest<{ players: AdminPlayer[] }>("/api/admin/players", { method: "GET" }),
+    apiRequest<{ factions: Faction[] }>("/api/admin/factions", { method: "GET" }),
     apiRequest<{ planets: Planet[] }>("/api/admin/planets", { method: "GET" }),
     apiRequest<{ fleets: Fleet[] }>("/api/admin/fleets", { method: "GET" }),
     apiRequest<{ alliances: RelationPair[]; wars: RelationPair[] }>("/api/admin/relations", {
@@ -206,6 +353,7 @@ async function loadAllData(): Promise<void> {
   ]);
 
   runtime.players = playersResp.players;
+  runtime.factions = factionsResp.factions;
   runtime.planets = planetsResp.planets;
   runtime.fleets = fleetsResp.fleets;
   runtime.alliances = relationsResp.alliances;
@@ -252,19 +400,26 @@ function renderPlayers(): void {
 
     const title = document.createElement("div");
     title.className = "title";
-    title.textContent = `${player.id} (${player.name})`;
+    title.textContent = `${player.id} (${player.name}) [${player.factionId}]`;
     item.appendChild(title);
 
     const nameInput = createInput(player.name);
     const resourcesInput = createNumberInput(player.resources);
     const usernameInput = createInput(player.login?.username ?? "");
     const passwordInput = createInput(player.login?.password ?? "");
+    const alignmentSelect = createSelect(player.alignment, [
+      "NON_IMPERIAL",
+      "IMPERIAL",
+    ]);
+    const factionSelect = buildFactionSelect(player.factionId);
 
     const fields = document.createElement("div");
     fields.className = "grid";
     fields.append(
       createLabeledField("Name", nameInput),
       createLabeledField("Resources", resourcesInput),
+      createLabeledField("Alignment", alignmentSelect),
+      createLabeledField("Faction", factionSelect),
       createLabeledField("Username", usernameInput),
       createLabeledField("Password", passwordInput),
     );
@@ -282,6 +437,8 @@ function renderPlayers(): void {
             body: JSON.stringify({
               name: nameInput.value,
               resources: Number(resourcesInput.value),
+              alignment: alignmentSelect.value,
+              factionId: factionSelect.value,
               username: usernameInput.value.trim() || undefined,
               password: passwordInput.value || undefined,
             }),
@@ -316,32 +473,26 @@ function renderPlayers(): void {
   }
 }
 
-function renderPlanets(): void {
-  planetsList.innerHTML = "";
+function renderFactions(): void {
+  factionsList.innerHTML = "";
 
-  for (const planet of runtime.planets) {
+  for (const faction of sortedFactions()) {
     const item = document.createElement("div");
     item.className = "item";
 
     const title = document.createElement("div");
     title.className = "title";
-    title.textContent = `${planet.id} [${planet.position.q},${planet.position.r}]`;
+    title.textContent = `${faction.id} (${faction.name})`;
     item.appendChild(title);
 
-    const qInput = createNumberInput(planet.position.q);
-    const rInput = createNumberInput(planet.position.r);
-    const resInput = createNumberInput(planet.resourceProduction);
-    const infInput = createNumberInput(planet.influenceValue);
-    const visionInput = createNumberInput(planet.visionRange);
+    const nameInput = createInput(faction.name);
+    const descriptionInput = createInput(faction.description ?? "");
 
     const fields = document.createElement("div");
     fields.className = "grid";
     fields.append(
-      createLabeledField("Q", qInput),
-      createLabeledField("R", rInput),
-      createLabeledField("Resource Production", resInput),
-      createLabeledField("Influence Value", infInput),
-      createLabeledField("Vision Range", visionInput),
+      createLabeledField("Name", nameInput),
+      createLabeledField("Description", descriptionInput),
     );
     item.appendChild(fields);
 
@@ -352,14 +503,117 @@ function renderPlanets(): void {
     updateBtn.addEventListener("click", () => {
       void (async () => {
         try {
+          await apiRequest(`/api/admin/factions/${encodeURIComponent(faction.id)}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              name: nameInput.value,
+              description: descriptionInput.value,
+            }),
+          });
+          appendEvent(`Faction ${faction.id} updated`);
+          await loadAllData();
+        } catch (error) {
+          appendEvent(`Faction update failed: ${(error as Error).message}`);
+        }
+      })();
+    });
+
+    const deleteBtn = createActionButton("Delete", "danger");
+    deleteBtn.addEventListener("click", () => {
+      void (async () => {
+        try {
+          await apiRequest(`/api/admin/factions/${encodeURIComponent(faction.id)}`, {
+            method: "DELETE",
+          });
+          appendEvent(`Faction ${faction.id} deleted`);
+          await loadAllData();
+        } catch (error) {
+          appendEvent(`Faction delete failed: ${(error as Error).message}`);
+        }
+      })();
+    });
+
+    actions.append(updateBtn, deleteBtn);
+    item.appendChild(actions);
+
+    factionsList.appendChild(item);
+  }
+}
+function renderPlanets(): void {
+  planetsList.innerHTML = "";
+
+  for (const planet of runtime.planets) {
+    const item = document.createElement("div");
+    item.className = "item";
+
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = `${planet.id} [${planet.position.q},${planet.position.r}] ${planet.worldType}`;
+    item.appendChild(title);
+
+    const qInput = createNumberInput(planet.position.q);
+    const rInput = createNumberInput(planet.position.r);
+    const worldTypeSelect = createSelect(planet.worldType, [...PLANET_WORLD_TYPES]);
+    const worldTagsInput = createInput(planet.worldTags.join(","));
+    const populationInput = createNumberInput(planet.population);
+    const moraleInput = createNumberInput(planet.morale);
+    const titheLevelSelect = createSelect(planet.titheLevel, [...TITHE_LEVEL_ORDER]);
+    const tithePaidInput = createNumberInput(planet.tithePaid);
+    const infInput = createNumberInput(planet.influenceValue);
+    const visionInput = createNumberInput(planet.visionRange);
+    const overviewInput = createNumberInput(planet.overviewRange);
+    const rawStockInput = createInput(toJsonCompact(planet.rawStock));
+    const productStorageInput = createInput(toJsonCompact(planet.productStorage));
+    const infoFragmentsInput = createInput(toJsonCompact(planet.infoFragments));
+
+    const fields = document.createElement("div");
+    fields.className = "grid";
+    fields.append(
+      createLabeledField("Q", qInput),
+      createLabeledField("R", rInput),
+      createLabeledField("World Type", worldTypeSelect),
+      createLabeledField("World Tags", worldTagsInput),
+      createLabeledField("Population", populationInput),
+      createLabeledField("Morale", moraleInput),
+      createLabeledField("Tithe Level", titheLevelSelect),
+      createLabeledField("Tithe Paid", tithePaidInput),
+      createLabeledField("Influence", infInput),
+      createLabeledField("Vision", visionInput),
+      createLabeledField("Overview", overviewInput),
+      createLabeledField("Raw Stock JSON", rawStockInput),
+      createLabeledField("Product Storage JSON", productStorageInput),
+      createLabeledField("Info Fragments JSON", infoFragmentsInput),
+    );
+    item.appendChild(fields);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const updateBtn = createActionButton("Update");
+    updateBtn.addEventListener("click", () => {
+      void (async () => {
+        try {
+          const rawStock = parseJsonObjectInput(rawStockInput.value);
+          const productStorage = parseJsonObjectInput(productStorageInput.value);
+          const infoFragments = parseJsonObjectInput(infoFragmentsInput.value);
+
           await apiRequest(`/api/admin/planets/${encodeURIComponent(planet.id)}`, {
             method: "PUT",
             body: JSON.stringify({
               q: Number(qInput.value),
               r: Number(rInput.value),
-              resourceProduction: Number(resInput.value),
+              worldType: worldTypeSelect.value,
+              worldTags: parseCommaTags(worldTagsInput.value),
+              population: Number(populationInput.value),
+              morale: Number(moraleInput.value),
+              titheLevel: titheLevelSelect.value,
+              tithePaid: Number(tithePaidInput.value),
               influenceValue: Number(infInput.value),
               visionRange: Number(visionInput.value),
+              overviewRange: Number(overviewInput.value),
+              rawStock,
+              productStorage,
+              infoFragments,
             }),
           });
           appendEvent(`Planet ${planet.id} updated`);
@@ -414,16 +668,9 @@ function renderFleets(): void {
     const visionInput = createNumberInput(fleet.visionRange);
     const capacityInput = createNumberInput(fleet.capacity);
 
-    const stanceSelect = document.createElement("select");
-    for (const stance of ["ATTACK", "DEFENSE"] as FleetStance[]) {
-      const option = document.createElement("option");
-      option.value = stance;
-      option.textContent = stance;
-      if (stance === fleet.stance) {
-        option.selected = true;
-      }
-      stanceSelect.appendChild(option);
-    }
+    const stanceSelect = createSelect(fleet.stance, ["ATTACK", "DEFENSE"]);
+    const domainSelect = createSelect(fleet.domain as FleetDomain, ["SPACE", "GROUND"]);
+    const inventoryInput = createInput(toJsonCompact(fleet.inventory));
 
     const fields = document.createElement("div");
     fields.className = "grid";
@@ -438,6 +685,8 @@ function renderFleets(): void {
       createLabeledField("Vision Range", visionInput),
       createLabeledField("Capacity", capacityInput),
       createLabeledField("Stance", stanceSelect),
+      createLabeledField("Domain", domainSelect),
+      createLabeledField("Inventory JSON", inventoryInput),
     );
     item.appendChild(fields);
 
@@ -448,6 +697,8 @@ function renderFleets(): void {
     updateBtn.addEventListener("click", () => {
       void (async () => {
         try {
+          const inventory = parseJsonObjectInput(inventoryInput.value);
+
           await apiRequest(`/api/admin/fleets/${encodeURIComponent(fleet.id)}`, {
             method: "PUT",
             body: JSON.stringify({
@@ -460,7 +711,9 @@ function renderFleets(): void {
               actionPoints: Number(apInput.value),
               visionRange: Number(visionInput.value),
               capacity: Number(capacityInput.value),
-              stance: stanceSelect.value,
+              stance: stanceSelect.value as FleetStance,
+              domain: domainSelect.value as FleetDomain,
+              inventory,
             }),
           });
           appendEvent(`Fleet ${fleet.id} updated`);
@@ -494,7 +747,9 @@ function renderFleets(): void {
 }
 
 function renderAll(): void {
+  syncAddPlayerFactionSelect();
   renderPlayers();
+  renderFactions();
   renderPlanets();
   renderFleets();
   renderRelationsLists();
@@ -507,6 +762,8 @@ async function addPlayer(): Promise<void> {
       body: JSON.stringify({
         id: addPlayerId.value.trim(),
         name: addPlayerName.value.trim(),
+        alignment: addPlayerAlignment.value,
+        factionId: addPlayerFaction.value || undefined,
         username: addPlayerUsername.value.trim() || undefined,
         password: addPlayerPassword.value || undefined,
       }),
@@ -518,6 +775,23 @@ async function addPlayer(): Promise<void> {
   }
 }
 
+async function addFaction(): Promise<void> {
+  try {
+    await apiRequest("/api/admin/factions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: addFactionId.value.trim(),
+        name: addFactionName.value.trim(),
+        description: addFactionDescription.value.trim() || undefined,
+      }),
+    });
+    appendEvent(`Faction ${addFactionId.value.trim()} created`);
+    await loadAllData();
+  } catch (error) {
+    appendEvent(`Faction create failed: ${(error as Error).message}`);
+  }
+}
+
 async function addPlanet(): Promise<void> {
   try {
     await apiRequest("/api/admin/planets", {
@@ -526,9 +800,15 @@ async function addPlanet(): Promise<void> {
         id: addPlanetId.value.trim(),
         q: Number(addPlanetQ.value),
         r: Number(addPlanetR.value),
-        resourceProduction: Number(addPlanetRes.value),
+        worldType: addPlanetWorldType.value,
+        worldTags: parseCommaTags(addPlanetWorldTags.value),
+        population: Number(addPlanetPopulation.value),
+        morale: Number(addPlanetMorale.value),
+        titheLevel: addPlanetTitheLevel.value,
+        tithePaid: Number(addPlanetTithePaid.value),
         influenceValue: Number(addPlanetInf.value),
         visionRange: Number(addPlanetVision.value || "1"),
+        overviewRange: Number(addPlanetOverview.value || "1"),
       }),
     });
     appendEvent(`Planet ${addPlanetId.value.trim()} created`);
@@ -540,6 +820,8 @@ async function addPlanet(): Promise<void> {
 
 async function addFleet(): Promise<void> {
   try {
+    const inventory = parseJsonObjectInput(addFleetInventory.value);
+
     await apiRequest("/api/admin/fleets", {
       method: "POST",
       body: JSON.stringify({
@@ -554,6 +836,8 @@ async function addFleet(): Promise<void> {
         visionRange: Number(addFleetVision.value),
         capacity: Number(addFleetCapacity.value),
         stance: addFleetStance.value,
+        domain: addFleetDomain.value,
+        inventory,
       }),
     });
     appendEvent(`Fleet ${addFleetId.value.trim()} created`);
@@ -575,7 +859,9 @@ async function mutateRelation(remove: boolean): Promise<void> {
       method: remove ? "DELETE" : "POST",
       body: JSON.stringify(payload),
     });
-    appendEvent(`Relation ${remove ? "removed" : "added"}: ${payload.playerAId}/${payload.playerBId} ${payload.type}`);
+    appendEvent(
+      `Relation ${remove ? "removed" : "added"}: ${payload.playerAId}/${payload.playerBId} ${payload.type}`,
+    );
     await loadAllData();
   } catch (error) {
     appendEvent(`Relation mutation failed: ${(error as Error).message}`);
@@ -671,6 +957,10 @@ addPlayerBtn.addEventListener("click", () => {
   void addPlayer();
 });
 
+addFactionBtn.addEventListener("click", () => {
+  void addFaction();
+});
+
 addPlanetBtn.addEventListener("click", () => {
   void addPlanet();
 });
@@ -687,7 +977,11 @@ removeRelationBtn.addEventListener("click", () => {
   void mutateRelation(true);
 });
 
+initStaticSelects();
 setPanelsVisible(false);
 renderAll();
 void restoreSession();
+
+
+
 

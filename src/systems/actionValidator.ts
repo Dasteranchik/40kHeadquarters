@@ -6,11 +6,20 @@
   isTilePassable,
 } from "../hex";
 import {
+  isInfoCategory,
+  isProductResourceKey,
+  isRawResourceKey,
+  isResourceKey,
+  isTitheLevel,
+} from "../planetDomain";
+import {
   Action,
   DiplomacyAction,
   GameState,
   HexCoord,
   MoveFleetAction,
+  Planet,
+  PlanetAction,
   SetFleetStanceAction,
   Tile,
   ValidatedTurnActions,
@@ -124,6 +133,146 @@ function validateStanceAction(
   return null;
 }
 
+function playerHasFleetOnPlanet(
+  state: GameState,
+  playerId: string,
+  planet: Planet,
+): boolean {
+  return Object.values(state.fleets).some(
+    (fleet) =>
+      fleet.ownerPlayerId === playerId &&
+      fleet.position.q === planet.position.q &&
+      fleet.position.r === planet.position.r,
+  );
+}
+
+function validatePlanetAction(
+  state: GameState,
+  action: PlanetAction,
+  moraleUsedByPlayer: Set<string>,
+  manualProductionUsedByPlanet: Set<string>,
+): ValidationError | null {
+  const player = state.players[action.playerId];
+  if (!player) {
+    return { actionId: action.id, reason: "Player does not exist" };
+  }
+
+  const planet = state.planets[action.payload.planetId];
+  if (!planet) {
+    return { actionId: action.id, reason: "Planet does not exist" };
+  }
+
+  if (!playerHasFleetOnPlanet(state, action.playerId, planet)) {
+    return {
+      actionId: action.id,
+      reason: "Player must have at least one fleet in planet hex",
+    };
+  }
+
+  const kind = action.payload.kind;
+  const needsActionFleet =
+    kind === "TAKE_STOCK" ||
+    kind === "RAID_STOCK" ||
+    kind === "TAKE_FROM_STORAGE" ||
+    kind === "DEPOSIT_TO_STORAGE";
+
+  if (needsActionFleet) {
+    const fleetId = action.payload.fleetId;
+    if (!fleetId) {
+      return { actionId: action.id, reason: "fleetId is required" };
+    }
+
+    const fleet = state.fleets[fleetId];
+    if (!fleet || fleet.ownerPlayerId !== action.playerId) {
+      return {
+        actionId: action.id,
+        reason: "fleetId not found or fleet does not belong to player",
+      };
+    }
+
+    if (fleet.position.q !== planet.position.q || fleet.position.r !== planet.position.r) {
+      return {
+        actionId: action.id,
+        reason: "fleet must be in the same hex as target planet",
+      };
+    }
+  }
+
+  const hasAmount =
+    kind === "TAKE_STOCK" ||
+    kind === "RAID_STOCK" ||
+    kind === "TAKE_FROM_STORAGE" ||
+    kind === "DEPOSIT_TO_STORAGE" ||
+    kind === "CREATE_PRODUCT";
+
+  if (hasAmount) {
+    if (typeof action.payload.amount !== "number" || !Number.isFinite(action.payload.amount)) {
+      return { actionId: action.id, reason: "amount must be a number" };
+    }
+
+    if (Math.trunc(action.payload.amount) <= 0) {
+      return { actionId: action.id, reason: "amount must be positive" };
+    }
+  }
+
+  if (
+    kind === "TAKE_STOCK" ||
+    kind === "RAID_STOCK" ||
+    kind === "TAKE_FROM_STORAGE" ||
+    kind === "DEPOSIT_TO_STORAGE"
+  ) {
+    if (!isResourceKey(action.payload.resourceKey)) {
+      return { actionId: action.id, reason: "resourceKey is invalid" };
+    }
+  }
+
+  if ((kind === "TAKE_STOCK" || kind === "RAID_STOCK") && !isRawResourceKey(action.payload.resourceKey)) {
+    return {
+      actionId: action.id,
+      reason: "TAKE_STOCK/RAID_STOCK requires a raw resource key",
+    };
+  }
+
+  if (kind === "CREATE_PRODUCT" && !isProductResourceKey(action.payload.productKey)) {
+    return { actionId: action.id, reason: "productKey is invalid" };
+  }
+
+  if (
+    kind === "INQUISITION_DEPLOY_INFORMANT" &&
+    !isInfoCategory(action.payload.infoCategory)
+  ) {
+    return { actionId: action.id, reason: "infoCategory is invalid" };
+  }
+
+  if (kind === "ADMINISTRATUM_SET_TITHE" && !isTitheLevel(action.payload.titheLevel)) {
+    return { actionId: action.id, reason: "titheLevel is invalid" };
+  }
+
+  if (kind === "ECCLESIARCHY_RAISE_MORALE") {
+    if (moraleUsedByPlayer.has(action.playerId)) {
+      return {
+        actionId: action.id,
+        reason: "Player can raise morale only once per turn",
+      };
+    }
+
+    moraleUsedByPlayer.add(action.playerId);
+  }
+
+  if (kind === "PRODUCE_RESOURCE") {
+    if (manualProductionUsedByPlanet.has(planet.id)) {
+      return {
+        actionId: action.id,
+        reason: "Planet can use PRODUCE_RESOURCE only once per turn",
+      };
+    }
+
+    manualProductionUsedByPlanet.add(planet.id);
+  }
+
+  return null;
+}
+
 export function validateActions(
   state: GameState,
   actions: Action[],
@@ -131,11 +280,14 @@ export function validateActions(
   const moveActions: MoveFleetAction[] = [];
   const diplomacyActions: DiplomacyAction[] = [];
   const stanceActions: SetFleetStanceAction[] = [];
+  const planetActions: PlanetAction[] = [];
   const errors: ValidationError[] = [];
 
   const apUsedByFleet = new Map<string, number>();
   const projectedPositionByFleet = new Map<string, HexCoord>();
   const diplomacyPairSeen = new Set<string>();
+  const moraleUsedByPlayer = new Set<string>();
+  const manualProductionUsedByPlanet = new Set<string>();
   const tileIndex = buildTileIndex(state.map);
 
   for (const action of sortedActions(actions)) {
@@ -165,18 +317,35 @@ export function validateActions(
       continue;
     }
 
-    const error = validateStanceAction(state, action);
+    if (action.type === "SET_FLEET_STANCE") {
+      const error = validateStanceAction(state, action);
+      if (error) {
+        errors.push(error);
+        continue;
+      }
+      stanceActions.push(action);
+      continue;
+    }
+
+    const error = validatePlanetAction(
+      state,
+      action,
+      moraleUsedByPlayer,
+      manualProductionUsedByPlanet,
+    );
     if (error) {
       errors.push(error);
       continue;
     }
-    stanceActions.push(action);
+
+    planetActions.push(action);
   }
 
   return {
     moveActions,
     diplomacyActions,
     stanceActions,
+    planetActions,
     errors,
   };
 }

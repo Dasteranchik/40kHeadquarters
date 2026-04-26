@@ -1,4 +1,4 @@
-import "./style.css";
+﻿import "./style.css";
 
 import { Application, Container, Graphics, Text } from "pixi.js";
 
@@ -217,7 +217,7 @@ function computeVisibleTiles(state: GameState): Set<string> {
 
   for (const planet of Object.values(state.planets)) {
     for (const tile of state.map.tiles) {
-      if (hexDistance(planet.position, tile) <= planet.visionRange) {
+      if (hexDistance(planet.position, tile) <= planet.overviewRange) {
         visible.add(coordKey(tile));
       }
     }
@@ -263,6 +263,32 @@ function getSelectedFleet(state: GameState): Nullable<Fleet> {
 
   return fleet;
 }
+
+function getSelectedPlanet(state: GameState, selectedFleet: Nullable<Fleet>): Nullable<Planet> {
+  if (!selectedFleet) {
+    return null;
+  }
+
+  const tile = getTile(state, selectedFleet.position);
+  if (!tile?.planetId) {
+    return null;
+  }
+
+  return state.planets[tile.planetId] ?? null;
+}
+
+function formatStore(store: Record<string, number>): string {
+  const entries = Object.entries(store).filter(([, value]) => Number(value) > 0);
+  if (entries.length === 0) {
+    return "-";
+  }
+
+  return entries
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}:${Math.trunc(value)}`)
+    .join(", ");
+}
+
 function buildSelectedFleetDetails(fleet: Fleet, stance: FleetStance): string {
   const isPendingStance = stance !== fleet.stance;
   return [
@@ -275,11 +301,12 @@ function buildSelectedFleetDetails(fleet: Fleet, stance: FleetStance): string {
     `Influence: ${Math.round(fleet.influence)}`,
     `Vision Range: ${fleet.visionRange}`,
     `Capacity: ${fleet.capacity}`,
+    `Domain: ${fleet.domain}`,
+    `Inventory: ${formatStore(fleet.inventory)}`,
     `Stance: ${stance}`,
     `Stance Pending: ${isPendingStance ? "yes" : "no"}`,
   ].join("\n");
-}
-function effectiveFleetStance(fleet: Fleet): FleetStance {
+}function effectiveFleetStance(fleet: Fleet): FleetStance {
   return runtime.pendingFleetStances[fleet.id] ?? fleet.stance;
 }
 
@@ -431,7 +458,7 @@ function drawPlanets(state: GameState): void {
     circle.endFill();
     planetLayer.addChild(circle);
 
-    const label = new Text(`+${planet.resourceProduction} | VR ${planet.visionRange}`, {
+    const label = new Text(`${planet.worldType} +${planet.resourceProduction} | VR ${planet.overviewRange}`, {
       fontFamily: "Chakra Petch",
       fontSize: 11,
       fill: 0xd8ecff,
@@ -1297,6 +1324,19 @@ refreshHud();
 setHoveredHexInfo(null);
 renderScene();
 void restoreSession();
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

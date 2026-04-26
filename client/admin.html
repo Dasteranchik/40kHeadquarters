@@ -49,9 +49,40 @@
               <label for="addPlayerPassword">Password</label>
               <input id="addPlayerPassword" placeholder="password (optional)" />
             </div>
+            <div>
+              <label for="addPlayerAlignment">Alignment</label>
+              <select id="addPlayerAlignment">
+                <option value="NON_IMPERIAL">NON_IMPERIAL</option>
+                <option value="IMPERIAL">IMPERIAL</option>
+              </select>
+            </div>
+            <div>
+              <label for="addPlayerFaction">Faction</label>
+              <select id="addPlayerFaction"></select>
+            </div>
           </div>
           <button id="addPlayerBtn">Add Player</button>
           <div id="playersList" class="list"></div>
+        </section>
+
+        <section id="factionsPanel" class="panel hidden">
+          <h2>Factions</h2>
+          <div class="grid add-grid">
+            <div>
+              <label for="addFactionId">Faction ID</label>
+              <input id="addFactionId" placeholder="faction id" />
+            </div>
+            <div>
+              <label for="addFactionName">Faction Name</label>
+              <input id="addFactionName" placeholder="faction name" />
+            </div>
+            <div>
+              <label for="addFactionDescription">Description</label>
+              <input id="addFactionDescription" placeholder="description (optional)" />
+            </div>
+          </div>
+          <button id="addFactionBtn">Add Faction</button>
+          <div id="factionsList" class="list"></div>
         </section>
 
         <section id="planetsPanel" class="panel hidden">
@@ -70,16 +101,40 @@
               <input id="addPlanetR" type="number" placeholder="r" />
             </div>
             <div>
-              <label for="addPlanetRes">Resource Production</label>
-              <input id="addPlanetRes" type="number" placeholder="resourceProduction" />
+              <label for="addPlanetWorldType">World Type</label>
+              <select id="addPlanetWorldType"></select>
+            </div>
+            <div>
+              <label for="addPlanetWorldTags">World Tags (comma)</label>
+              <input id="addPlanetWorldTags" placeholder="FOOD_PRODUCTION,REFINERY" />
+            </div>
+            <div>
+              <label for="addPlanetPopulation">Population</label>
+              <input id="addPlanetPopulation" type="number" placeholder="population" value="60" />
+            </div>
+            <div>
+              <label for="addPlanetMorale">Morale</label>
+              <input id="addPlanetMorale" type="number" placeholder="morale" value="5" />
+            </div>
+            <div>
+              <label for="addPlanetTitheLevel">Tithe Level</label>
+              <select id="addPlanetTitheLevel"></select>
+            </div>
+            <div>
+              <label for="addPlanetTithePaid">Tithe Paid</label>
+              <input id="addPlanetTithePaid" type="number" placeholder="tithePaid" value="0" />
             </div>
             <div>
               <label for="addPlanetInf">Influence Value</label>
-              <input id="addPlanetInf" type="number" placeholder="influenceValue" />
+              <input id="addPlanetInf" type="number" placeholder="influenceValue" value="1" />
             </div>
             <div>
               <label for="addPlanetVision">Vision Range</label>
               <input id="addPlanetVision" type="number" placeholder="visionRange" value="1" />
+            </div>
+            <div>
+              <label for="addPlanetOverview">Overview Range</label>
+              <input id="addPlanetOverview" type="number" placeholder="overviewRange" value="1" />
             </div>
           </div>
           <button id="addPlanetBtn">Add Planet</button>
@@ -135,6 +190,17 @@
                 <option value="ATTACK">ATTACK</option>
                 <option value="DEFENSE">DEFENSE</option>
               </select>
+            </div>
+            <div>
+              <label for="addFleetDomain">Domain</label>
+              <select id="addFleetDomain">
+                <option value="SPACE">SPACE</option>
+                <option value="GROUND">GROUND</option>
+              </select>
+            </div>
+            <div>
+              <label for="addFleetInventory">Inventory JSON</label>
+              <input id="addFleetInventory" placeholder='{"ORE":3}' />
             </div>
           </div>
           <button id="addFleetBtn">Add Fleet</button>

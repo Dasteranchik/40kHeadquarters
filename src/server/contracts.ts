@@ -1,6 +1,18 @@
-import { WebSocket } from "ws";
+﻿import { WebSocket } from "ws";
 
-import { FleetStance } from "../types";
+import {
+  InfoCategory,
+  PlanetTag,
+  PlanetWorldType,
+  TitheLevel,
+} from "../planetDomain";
+import {
+  FleetDomain,
+  FleetStance,
+  IntelFragmentMap,
+  PlayerAlignment,
+  ResourceStore,
+} from "../types";
 
 export type Role = "admin" | "player";
 
@@ -34,15 +46,26 @@ export interface AddPlayerRequest {
   name: string;
   username?: string;
   password?: string;
+  alignment?: PlayerAlignment;
+  factionId?: string;
 }
 
 export interface AddPlanetRequest {
   id: string;
   q: number;
   r: number;
-  resourceProduction: number;
-  influenceValue: number;
+  worldType?: PlanetWorldType;
+  worldTags?: PlanetTag[];
+  population?: number;
+  morale?: number;
+  titheLevel?: TitheLevel;
+  tithePaid?: number;
+  influenceValue?: number;
   visionRange?: number;
+  overviewRange?: number;
+  rawStock?: ResourceStore;
+  productStorage?: ResourceStore;
+  infoFragments?: IntelFragmentMap;
 }
 
 export interface AddFleetRequest {
@@ -57,6 +80,14 @@ export interface AddFleetRequest {
   visionRange?: number;
   capacity?: number;
   stance?: FleetStance;
+  domain?: FleetDomain;
+  inventory?: ResourceStore;
+}
+
+export interface AddFactionRequest {
+  id: string;
+  name: string;
+  description?: string;
 }
 
 export interface UpdatePlayerRequest {
@@ -64,14 +95,25 @@ export interface UpdatePlayerRequest {
   resources?: number;
   username?: string;
   password?: string;
+  alignment?: PlayerAlignment;
+  factionId?: string;
 }
 
 export interface UpdatePlanetRequest {
   q?: number;
   r?: number;
-  resourceProduction?: number;
+  worldType?: PlanetWorldType;
+  worldTags?: PlanetTag[];
+  population?: number;
+  morale?: number;
+  titheLevel?: TitheLevel;
+  tithePaid?: number;
   influenceValue?: number;
   visionRange?: number;
+  overviewRange?: number;
+  rawStock?: ResourceStore;
+  productStorage?: ResourceStore;
+  infoFragments?: IntelFragmentMap;
 }
 
 export interface UpdateFleetRequest {
@@ -85,6 +127,13 @@ export interface UpdateFleetRequest {
   visionRange?: number;
   capacity?: number;
   stance?: FleetStance;
+  domain?: FleetDomain;
+  inventory?: ResourceStore;
+}
+
+export interface UpdateFactionRequest {
+  name?: string;
+  description?: string;
 }
 
 export type RelationType = "WAR" | "ALLIANCE";
@@ -93,4 +142,8 @@ export interface RelationRequest {
   type: RelationType;
   playerAId: string;
   playerBId: string;
+}
+
+export interface PlanetInformantRequest {
+  category: InfoCategory;
 }

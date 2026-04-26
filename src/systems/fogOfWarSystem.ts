@@ -1,4 +1,4 @@
-import { coordKey, hexDistance, parseCoordKey } from "../hex";
+﻿import { coordKey, hexDistance, parseCoordKey } from "../hex";
 import {
   Fleet,
   GameState,
@@ -27,6 +27,10 @@ function estimateStat(baseValue: number, spread: number, seed: string): number {
   return Math.max(0, estimated);
 }
 
+function planetSightRange(planet: Planet): number {
+  return Math.max(0, Math.trunc(planet.overviewRange ?? planet.visionRange));
+}
+
 export function collectVisibleTileKeysForPlayer(
   state: GameState,
   player: Player,
@@ -34,8 +38,9 @@ export function collectVisibleTileKeysForPlayer(
   const visible = new Set<string>();
 
   for (const planet of Object.values(state.planets)) {
+    const range = planetSightRange(planet);
     for (const tile of state.map.tiles) {
-      if (hexDistance(planet.position, tile) <= planet.visionRange) {
+      if (hexDistance(planet.position, tile) <= range) {
         visible.add(coordKey(tile));
       }
     }
