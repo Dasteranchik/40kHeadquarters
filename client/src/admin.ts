@@ -92,7 +92,7 @@ const addPlanetBtn = document.getElementById("addPlanetBtn") as HTMLButtonElemen
 const planetsList = document.getElementById("planetsList") as HTMLDivElement;
 
 const addFleetId = document.getElementById("addFleetId") as HTMLInputElement;
-const addFleetOwner = document.getElementById("addFleetOwner") as HTMLInputElement;
+const addFleetOwner = document.getElementById("addFleetOwner") as HTMLSelectElement;
 const addFleetQ = document.getElementById("addFleetQ") as HTMLInputElement;
 const addFleetR = document.getElementById("addFleetR") as HTMLInputElement;
 const addFleetPower = document.getElementById("addFleetPower") as HTMLInputElement;
@@ -108,8 +108,8 @@ const addFleetBtn = document.getElementById("addFleetBtn") as HTMLButtonElement;
 const fleetsList = document.getElementById("fleetsList") as HTMLDivElement;
 
 const relType = document.getElementById("relType") as HTMLSelectElement;
-const relPlayerA = document.getElementById("relPlayerA") as HTMLInputElement;
-const relPlayerB = document.getElementById("relPlayerB") as HTMLInputElement;
+const relPlayerA = document.getElementById("relPlayerA") as HTMLSelectElement;
+const relPlayerB = document.getElementById("relPlayerB") as HTMLSelectElement;
 const addRelationBtn = document.getElementById("addRelationBtn") as HTMLButtonElement;
 const removeRelationBtn = document.getElementById("removeRelationBtn") as HTMLButtonElement;
 const alliancesList = document.getElementById("alliancesList") as HTMLUListElement;
@@ -334,6 +334,79 @@ function syncAddPlayerFactionSelect(): void {
 
   if (!options.includes(prev)) {
     addPlayerFaction.value = options[0];
+  }
+}
+
+function sortedPlayers(): AdminPlayer[] {
+  return [...runtime.players].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function playerNameById(playerId: string): string {
+  return runtime.players.find((player) => player.id === playerId)?.name ?? playerId;
+}
+
+function populatePlayerIdSelect(select: HTMLSelectElement, preferredPlayerId: string): void {
+  select.innerHTML = "";
+
+  const playerIds = sortedPlayers().map((player) => player.id);
+  if (
+    preferredPlayerId &&
+    !playerIds.includes(preferredPlayerId)
+  ) {
+    playerIds.unshift(preferredPlayerId);
+  }
+
+  if (playerIds.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "(no players)";
+    select.appendChild(option);
+    select.disabled = true;
+    return;
+  }
+
+  select.disabled = false;
+  for (const playerId of playerIds) {
+    const option = document.createElement("option");
+    option.value = playerId;
+    option.textContent = `${playerId} - ${playerNameById(playerId)}`;
+    if (playerId === preferredPlayerId) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  }
+
+  if (!playerIds.includes(preferredPlayerId)) {
+    select.value = playerIds[0];
+  }
+}
+
+function buildPlayerSelect(selectedPlayerId: string): HTMLSelectElement {
+  const select = document.createElement("select");
+  populatePlayerIdSelect(select, selectedPlayerId);
+  return select;
+}
+
+function syncPlayerIdSelects(): void {
+  const prevFleetOwner = addFleetOwner.value;
+  const prevRelationA = relPlayerA.value;
+  const prevRelationB = relPlayerB.value;
+
+  populatePlayerIdSelect(addFleetOwner, prevFleetOwner);
+  populatePlayerIdSelect(relPlayerA, prevRelationA);
+  populatePlayerIdSelect(relPlayerB, prevRelationB);
+
+  if (relPlayerA.disabled || relPlayerB.disabled) {
+    return;
+  }
+
+  if (relPlayerA.value === relPlayerB.value) {
+    const next = Array.from(relPlayerB.options).find(
+      (option) => option.value !== relPlayerA.value,
+    );
+    if (next) {
+      relPlayerB.value = next.value;
+    }
   }
 }
 
@@ -658,7 +731,7 @@ function renderFleets(): void {
     title.textContent = `${fleet.id} (${fleet.ownerPlayerId}) [${fleet.position.q},${fleet.position.r}]`;
     item.appendChild(title);
 
-    const ownerInput = createInput(fleet.ownerPlayerId);
+    const ownerSelect = buildPlayerSelect(fleet.ownerPlayerId);
     const qInput = createNumberInput(fleet.position.q);
     const rInput = createNumberInput(fleet.position.r);
     const powerInput = createNumberInput(fleet.combatPower);
@@ -675,7 +748,7 @@ function renderFleets(): void {
     const fields = document.createElement("div");
     fields.className = "grid";
     fields.append(
-      createLabeledField("Owner Player ID", ownerInput),
+      createLabeledField("Owner Player ID", ownerSelect),
       createLabeledField("Q", qInput),
       createLabeledField("R", rInput),
       createLabeledField("Combat Power", powerInput),
@@ -702,7 +775,7 @@ function renderFleets(): void {
           await apiRequest(`/api/admin/fleets/${encodeURIComponent(fleet.id)}`, {
             method: "PUT",
             body: JSON.stringify({
-              ownerPlayerId: ownerInput.value.trim(),
+              ownerPlayerId: ownerSelect.value,
               q: Number(qInput.value),
               r: Number(rInput.value),
               combatPower: Number(powerInput.value),
@@ -748,6 +821,7 @@ function renderFleets(): void {
 
 function renderAll(): void {
   syncAddPlayerFactionSelect();
+  syncPlayerIdSelects();
   renderPlayers();
   renderFactions();
   renderPlanets();
@@ -820,13 +894,17 @@ async function addPlanet(): Promise<void> {
 
 async function addFleet(): Promise<void> {
   try {
+    if (!addFleetOwner.value) {
+      throw new Error("Owner player is required");
+    }
+
     const inventory = parseJsonObjectInput(addFleetInventory.value);
 
     await apiRequest("/api/admin/fleets", {
       method: "POST",
       body: JSON.stringify({
         id: addFleetId.value.trim(),
-        ownerPlayerId: addFleetOwner.value.trim(),
+        ownerPlayerId: addFleetOwner.value,
         q: Number(addFleetQ.value),
         r: Number(addFleetR.value),
         combatPower: Number(addFleetPower.value),
@@ -848,10 +926,15 @@ async function addFleet(): Promise<void> {
 }
 
 async function mutateRelation(remove: boolean): Promise<void> {
+  if (!relPlayerA.value || !relPlayerB.value) {
+    appendEvent("Relation mutation failed: player ids are required");
+    return;
+  }
+
   const payload = {
     type: relType.value,
-    playerAId: relPlayerA.value.trim(),
-    playerBId: relPlayerB.value.trim(),
+    playerAId: relPlayerA.value,
+    playerBId: relPlayerB.value,
   };
 
   try {

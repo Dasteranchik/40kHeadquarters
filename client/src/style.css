@@ -264,6 +264,49 @@ button.is-active.ghost {
 #stage {
   width: 100%;
   height: 100%;
+  touch-action: none;
+}
+
+#stage canvas {
+  cursor: grab;
+}
+
+#stage.is-panning canvas {
+  cursor: grabbing;
+}
+
+.map-zoom-controls {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #42658b;
+  border-radius: 10px;
+  background: #091220d9;
+  backdrop-filter: blur(2px);
+}
+
+.map-zoom-controls button {
+  width: auto;
+  min-width: 34px;
+  margin: 0;
+  padding: 5px 10px;
+}
+
+#mapZoomResetBtn {
+  min-width: 58px;
+}
+
+.map-zoom-value {
+  min-width: 46px;
+  text-align: center;
+  font-family: "Chakra Petch", monospace;
+  font-size: 12px;
+  color: #d6ecff;
 }
 
 canvas {
@@ -296,6 +339,107 @@ canvas {
   color: #d6ecff;
   pointer-events: none;
 }
+
+.hex-context-menu {
+  position: absolute;
+  min-width: 290px;
+  max-width: 340px;
+  border: 1px solid #4a6c95;
+  border-radius: 10px;
+  background: #0a1422f2;
+  backdrop-filter: blur(3px);
+  box-shadow: 0 10px 24px #02060ba6;
+  padding: 10px;
+  z-index: 4;
+}
+
+.menu-hidden {
+  display: none;
+}
+
+.hex-context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.hex-context-header strong {
+  font-family: "Chakra Petch", sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9fdcff;
+}
+
+.hex-context-header button {
+  width: auto;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.hex-context-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hex-context-note {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid #355474;
+  border-radius: 8px;
+  background: #0e1a2b;
+  color: #c8dcf2;
+  font-size: 12px;
+}
+
+.hex-context-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #2f4a67;
+  border-radius: 8px;
+  background: #0f1c2f;
+  padding: 7px 8px;
+}
+
+.hex-context-row-own {
+  border-color: #3f6d4d;
+}
+
+.hex-context-meta {
+  min-width: 0;
+}
+
+.hex-context-name {
+  color: #dcedff;
+  font-family: "Chakra Petch", monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hex-context-stats {
+  color: #9eb8d5;
+  font-size: 11px;
+}
+
+.hex-context-select {
+  width: auto;
+  margin: 0;
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.hex-context-selected {
+  color: #9dd4b0;
+}
+
 .relations-window {
   position: absolute;
   top: 14px;

@@ -134,6 +134,12 @@
 
         <section class="stage-zone">
           <div id="stage"></div>
+          <div class="map-zoom-controls">
+            <button id="mapZoomOutBtn" type="button" title="Zoom out">-</button>
+            <span id="mapZoomValue" class="map-zoom-value">100%</span>
+            <button id="mapZoomInBtn" type="button" title="Zoom in">+</button>
+            <button id="mapZoomResetBtn" class="ghost" type="button">Reset</button>
+          </div>
           <div id="relationsWindow" class="relations-window">
             <h2>Relations</h2>
             <div class="relations-group">
@@ -144,6 +150,13 @@
               <h3>Wars</h3>
               <ul id="warsList" class="relations-list"></ul>
             </div>
+          </div>
+          <div id="hexContextMenu" class="hex-context-menu menu-hidden">
+            <div class="hex-context-header">
+              <strong id="hexContextTitle">Hex</strong>
+              <button id="hexContextCloseBtn" class="ghost" type="button">Close</button>
+            </div>
+            <div id="hexContextBody" class="hex-context-body"></div>
           </div>
           <div id="hoverHexInfo" class="hover-hex-info">Hex: -</div>
         </section>
