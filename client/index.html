@@ -33,7 +33,7 @@
               <button id="logoutBtn" class="ghost">Logout</button>
             </div>
             <p id="authState">Not logged in</p>
-            <p class="hint">Default: <code>admin/admin123</code>, <code>p1/p1</code></p>
+            <p class="hint">Use credentials configured on the server.</p>
           </section>
 
           <section>
@@ -55,6 +55,68 @@
             <div class="actions-row">
               <button id="setAttackBtn">Set Attack</button>
               <button id="setDefenseBtn" class="ghost">Set Defense</button>
+            </div>
+          </section>
+
+          <section>
+            <h2>Resource Transfer</h2>
+            <p class="hint">Fleet inventory and planet product storage.</p>
+            <label for="transferMode">Transfer mode</label>
+            <select id="transferMode"></select>
+            <label for="transferTargetFleet">Target fleet (same hex)</label>
+            <select id="transferTargetFleet"></select>
+            <div class="grid2">
+              <div>
+                <label for="transferResource">Resource</label>
+                <select id="transferResource"></select>
+              </div>
+              <div>
+                <label for="transferAmount">Amount</label>
+                <input id="transferAmount" type="number" min="1" step="1" value="1" />
+              </div>
+            </div>
+            <button id="transferSubmitBtn">Transfer</button>
+          </section>
+
+          <section>
+            <h2>Planet Actions</h2>
+            <p id="selectedPlanetLine">Planet: none</p>
+            <pre id="selectedPlanetDetails" class="fleet-details">-</pre>
+            <div class="grid2">
+              <div>
+                <label for="planetRawResource">Raw stock</label>
+                <select id="planetRawResource"></select>
+              </div>
+              <div>
+                <label for="planetRawAmount">Amount</label>
+                <input id="planetRawAmount" type="number" min="1" step="1" value="1" />
+              </div>
+            </div>
+            <div class="actions-row">
+              <button id="planetTakeStockBtn">Take Stock</button>
+              <button id="planetProduceBtn" class="ghost">Produce</button>
+            </div>
+            <div class="grid2">
+              <div>
+                <label for="planetProduct">Product</label>
+                <select id="planetProduct"></select>
+              </div>
+              <div>
+                <label for="planetProductAmount">Amount</label>
+                <input id="planetProductAmount" type="number" min="1" step="1" value="1" />
+              </div>
+            </div>
+            <button id="planetCreateProductBtn">Create Product</button>
+            <div class="actions-row">
+              <button id="planetRaiseMoraleBtn" class="ghost">Raise Morale</button>
+              <button id="planetDeployInformantBtn" class="ghost">Deploy Informant</button>
+            </div>
+            <label for="planetInfoCategory">Info category</label>
+            <select id="planetInfoCategory"></select>
+            <label for="planetTitheLevel">Tithe level</label>
+            <div class="actions-row">
+              <select id="planetTitheLevel"></select>
+              <button id="planetSetTitheBtn" class="ghost">Set Tithe</button>
             </div>
           </section>
 

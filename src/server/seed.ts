@@ -23,6 +23,8 @@ const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
   { id: "fleet", name: "Флот" },
   { id: "pirates", name: "Пираты" },
   { id: "rogue_traders", name: "Вольные Торговцы" },
+  { id: "ecclesiarchy", name: "Эклезиархия" },
+  { id: "administratum", name: "Администратум" },
   { id: "navis_nobilite", name: "Навис Нобилите" },
   { id: "other_psykers", name: "другие псайкеры" },
   { id: "inquisition", name: "Инквизиция" },

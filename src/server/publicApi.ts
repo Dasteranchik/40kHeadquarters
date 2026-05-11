@@ -3,7 +3,13 @@ import { IncomingMessage, ServerResponse } from "http";
 import { GameState } from "../types";
 import { Account, LoginRequest } from "./contracts";
 import { SessionManager } from "./sessions";
-import { getBearerToken, readJsonBody, writeJson } from "./transport";
+import {
+  clearSessionCookie,
+  getSessionToken,
+  readJsonBody,
+  setSessionCookie,
+  writeJson,
+} from "./transport";
 import { buildStateForSession } from "./visibility";
 
 export interface PublicApiDeps {
@@ -34,8 +40,12 @@ export function createPublicApiHandlers(deps: PublicApiDeps): PublicApiHandlers 
     }
 
     const session = deps.sessionManager.createSession(account);
+    const maxAgeSeconds = Math.max(
+      1,
+      Math.trunc((session.expiresAt - Date.now()) / 1000),
+    );
+    setSessionCookie(res, session.token, maxAgeSeconds);
     writeJson(res, 200, {
-      token: session.token,
       username: session.username,
       role: session.role,
       playerId: session.playerId,
@@ -69,11 +79,12 @@ export function createPublicApiHandlers(deps: PublicApiDeps): PublicApiHandlers 
   }
 
   function handleLogout(req: IncomingMessage, res: ServerResponse): void {
-    const token = getBearerToken(req);
+    const token = getSessionToken(req);
     if (token) {
       deps.sessionManager.deleteSession(token);
     }
 
+    clearSessionCookie(res);
     writeJson(res, 200, { ok: true });
   }
 

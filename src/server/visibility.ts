@@ -1,5 +1,7 @@
+import { PlanningSnapshot } from "../api/ws";
 import { collectVisibleTileKeysByPlayerId } from "../systems/fogOfWarSystem";
-import { Fleet, GameState, TurnResolution } from "../types";
+import { validateActions } from "../systems/actionValidator";
+import { Action, Fleet, GameState, HexCoord, TurnResolution } from "../types";
 import { areMutualAllies } from "../utils/relations";
 import { coordKey } from "../hex";
 import { Session } from "./contracts";
@@ -95,6 +97,66 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
   return {
     ...state,
     fleets: filterFleetsForSession(session, state, state.fleets),
+  };
+}
+
+function buildPlanningSnapshot(state: GameState, actions: Iterable<Action>): PlanningSnapshot {
+  const validated = validateActions(state, [...actions]);
+  const plannedPathByFleetId = new Map<
+    string,
+    { ownerPlayerId: string; path: HexCoord[] }
+  >();
+
+  for (const action of validated.moveActions) {
+    const fleet = state.fleets[action.payload.fleetId];
+    if (!fleet) {
+      continue;
+    }
+
+    const current = plannedPathByFleetId.get(fleet.id);
+    if (!current) {
+      plannedPathByFleetId.set(fleet.id, {
+        ownerPlayerId: fleet.ownerPlayerId,
+        path: [...action.payload.path],
+      });
+      continue;
+    }
+
+    current.path.push(...action.payload.path);
+  }
+
+  return {
+    movePreviews: [...plannedPathByFleetId.entries()]
+      .filter(([, value]) => value.path.length > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([fleetId, value]) => ({
+        fleetId,
+        ownerPlayerId: value.ownerPlayerId,
+        path: value.path.map((coord) => ({ ...coord })),
+        projectedPosition: { ...value.path[value.path.length - 1] },
+      })),
+  };
+}
+
+export function buildPlanningForSession(
+  session: Session,
+  state: GameState,
+  actions: Iterable<Action>,
+): PlanningSnapshot {
+  const fullSnapshot = buildPlanningSnapshot(state, actions);
+  if (session.role === "admin") {
+    return fullSnapshot;
+  }
+
+  const playerId = session.playerId;
+  if (!playerId) {
+    return { movePreviews: [] };
+  }
+
+  return {
+    movePreviews: fullSnapshot.movePreviews.filter(
+      (preview) => preview.ownerPlayerId === playerId,
+    ),
   };
 }
 

@@ -21,6 +21,9 @@ import {
 } from "../types";
 
 const MAX_MORALE = 100;
+const ECCLESIARCHY_FACTION_ID = "ecclesiarchy";
+const INQUISITION_FACTION_ID = "inquisition";
+const ADMINISTRATUM_FACTION_ID = "administratum";
 
 function orderedPlanetIds(state: GameState): string[] {
   return Object.keys(state.planets).sort((a, b) => a.localeCompare(b));
@@ -124,6 +127,15 @@ function playerFleetsOnPlanet(
 function isImperialPlayer(state: GameState, playerId: string): boolean {
   const player = state.players[playerId];
   return player?.alignment === "IMPERIAL";
+}
+
+function playerHasFaction(
+  state: GameState,
+  playerId: string,
+  factionId: string,
+): boolean {
+  const player = state.players[playerId];
+  return player?.factionId === factionId;
 }
 
 function event(
@@ -555,6 +567,11 @@ function applyRaiseMorale(
     return;
   }
 
+  if (!playerHasFaction(state, action.playerId, ECCLESIARCHY_FACTION_ID)) {
+    reject(report, action, "raise morale requires Ecclesiarchy faction");
+    return;
+  }
+
   if (usedPlayers.has(action.playerId)) {
     reject(report, action, "player already raised morale this turn");
     return;
@@ -585,6 +602,11 @@ function applyScheduleInformant(
 ): void {
   if (!isImperialPlayer(state, action.playerId)) {
     reject(report, action, "informant action is only for imperial players");
+    return;
+  }
+
+  if (!playerHasFaction(state, action.playerId, INQUISITION_FACTION_ID)) {
+    reject(report, action, "informant action requires Inquisition faction");
     return;
   }
 
@@ -639,6 +661,11 @@ function applyScheduleTithe(
 ): void {
   if (!isImperialPlayer(state, action.playerId)) {
     reject(report, action, "set tithe is only for imperial players");
+    return;
+  }
+
+  if (!playerHasFaction(state, action.playerId, ADMINISTRATUM_FACTION_ID)) {
+    reject(report, action, "set tithe requires Administratum faction");
     return;
   }
 

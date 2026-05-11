@@ -59,7 +59,7 @@ npm run dev:game
 - `p2 / p2`
 - `p3 / p3`
 
-После логина клиент подключается к WebSocket с bearer-токеном.
+После логина сервер выставляет `HttpOnly` session cookie, и клиент использует его для HTTP/API и WebSocket.
 
 ## Admin API
 

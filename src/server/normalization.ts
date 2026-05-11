@@ -30,6 +30,8 @@ const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
   { id: "fleet", name: "Флот" },
   { id: "pirates", name: "Пираты" },
   { id: "rogue_traders", name: "Вольные Торговцы" },
+  { id: "ecclesiarchy", name: "Эклезиархия" },
+  { id: "administratum", name: "Администратум" },
   { id: "navis_nobilite", name: "Навис Нобилите" },
   { id: "other_psykers", name: "другие псайкеры" },
   { id: "inquisition", name: "Инквизиция" },
@@ -180,6 +182,17 @@ function defaultFactions(): Record<string, Faction> {
   return result;
 }
 
+function addMissingDefaultFactions(factions: Record<string, Faction>): void {
+  for (const faction of DEFAULT_FACTIONS) {
+    if (!factions[faction.id]) {
+      factions[faction.id] = {
+        id: faction.id,
+        name: faction.name,
+      };
+    }
+  }
+}
+
 function normalizeFactions(value: unknown): Record<string, Faction> {
   if (!value || typeof value !== "object") {
     return defaultFactions();
@@ -197,6 +210,8 @@ function normalizeFactions(value: unknown): Record<string, Faction> {
   if (Object.keys(factions).length === 0) {
     return defaultFactions();
   }
+
+  addMissingDefaultFactions(factions);
 
   return factions;
 }

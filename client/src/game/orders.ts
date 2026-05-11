@@ -33,6 +33,7 @@ export function createOrderActions(deps: OrderActionsDeps) {
     if (!selected || deps.runtime.plannedPath.length === 0) {
       return;
     }
+    const submittedSteps = deps.runtime.plannedPath.length;
 
     const action: Action = {
       id: deps.nextActionId("move"),
@@ -44,9 +45,15 @@ export function createOrderActions(deps: OrderActionsDeps) {
       },
     };
 
-    deps.sendMessage({ type: "submitAction", action });
+    if (!deps.sendMessage({ type: "submitAction", action })) {
+      return;
+    }
+
+    deps.runtime.plannedPath = [];
+    deps.refreshHud();
+    deps.renderScene();
     deps.appendEvent(
-      `MOVE_FLEET submitted for ${selected.id} (${deps.runtime.plannedPath.length} steps)`,
+      `MOVE_FLEET submitted for ${selected.id} (${submittedSteps} steps)`,
     );
   }
 

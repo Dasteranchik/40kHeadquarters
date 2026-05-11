@@ -12,7 +12,6 @@ import type {
 } from "../../src/types";
 
 interface SessionInfo {
-  token: string;
   username: string;
   role: "admin" | "player";
   playerId?: string;
@@ -22,7 +21,6 @@ interface SessionInfo {
 interface AdminPlayer extends Player {
   login: {
     username: string;
-    password: string;
   } | null;
 }
 
@@ -40,8 +38,6 @@ interface AdminState {
   alliances: RelationPair[];
   wars: RelationPair[];
 }
-
-const SESSION_KEY = "hq_admin_session";
 
 const params = new URLSearchParams(window.location.search);
 const apiBase = params.get("api") ?? `http://${window.location.hostname}:8080`;
@@ -146,21 +142,15 @@ function appendEvent(message: string): void {
 }
 
 function getAuthHeaders(): Record<string, string> {
-  if (!runtime.session) {
-    return {
-      "Content-Type": "application/json",
-    };
-  }
-
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${runtime.session.token}`,
   };
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       ...getAuthHeaders(),
       ...(init?.headers ?? {}),
@@ -178,11 +168,9 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 function setSession(session: SessionInfo | null): void {
   runtime.session = session;
   if (session) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     authLine.textContent = `Logged as ${session.username} (${session.role})`;
     setPanelsVisible(true);
   } else {
-    localStorage.removeItem(SESSION_KEY);
     authLine.textContent = "Not logged in";
     setPanelsVisible(false);
     runtime.players = [];
@@ -513,7 +501,7 @@ function renderPlayers(): void {
     const nameInput = createInput(player.name);
     const resourcesInput = createNumberInput(player.resources);
     const usernameInput = createInput(player.login?.username ?? "");
-    const passwordInput = createInput(player.login?.password ?? "");
+    const passwordInput = createInput("");
     const alignmentSelect = createSelect(player.alignment, [
       "NON_IMPERIAL",
       "IMPERIAL",
@@ -1058,21 +1046,8 @@ async function logout(): Promise<void> {
 }
 
 async function restoreSession(): Promise<void> {
-  const raw = localStorage.getItem(SESSION_KEY);
-  if (!raw) {
-    return;
-  }
-
   try {
-    const session = JSON.parse(raw) as SessionInfo;
-    runtime.session = session;
-  } catch {
-    localStorage.removeItem(SESSION_KEY);
-    return;
-  }
-
-  try {
-    const me = await apiRequest<Omit<SessionInfo, "token">>("/api/me", {
+    const me = await apiRequest<SessionInfo>("/api/me", {
       method: "GET",
     });
 
@@ -1080,13 +1055,7 @@ async function restoreSession(): Promise<void> {
       throw new Error("Session is not admin");
     }
 
-    setSession({
-      token: runtime.session.token,
-      username: me.username,
-      role: me.role,
-      playerId: me.playerId,
-      expiresAt: me.expiresAt,
-    });
+    setSession(me);
 
     await loadAllData();
     setStatus(`Connected to ${apiBase}`);

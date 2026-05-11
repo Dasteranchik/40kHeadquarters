@@ -106,7 +106,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
 
     deps.persistDatabase();
     deps.broadcastState();
-    writeJson(res, 201, { player, login: { username, password } });
+    writeJson(res, 201, { player, login: { username } });
   }
 
   function handleDeletePlayer(req: IncomingMessage, res: ServerResponse, playerId: string): void {
@@ -160,12 +160,11 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       return;
     }
 
-    const loginByPlayerId = new Map<string, { username: string; password: string }>();
+    const loginByPlayerId = new Map<string, { username: string }>();
     for (const account of deps.accounts.values()) {
       if (account.role === "player" && account.playerId) {
         loginByPlayerId.set(account.playerId, {
           username: account.username,
-          password: account.password,
         });
       }
     }
@@ -306,7 +305,6 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       login: login
         ? {
             username: login.username,
-            password: login.password,
           }
         : null,
     });

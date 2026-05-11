@@ -2,8 +2,19 @@
 
 import { Application, Container } from "pixi.js";
 
-import type { ClientMessage } from "../../src/api/ws";
+import type {
+  ClientMessage,
+  ResourceEndpointKind,
+} from "../../src/api/ws";
 import { coordKey } from "../../src/hex";
+import {
+  INFO_CATEGORIES,
+  PRODUCT_RECIPES,
+  PRODUCT_RESOURCE_KEYS,
+  RAW_RESOURCE_KEYS,
+  RESOURCE_KEYS,
+  TITHE_LEVEL_ORDER,
+} from "../../src/planetDomain";
 import {
   buildPath,
   clearMapLayers,
@@ -38,6 +49,7 @@ import { createNetworkSessionController } from "./network/session";
 import type { SessionInfo } from "./session";
 import {
   buildSelectedFleetDetails,
+  formatStore,
   refreshAdminFleetOwnerOptions,
   refreshTargetOptions,
   renderAdminLists,
@@ -47,7 +59,15 @@ import {
   type HudElements,
 } from "./ui/hud";
 import { createHexContextMenuController } from "./ui/contextMenu";
-import type { Fleet, FleetStance, GameState, HexCoord } from "../../src/types";
+import type {
+  Fleet,
+  FleetStance,
+  GameState,
+  HexCoord,
+  Planet,
+  PlanetAction,
+  PlanetActionKind,
+} from "../../src/types";
 
 type Nullable<T> = T | null;
 
@@ -91,6 +111,49 @@ const warBtn = document.getElementById("warBtn") as HTMLButtonElement;
 const allyBtn = document.getElementById("allyBtn") as HTMLButtonElement;
 const readyBtn = document.getElementById("readyBtn") as HTMLButtonElement;
 const endTurnBtn = document.getElementById("endTurnBtn") as HTMLButtonElement;
+const transferModeSelect = document.getElementById("transferMode") as HTMLSelectElement;
+const transferTargetFleetSelect = document.getElementById(
+  "transferTargetFleet",
+) as HTMLSelectElement;
+const transferResourceSelect = document.getElementById(
+  "transferResource",
+) as HTMLSelectElement;
+const transferAmountInput = document.getElementById("transferAmount") as HTMLInputElement;
+const transferSubmitBtn = document.getElementById("transferSubmitBtn") as HTMLButtonElement;
+const selectedPlanetLine = document.getElementById("selectedPlanetLine") as HTMLParagraphElement;
+const selectedPlanetDetailsEl = document.getElementById(
+  "selectedPlanetDetails",
+) as HTMLPreElement;
+const planetRawResourceSelect = document.getElementById(
+  "planetRawResource",
+) as HTMLSelectElement;
+const planetRawAmountInput = document.getElementById(
+  "planetRawAmount",
+) as HTMLInputElement;
+const planetTakeStockBtn = document.getElementById(
+  "planetTakeStockBtn",
+) as HTMLButtonElement;
+const planetProduceBtn = document.getElementById("planetProduceBtn") as HTMLButtonElement;
+const planetProductSelect = document.getElementById("planetProduct") as HTMLSelectElement;
+const planetProductAmountInput = document.getElementById(
+  "planetProductAmount",
+) as HTMLInputElement;
+const planetCreateProductBtn = document.getElementById(
+  "planetCreateProductBtn",
+) as HTMLButtonElement;
+const planetRaiseMoraleBtn = document.getElementById(
+  "planetRaiseMoraleBtn",
+) as HTMLButtonElement;
+const planetDeployInformantBtn = document.getElementById(
+  "planetDeployInformantBtn",
+) as HTMLButtonElement;
+const planetInfoCategorySelect = document.getElementById(
+  "planetInfoCategory",
+) as HTMLSelectElement;
+const planetTitheLevelSelect = document.getElementById(
+  "planetTitheLevel",
+) as HTMLSelectElement;
+const planetSetTitheBtn = document.getElementById("planetSetTitheBtn") as HTMLButtonElement;
 
 const adminPlayerIdInput = document.getElementById("adminPlayerId") as HTMLInputElement;
 const adminPlayerNameInput = document.getElementById("adminPlayerName") as HTMLInputElement;
@@ -197,6 +260,7 @@ interface RuntimeState {
   gameState: Nullable<GameState>;
   selectedFleetId: Nullable<string>;
   plannedPath: HexCoord[];
+  plannedMovePathsByFleetId: Record<string, HexCoord[]>;
   reconnectTimer: Nullable<number>;
   pendingFleetStances: Record<string, FleetStance>;
   mapZoom: number;
@@ -208,6 +272,7 @@ const runtime: RuntimeState = {
   gameState: null,
   selectedFleetId: null,
   plannedPath: [],
+  plannedMovePathsByFleetId: {},
   reconnectTimer: null,
   pendingFleetStances: {},
   mapZoom: DEFAULT_MAP_ZOOM,
@@ -260,11 +325,18 @@ function renderScene(): void {
     return;
   }
 
+  const selectedFleet = getSelectedFleet(runtime, state);
+  const plannedMovePathsByFleetId = { ...runtime.plannedMovePathsByFleetId };
+  if (selectedFleet && runtime.plannedPath.length > 0) {
+    delete plannedMovePathsByFleetId[selectedFleet.id];
+  }
+
   renderMapScene({
     state,
     layers: mapLayers,
-    selectedFleet: getSelectedFleet(runtime, state),
+    selectedFleet,
     plannedPath: runtime.plannedPath,
+    plannedMovePathsByFleetId,
     playerId: activePlayerId(runtime),
     textResolution: mapCamera.mapTextResolution(),
   });
@@ -309,6 +381,678 @@ const hexContextMenu = createHexContextMenuController({
   },
 });
 
+type TransferMode =
+  | "FLEET_TO_FLEET"
+  | "FLEET_TO_PLANET_STORAGE"
+  | "PLANET_STORAGE_TO_FLEET";
+
+interface TransferModeSpec {
+  value: TransferMode;
+  label: string;
+  fromKind: ResourceEndpointKind;
+  toKind: ResourceEndpointKind;
+}
+
+const TRANSFER_MODES: TransferModeSpec[] = [
+  {
+    value: "FLEET_TO_FLEET",
+    label: "Fleet -> Fleet",
+    fromKind: "FLEET",
+    toKind: "FLEET",
+  },
+  {
+    value: "FLEET_TO_PLANET_STORAGE",
+    label: "Fleet -> Planet Storage",
+    fromKind: "FLEET",
+    toKind: "PLANET_STORAGE",
+  },
+  {
+    value: "PLANET_STORAGE_TO_FLEET",
+    label: "Planet Storage -> Fleet",
+    fromKind: "PLANET_STORAGE",
+    toKind: "FLEET",
+  },
+];
+
+function transferModeSpecFromValue(value: string): TransferModeSpec {
+  return (
+    TRANSFER_MODES.find((mode) => mode.value === value) ?? TRANSFER_MODES[0]
+  );
+}
+
+function ensureTransferModeOptions(): void {
+  if (transferModeSelect.options.length > 0) {
+    return;
+  }
+
+  for (const mode of TRANSFER_MODES) {
+    const option = document.createElement("option");
+    option.value = mode.value;
+    option.textContent = mode.label;
+    transferModeSelect.appendChild(option);
+  }
+}
+
+function selectedFleetPlanet(state: GameState, fleet: Fleet): Nullable<Planet> {
+  const tile = getTile(state, fleet.position);
+  if (!tile?.planetId) {
+    return null;
+  }
+
+  return state.planets[tile.planetId] ?? null;
+}
+
+function storeAmount(store: Fleet["inventory"], key: string): number {
+  const value = store[key as keyof typeof store];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.trunc(value));
+}
+
+function fleetInventoryLoad(fleet: Fleet): number {
+  return Object.values(fleet.inventory).reduce((sum, value) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return sum;
+    }
+    return sum + Math.max(0, Math.trunc(value));
+  }, 0);
+}
+
+function fleetFreeCapacity(fleet: Fleet): number {
+  return Math.max(0, Math.trunc(fleet.capacity) - fleetInventoryLoad(fleet));
+}
+
+interface TransferAvailability {
+  key: (typeof RESOURCE_KEYS)[number];
+  maxAmount: number;
+}
+
+function fillResourceOptions(availability: TransferAvailability[]): void {
+  const keep = transferResourceSelect.value;
+  transferResourceSelect.innerHTML = "";
+
+  for (const entry of availability) {
+    const option = document.createElement("option");
+    option.value = entry.key;
+    option.textContent = `${entry.key} (max ${entry.maxAmount})`;
+    transferResourceSelect.appendChild(option);
+  }
+
+  if (availability.some((entry) => entry.key === keep)) {
+    transferResourceSelect.value = keep;
+  }
+}
+
+function fillTargetFleetOptions(
+  state: GameState,
+  selectedFleet: Fleet,
+  activePlayer: string | null,
+): void {
+  const previous = transferTargetFleetSelect.value;
+  transferTargetFleetSelect.innerHTML = "";
+
+  const fleets = fleetsAtCoord(state, selectedFleet.position)
+    .filter((fleet) => fleet.id !== selectedFleet.id)
+    .filter((fleet) => (activePlayer ? fleet.ownerPlayerId === activePlayer : false))
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  for (const fleet of fleets) {
+    const option = document.createElement("option");
+    option.value = fleet.id;
+    option.textContent = `${fleet.id} (${fleet.ownerPlayerId})`;
+    transferTargetFleetSelect.appendChild(option);
+  }
+
+  if (fleets.some((fleet) => fleet.id === previous)) {
+    transferTargetFleetSelect.value = previous;
+  }
+}
+
+interface TransferContext {
+  mode: TransferModeSpec;
+  fromId: string;
+  fromStore: Fleet["inventory"];
+  toId: string;
+  toFleet: Fleet | null;
+}
+
+function resolveTransferContext(
+  state: GameState,
+  selectedFleet: Fleet,
+): TransferContext | null {
+  const mode = transferModeSpecFromValue(transferModeSelect.value);
+  const planet = selectedFleetPlanet(state, selectedFleet);
+
+  if ((mode.fromKind !== "FLEET" || mode.toKind !== "FLEET") && !planet) {
+    return null;
+  }
+
+  const fromId = mode.fromKind === "FLEET" ? selectedFleet.id : planet!.id;
+  const fromStore =
+    mode.fromKind === "FLEET"
+      ? selectedFleet.inventory
+      : planet!.productStorage;
+
+  if (mode.toKind === "FLEET") {
+    const toFleetId = transferTargetFleetSelect.value;
+    if (!toFleetId) {
+      return null;
+    }
+
+    const toFleet = state.fleets[toFleetId];
+    if (!toFleet) {
+      return null;
+    }
+
+    return {
+      mode,
+      fromId,
+      fromStore,
+      toId: toFleet.id,
+      toFleet,
+    };
+  }
+
+  return {
+    mode,
+    fromId,
+    fromStore,
+    toId: planet!.id,
+    toFleet: null,
+  };
+}
+
+function buildTransferAvailability(context: TransferContext): TransferAvailability[] {
+  const keys = RESOURCE_KEYS;
+  const freeCapacity = context.toFleet ? fleetFreeCapacity(context.toFleet) : Number.POSITIVE_INFINITY;
+
+  if (freeCapacity <= 0) {
+    return [];
+  }
+
+  const availability: TransferAvailability[] = [];
+  for (const key of keys) {
+    const available = storeAmount(context.fromStore, key);
+    if (available <= 0) {
+      continue;
+    }
+
+    const maxAmount = Math.min(available, freeCapacity);
+    if (maxAmount <= 0) {
+      continue;
+    }
+
+    availability.push({
+      key,
+      maxAmount,
+    });
+  }
+
+  return availability;
+}
+
+function refreshTransferControls(
+  state: Nullable<GameState>,
+  selectedFleet: Nullable<Fleet>,
+): void {
+  ensureTransferModeOptions();
+  const activePlayer = activePlayerId(runtime);
+  const canControl = Boolean(state && selectedFleet && activePlayer && state.phase === "PLANNING");
+
+  transferModeSelect.disabled = !canControl;
+  transferAmountInput.disabled = true;
+  transferResourceSelect.disabled = true;
+  transferSubmitBtn.disabled = true;
+
+  if (!state || !selectedFleet || !activePlayer || state.phase !== "PLANNING") {
+    transferTargetFleetSelect.innerHTML = "";
+    transferTargetFleetSelect.disabled = true;
+    transferResourceSelect.innerHTML = "";
+    return;
+  }
+
+  const mode = transferModeSpecFromValue(transferModeSelect.value);
+  const needsPlanet = mode.fromKind !== "FLEET" || mode.toKind !== "FLEET";
+  const needsTargetFleet = mode.toKind === "FLEET";
+  const planet = selectedFleetPlanet(state, selectedFleet);
+
+  if (needsTargetFleet) {
+    fillTargetFleetOptions(state, selectedFleet, activePlayer);
+    transferTargetFleetSelect.disabled = transferTargetFleetSelect.options.length === 0;
+  } else {
+    transferTargetFleetSelect.innerHTML = "";
+    transferTargetFleetSelect.disabled = true;
+  }
+
+  const hasTargetFleet = !needsTargetFleet || Boolean(transferTargetFleetSelect.value);
+  const hasPlanet = !needsPlanet || Boolean(planet);
+  if (!hasTargetFleet || !hasPlanet) {
+    transferResourceSelect.innerHTML = "";
+    transferAmountInput.disabled = true;
+    transferResourceSelect.disabled = true;
+    transferSubmitBtn.disabled = true;
+    return;
+  }
+
+  const context = resolveTransferContext(state, selectedFleet);
+  if (!context) {
+    transferResourceSelect.innerHTML = "";
+    return;
+  }
+
+  const availability = buildTransferAvailability(context);
+  fillResourceOptions(availability);
+  transferResourceSelect.disabled = availability.length === 0;
+
+  const selectedResourceKey = transferResourceSelect.value;
+  const selectedEntry = availability.find((entry) => entry.key === selectedResourceKey) ?? null;
+  if (!selectedEntry) {
+    transferAmountInput.disabled = true;
+    transferSubmitBtn.disabled = true;
+    return;
+  }
+
+  const currentAmount = Math.trunc(Number(transferAmountInput.value));
+  const safeAmount = Number.isFinite(currentAmount) ? currentAmount : 1;
+  const clampedAmount = Math.max(1, Math.min(selectedEntry.maxAmount, safeAmount));
+  transferAmountInput.value = String(clampedAmount);
+  transferAmountInput.min = "1";
+  transferAmountInput.max = String(selectedEntry.maxAmount);
+  transferAmountInput.disabled = false;
+  transferSubmitBtn.disabled = false;
+}
+
+function submitTransfer(): void {
+  const state = runtime.gameState;
+  const activePlayer = activePlayerId(runtime);
+  if (!state || !activePlayer || state.phase !== "PLANNING") {
+    return;
+  }
+
+  const selectedFleet = getSelectedFleet(runtime, state);
+  if (!selectedFleet) {
+    appendEvent("Select a controllable fleet first");
+    return;
+  }
+
+  const context = resolveTransferContext(state, selectedFleet);
+  if (!context) {
+    appendEvent("Transfer endpoints are not available in current context");
+    return;
+  }
+
+  const availability = buildTransferAvailability(context);
+  const selectedEntry = availability.find(
+    (entry) => entry.key === transferResourceSelect.value,
+  );
+  if (!selectedEntry) {
+    appendEvent("No transferable resources available for current source/target");
+    return;
+  }
+
+  const amount = Math.trunc(Number(transferAmountInput.value));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > selectedEntry.maxAmount) {
+    appendEvent(`Transfer amount must be within 1..${selectedEntry.maxAmount}`);
+    return;
+  }
+
+  const sent = sendMessage({
+    type: "resourceTransfer",
+    payload: {
+      from: {
+        kind: context.mode.fromKind,
+        id: context.fromId,
+      },
+      to: {
+        kind: context.mode.toKind,
+        id: context.toId,
+      },
+      resourceKey: transferResourceSelect.value as (typeof RESOURCE_KEYS)[number],
+      amount,
+    },
+  });
+
+  if (sent) {
+    appendEvent(
+      `Transfer requested: ${context.mode.label}, ${amount} ${transferResourceSelect.value}`,
+    );
+  }
+}
+
+type RawResourceKey = (typeof RAW_RESOURCE_KEYS)[number];
+type ProductResourceKey = (typeof PRODUCT_RESOURCE_KEYS)[number];
+type InfoCategory = (typeof INFO_CATEGORIES)[number];
+type TitheLevel = (typeof TITHE_LEVEL_ORDER)[number];
+
+interface PlanetActionContext {
+  state: GameState;
+  playerId: string;
+  selectedFleet: Fleet;
+  planet: Planet;
+}
+
+interface PlanetResourceAvailability {
+  key: string;
+  maxAmount: number;
+}
+
+function ensurePlanetStaticOptions(): void {
+  if (planetInfoCategorySelect.options.length === 0) {
+    for (const category of INFO_CATEGORIES) {
+      const option = document.createElement("option");
+      option.value = category;
+      option.textContent = category;
+      planetInfoCategorySelect.appendChild(option);
+    }
+  }
+
+  if (planetTitheLevelSelect.options.length === 0) {
+    for (const level of TITHE_LEVEL_ORDER) {
+      const option = document.createElement("option");
+      option.value = level;
+      option.textContent = level;
+      planetTitheLevelSelect.appendChild(option);
+    }
+  }
+}
+
+function resolvePlanetActionContext(): PlanetActionContext | null {
+  const state = runtime.gameState;
+  const playerId = activePlayerId(runtime);
+  if (!state || !playerId) {
+    return null;
+  }
+
+  const selectedFleet = getSelectedFleet(runtime, state);
+  if (!selectedFleet) {
+    return null;
+  }
+
+  const planet = selectedFleetPlanet(state, selectedFleet);
+  if (!planet) {
+    return null;
+  }
+
+  return {
+    state,
+    playerId,
+    selectedFleet,
+    planet,
+  };
+}
+
+function fillPlanetResourceOptions(
+  select: HTMLSelectElement,
+  availability: PlanetResourceAvailability[],
+): void {
+  const keep = select.value;
+  select.innerHTML = "";
+
+  for (const entry of availability) {
+    const option = document.createElement("option");
+    option.value = entry.key;
+    option.textContent = `${entry.key} (max ${entry.maxAmount})`;
+    select.appendChild(option);
+  }
+
+  if (availability.some((entry) => entry.key === keep)) {
+    select.value = keep;
+  }
+}
+
+function selectedOptionAvailability(
+  select: HTMLSelectElement,
+  availability: PlanetResourceAvailability[],
+): PlanetResourceAvailability | null {
+  return availability.find((entry) => entry.key === select.value) ?? null;
+}
+
+function clampAmountInput(
+  input: HTMLInputElement,
+  maxAmount: number,
+): number {
+  const currentAmount = Math.trunc(Number(input.value));
+  const safeAmount = Number.isFinite(currentAmount) ? currentAmount : 1;
+  const clampedAmount = Math.max(1, Math.min(maxAmount, safeAmount));
+  input.value = String(clampedAmount);
+  input.min = "1";
+  input.max = String(maxAmount);
+  return clampedAmount;
+}
+
+function buildRawStockAvailability(
+  planet: Planet,
+  selectedFleet: Fleet,
+): PlanetResourceAvailability[] {
+  const freeCapacity = fleetFreeCapacity(selectedFleet);
+  if (freeCapacity <= 0) {
+    return [];
+  }
+
+  return RAW_RESOURCE_KEYS
+    .map((key) => ({
+      key,
+      maxAmount: Math.min(storeAmount(planet.rawStock, key), freeCapacity),
+    }))
+    .filter((entry) => entry.maxAmount > 0);
+}
+
+function buildProductAvailability(
+  state: GameState,
+  planet: Planet,
+  playerId: string,
+): PlanetResourceAvailability[] {
+  const fleets = Object.values(state.fleets).filter(
+    (fleet) =>
+      fleet.ownerPlayerId === playerId &&
+      fleet.position.q === planet.position.q &&
+      fleet.position.r === planet.position.r,
+  );
+
+  return PRODUCT_RESOURCE_KEYS
+    .map((productKey) => {
+      const recipe = PRODUCT_RECIPES[productKey];
+      if (!planet.worldTags.includes(recipe.requiredTag)) {
+        return null;
+      }
+
+      const available = fleets.reduce(
+        (sum, fleet) => sum + storeAmount(fleet.inventory, recipe.input),
+        0,
+      );
+
+      return {
+        key: productKey,
+        maxAmount: available,
+      };
+    })
+    .filter((entry): entry is PlanetResourceAvailability => Boolean(entry && entry.maxAmount > 0));
+}
+
+function activePlayerHasFaction(
+  state: GameState,
+  playerId: string,
+  factionId: string,
+): boolean {
+  const player = state.players[playerId];
+  return Boolean(player && player.alignment === "IMPERIAL" && player.factionId === factionId);
+}
+
+function buildPlanetDetails(planet: Planet): string {
+  return [
+    `ID: ${planet.id}`,
+    `World Type: ${planet.worldType}`,
+    `Tags: ${planet.worldTags.length > 0 ? planet.worldTags.join(", ") : "-"}`,
+    `Population: ${planet.population}`,
+    `Morale: ${planet.morale}`,
+    `Tithe: ${planet.titheLevel} ${planet.tithePaid}/${planet.titheTarget}`,
+    `Production: ${planet.resourceProduction}`,
+    `Raw Stock: ${formatStore(planet.rawStock)}`,
+    `Product Storage: ${formatStore(planet.productStorage)}`,
+    `Info: ${formatStore(planet.infoFragments)}`,
+  ].join("\n");
+}
+
+type PlanetActionExtraPayload = Partial<Omit<PlanetAction["payload"], "planetId" | "kind">>;
+
+function submitPlanetAction(
+  kind: PlanetActionKind,
+  extraPayload: PlanetActionExtraPayload = {},
+): void {
+  const context = resolvePlanetActionContext();
+  if (!context || context.state.phase !== "PLANNING") {
+    return;
+  }
+
+  const action: PlanetAction = {
+    id: nextActionId("planet"),
+    playerId: context.playerId,
+    type: "PLANET_ACTION",
+    payload: {
+      planetId: context.planet.id,
+      kind,
+      ...extraPayload,
+    },
+  };
+
+  if (sendMessage({ type: "submitAction", action })) {
+    appendEvent(`${kind} submitted for ${context.planet.id}`);
+  }
+}
+
+function refreshPlanetActionControls(
+  state: Nullable<GameState>,
+  selectedFleet: Nullable<Fleet>,
+): void {
+  ensurePlanetStaticOptions();
+
+  const playerId = activePlayerId(runtime);
+  const planet = state && selectedFleet ? selectedFleetPlanet(state, selectedFleet) : null;
+  const canUsePlanet = Boolean(state && selectedFleet && playerId && planet && state.phase === "PLANNING");
+
+  selectedPlanetLine.textContent = planet ? `Planet: ${planet.id}` : "Planet: none";
+  selectedPlanetDetailsEl.textContent = planet ? buildPlanetDetails(planet) : "-";
+
+  planetRawResourceSelect.disabled = true;
+  planetRawAmountInput.disabled = true;
+  planetTakeStockBtn.disabled = true;
+  planetProduceBtn.disabled = true;
+  planetProductSelect.disabled = true;
+  planetProductAmountInput.disabled = true;
+  planetCreateProductBtn.disabled = true;
+  planetRaiseMoraleBtn.disabled = true;
+  planetDeployInformantBtn.disabled = true;
+  planetInfoCategorySelect.disabled = !canUsePlanet;
+  planetTitheLevelSelect.disabled = !canUsePlanet;
+  planetSetTitheBtn.disabled = true;
+
+  if (!state || !selectedFleet || !playerId || !planet || state.phase !== "PLANNING") {
+    planetRawResourceSelect.innerHTML = "";
+    planetProductSelect.innerHTML = "";
+    return;
+  }
+
+  const player = state.players[playerId];
+  const rawAvailability = buildRawStockAvailability(planet, selectedFleet);
+  fillPlanetResourceOptions(planetRawResourceSelect, rawAvailability);
+  const selectedRaw = selectedOptionAvailability(planetRawResourceSelect, rawAvailability);
+  if (selectedRaw) {
+    clampAmountInput(planetRawAmountInput, selectedRaw.maxAmount);
+    planetRawResourceSelect.disabled = false;
+    planetRawAmountInput.disabled = false;
+    planetTakeStockBtn.disabled = false;
+  }
+  planetTakeStockBtn.textContent = player?.alignment === "IMPERIAL" ? "Take Stock" : "Raid Stock";
+
+  planetProduceBtn.disabled =
+    planet.resourceProduction <= 0 || planet.tithePaid >= planet.titheTarget;
+
+  const productAvailability = buildProductAvailability(state, planet, playerId);
+  fillPlanetResourceOptions(planetProductSelect, productAvailability);
+  const selectedProduct = selectedOptionAvailability(
+    planetProductSelect,
+    productAvailability,
+  );
+  if (selectedProduct) {
+    clampAmountInput(planetProductAmountInput, selectedProduct.maxAmount);
+    planetProductSelect.disabled = false;
+    planetProductAmountInput.disabled = false;
+    planetCreateProductBtn.disabled = false;
+  }
+
+  planetRaiseMoraleBtn.disabled = !activePlayerHasFaction(
+    state,
+    playerId,
+    "ecclesiarchy",
+  );
+  planetDeployInformantBtn.disabled = !activePlayerHasFaction(
+    state,
+    playerId,
+    "inquisition",
+  );
+  planetSetTitheBtn.disabled = !activePlayerHasFaction(
+    state,
+    playerId,
+    "administratum",
+  );
+  planetTitheLevelSelect.value = planet.titheLevel;
+}
+
+function submitTakeOrRaidStock(): void {
+  const context = resolvePlanetActionContext();
+  if (!context) {
+    return;
+  }
+
+  const availability = buildRawStockAvailability(context.planet, context.selectedFleet);
+  const selectedRaw = selectedOptionAvailability(planetRawResourceSelect, availability);
+  if (!selectedRaw) {
+    appendEvent("No raw stock available for selected fleet");
+    return;
+  }
+
+  const amount = Math.trunc(Number(planetRawAmountInput.value));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > selectedRaw.maxAmount) {
+    appendEvent(`Raw stock amount must be within 1..${selectedRaw.maxAmount}`);
+    return;
+  }
+
+  const player = context.state.players[context.playerId];
+  const kind = player?.alignment === "IMPERIAL" ? "TAKE_STOCK" : "RAID_STOCK";
+  submitPlanetAction(kind, {
+    fleetId: context.selectedFleet.id,
+    resourceKey: selectedRaw.key as RawResourceKey,
+    amount,
+  });
+}
+
+function submitCreateProduct(): void {
+  const context = resolvePlanetActionContext();
+  if (!context) {
+    return;
+  }
+
+  const availability = buildProductAvailability(context.state, context.planet, context.playerId);
+  const selectedProduct = selectedOptionAvailability(planetProductSelect, availability);
+  if (!selectedProduct) {
+    appendEvent("No product recipe available for selected planet and inventories");
+    return;
+  }
+
+  const amount = Math.trunc(Number(planetProductAmountInput.value));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > selectedProduct.maxAmount) {
+    appendEvent(`Product amount must be within 1..${selectedProduct.maxAmount}`);
+    return;
+  }
+
+  submitPlanetAction("CREATE_PRODUCT", {
+    productKey: selectedProduct.key as ProductResourceKey,
+    amount,
+  });
+}
+
 function refreshHud(): void {
   updateAuthView(hudElements, runtime.session);
 
@@ -333,6 +1077,8 @@ function refreshHud(): void {
     hudElements.targetSelect.disabled = true;
     updateRelationsWindow(hudElements, null);
     updateStanceButtons(hudElements, null, null);
+    refreshTransferControls(null, null);
+    refreshPlanetActionControls(null, null);
     return;
   }
 
@@ -353,7 +1099,16 @@ function refreshHud(): void {
     hudElements.selectedFleetDetailsEl.textContent = "-";
   }
 
-  hudElements.pathLine.textContent = `Planned path: ${runtime.plannedPath.length} steps`;
+  const submittedPathSteps = selected
+    ? (runtime.plannedMovePathsByFleetId[selected.id]?.length ?? 0)
+    : 0;
+  if (runtime.plannedPath.length > 0) {
+    hudElements.pathLine.textContent = `Draft path: ${runtime.plannedPath.length} steps`;
+  } else if (submittedPathSteps > 0) {
+    hudElements.pathLine.textContent = `Submitted path: ${submittedPathSteps} steps`;
+  } else {
+    hudElements.pathLine.textContent = "Planned path: 0 steps";
+  }
 
   const controlsDisabled = !playerId;
   hudElements.submitMoveBtn.disabled = controlsDisabled || !selected || runtime.plannedPath.length === 0;
@@ -374,6 +1129,8 @@ function refreshHud(): void {
   renderAdminLists(hudElements, state, (path) => {
     void adminActions.adminDelete(path);
   });
+  refreshTransferControls(state, selected);
+  refreshPlanetActionControls(state, selected);
 }
 
 const networkSession = createNetworkSessionController({
@@ -630,6 +1387,68 @@ bindMainEvents(
     canvasController,
   },
 );
+
+transferModeSelect.addEventListener("change", () => {
+  refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
+});
+transferAmountInput.addEventListener("input", () => {
+  refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
+});
+transferResourceSelect.addEventListener("change", () => {
+  refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
+});
+transferTargetFleetSelect.addEventListener("change", () => {
+  refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
+});
+transferSubmitBtn.addEventListener("click", () => {
+  submitTransfer();
+});
+planetRawResourceSelect.addEventListener("change", () => {
+  refreshPlanetActionControls(
+    runtime.gameState,
+    runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null,
+  );
+});
+planetRawAmountInput.addEventListener("input", () => {
+  refreshPlanetActionControls(
+    runtime.gameState,
+    runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null,
+  );
+});
+planetTakeStockBtn.addEventListener("click", () => {
+  submitTakeOrRaidStock();
+});
+planetProduceBtn.addEventListener("click", () => {
+  submitPlanetAction("PRODUCE_RESOURCE");
+});
+planetProductSelect.addEventListener("change", () => {
+  refreshPlanetActionControls(
+    runtime.gameState,
+    runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null,
+  );
+});
+planetProductAmountInput.addEventListener("input", () => {
+  refreshPlanetActionControls(
+    runtime.gameState,
+    runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null,
+  );
+});
+planetCreateProductBtn.addEventListener("click", () => {
+  submitCreateProduct();
+});
+planetRaiseMoraleBtn.addEventListener("click", () => {
+  submitPlanetAction("ECCLESIARCHY_RAISE_MORALE");
+});
+planetDeployInformantBtn.addEventListener("click", () => {
+  submitPlanetAction("INQUISITION_DEPLOY_INFORMANT", {
+    infoCategory: planetInfoCategorySelect.value as InfoCategory,
+  });
+});
+planetSetTitheBtn.addEventListener("click", () => {
+  submitPlanetAction("ADMINISTRATUM_SET_TITHE", {
+    titheLevel: planetTitheLevelSelect.value as TitheLevel,
+  });
+});
 
 mapCamera.updateMapZoomUi();
 refreshHud();

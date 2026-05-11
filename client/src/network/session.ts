@@ -1,6 +1,6 @@
 import type { ClientMessage, ServerMessage } from "../../../src/api/ws";
 import type { FleetStance, GameState, HexCoord } from "../../../src/types";
-import { SESSION_STORAGE_KEY, type SessionInfo } from "../session";
+import type { SessionInfo } from "../session";
 
 export interface NetworkRuntimeState {
   session: SessionInfo | null;
@@ -8,6 +8,7 @@ export interface NetworkRuntimeState {
   gameState: GameState | null;
   selectedFleetId: string | null;
   plannedPath: HexCoord[];
+  plannedMovePathsByFleetId: Record<string, HexCoord[]>;
   reconnectTimer: number | null;
   pendingFleetStances: Record<string, FleetStance>;
 }
@@ -41,10 +42,8 @@ export function createNetworkSessionController(
 ): NetworkSessionController {
   function setSession(session: SessionInfo | null): void {
     deps.runtime.session = session;
-    if (session) {
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-    } else {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
+    if (!session) {
+      deps.runtime.plannedMovePathsByFleetId = {};
       deps.runtime.pendingFleetStances = {};
     }
 
@@ -52,21 +51,15 @@ export function createNetworkSessionController(
   }
 
   function getAuthHeaders(): Record<string, string> {
-    if (!deps.runtime.session) {
-      return {
-        "Content-Type": "application/json",
-      };
-    }
-
     return {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${deps.runtime.session.token}`,
     };
   }
 
   async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${deps.apiBase}${path}`, {
       ...init,
+      credentials: "include",
       headers: {
         ...getAuthHeaders(),
         ...(init?.headers ?? {}),
@@ -102,10 +95,21 @@ export function createNetworkSessionController(
   function handleServerMessage(message: ServerMessage): void {
     if (message.type === "stateUpdate") {
       deps.runtime.gameState = message.state;
+      deps.runtime.plannedMovePathsByFleetId = {};
+      for (const preview of message.planning.movePreviews) {
+        deps.runtime.plannedMovePathsByFleetId[preview.fleetId] = preview.path.map(
+          (coord) => ({ ...coord }),
+        );
+      }
       deps.reconcilePendingFleetStances(message.state);
       deps.hideHexContextMenu();
       deps.refreshHud();
       deps.renderScene();
+      return;
+    }
+
+    if (message.type === "operationResult") {
+      deps.appendEvent(`${message.ok ? "OK" : "ERROR"}: ${message.message}`);
       return;
     }
 
@@ -129,7 +133,7 @@ export function createNetworkSessionController(
       deps.runtime.socket.close();
     }
 
-    const socket = new WebSocket(`${deps.wsBase}?token=${encodeURIComponent(session.token)}`);
+    const socket = new WebSocket(deps.wsBase);
     deps.runtime.socket = socket;
 
     socket.addEventListener("open", () => {
@@ -186,31 +190,12 @@ export function createNetworkSessionController(
   }
 
   async function restoreSession(): Promise<void> {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) {
-      return;
-    }
-
     try {
-      const session = JSON.parse(raw) as SessionInfo;
-      deps.runtime.session = session;
-    } catch {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      return;
-    }
-
-    try {
-      const me = await apiRequest<Omit<SessionInfo, "token">>("/api/me", {
+      const me = await apiRequest<SessionInfo>("/api/me", {
         method: "GET",
       });
 
-      setSession({
-        token: deps.runtime.session.token,
-        username: me.username,
-        role: me.role,
-        playerId: me.playerId,
-        expiresAt: me.expiresAt,
-      });
+      setSession(me);
       try {
         await loadStateSnapshot();
       } catch {
@@ -240,6 +225,7 @@ export function createNetworkSessionController(
     deps.runtime.gameState = null;
     deps.runtime.selectedFleetId = null;
     deps.runtime.plannedPath = [];
+    deps.runtime.plannedMovePathsByFleetId = {};
     deps.runtime.pendingFleetStances = {};
     deps.hideHexContextMenu();
     setSession(null);

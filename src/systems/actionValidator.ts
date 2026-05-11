@@ -26,6 +26,10 @@ import {
   ValidationError,
 } from "../types";
 
+const ECCLESIARCHY_FACTION_ID = "ecclesiarchy";
+const INQUISITION_FACTION_ID = "inquisition";
+const ADMINISTRATUM_FACTION_ID = "administratum";
+
 function sortedActions(actions: Action[]): Action[] {
   return [...actions].sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -233,6 +237,14 @@ function validatePlanetAction(
     };
   }
 
+  if (kind === "TAKE_STOCK" && player.alignment !== "IMPERIAL") {
+    return { actionId: action.id, reason: "TAKE_STOCK requires an imperial player" };
+  }
+
+  if (kind === "RAID_STOCK" && player.alignment === "IMPERIAL") {
+    return { actionId: action.id, reason: "RAID_STOCK requires a non-imperial player" };
+  }
+
   if (kind === "CREATE_PRODUCT" && !isProductResourceKey(action.payload.productKey)) {
     return { actionId: action.id, reason: "productKey is invalid" };
   }
@@ -249,6 +261,20 @@ function validatePlanetAction(
   }
 
   if (kind === "ECCLESIARCHY_RAISE_MORALE") {
+    if (player.alignment !== "IMPERIAL") {
+      return {
+        actionId: action.id,
+        reason: "ECCLESIARCHY_RAISE_MORALE requires an imperial player",
+      };
+    }
+
+    if (player.factionId !== ECCLESIARCHY_FACTION_ID) {
+      return {
+        actionId: action.id,
+        reason: "ECCLESIARCHY_RAISE_MORALE requires Ecclesiarchy faction",
+      };
+    }
+
     if (moraleUsedByPlayer.has(action.playerId)) {
       return {
         actionId: action.id,
@@ -257,6 +283,38 @@ function validatePlanetAction(
     }
 
     moraleUsedByPlayer.add(action.playerId);
+  }
+
+  if (kind === "INQUISITION_DEPLOY_INFORMANT") {
+    if (player.alignment !== "IMPERIAL") {
+      return {
+        actionId: action.id,
+        reason: "INQUISITION_DEPLOY_INFORMANT requires an imperial player",
+      };
+    }
+
+    if (player.factionId !== INQUISITION_FACTION_ID) {
+      return {
+        actionId: action.id,
+        reason: "INQUISITION_DEPLOY_INFORMANT requires Inquisition faction",
+      };
+    }
+  }
+
+  if (kind === "ADMINISTRATUM_SET_TITHE") {
+    if (player.alignment !== "IMPERIAL") {
+      return {
+        actionId: action.id,
+        reason: "ADMINISTRATUM_SET_TITHE requires an imperial player",
+      };
+    }
+
+    if (player.factionId !== ADMINISTRATUM_FACTION_ID) {
+      return {
+        actionId: action.id,
+        reason: "ADMINISTRATUM_SET_TITHE requires Administratum faction",
+      };
+    }
   }
 
   if (kind === "PRODUCE_RESOURCE") {

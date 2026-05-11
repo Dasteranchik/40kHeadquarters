@@ -25,6 +25,7 @@ export interface RenderMapSceneParams {
   layers: MapLayers;
   selectedFleet: Nullable<Fleet>;
   plannedPath: HexCoord[];
+  plannedMovePathsByFleetId: Record<string, HexCoord[]>;
   playerId: string | null;
   textResolution: number;
 }
@@ -144,6 +145,7 @@ export function renderMapScene(params: RenderMapSceneParams): void {
     layers,
     selectedFleet,
     plannedPath,
+    plannedMovePathsByFleetId,
     playerId,
     textResolution,
   } = params;
@@ -152,7 +154,8 @@ export function renderMapScene(params: RenderMapSceneParams): void {
   drawTerrain(state, layers);
   drawPlanets(state, layers, labelSlots, textResolution);
   drawFleets(state, layers, selectedFleet, labelSlots, textResolution);
-  drawPath(layers, selectedFleet, plannedPath);
+  drawPlannedPaths(state, layers, plannedMovePathsByFleetId, selectedFleet?.id ?? null);
+  drawDraftPath(layers, selectedFleet, plannedPath);
   drawFog(state, layers, playerId);
   drawUiMarkers(state, layers, textResolution);
 }
@@ -320,13 +323,52 @@ function drawFleets(
   }
 }
 
-function drawPath(
+function drawPlannedPaths(
+  state: GameState,
+  layers: MapLayers,
+  plannedMovePathsByFleetId: Record<string, HexCoord[]>,
+  selectedFleetId: string | null,
+): void {
+  clearLayer(layers.effectLayer);
+
+  for (const [fleetId, path] of Object.entries(plannedMovePathsByFleetId)) {
+    if (path.length === 0) {
+      continue;
+    }
+
+    const fleet = state.fleets[fleetId];
+    if (!fleet) {
+      continue;
+    }
+
+    const isSelected = selectedFleetId === fleetId;
+    const line = new Graphics();
+    line.lineStyle(isSelected ? 3 : 2, isSelected ? 0x8ed8ff : 0x4cc8ff, isSelected ? 0.92 : 0.72);
+
+    const start = toPixel(fleet.position);
+    line.moveTo(start.x, start.y);
+    for (const step of path) {
+      const point = toPixel(step);
+      line.lineTo(point.x, point.y);
+    }
+    layers.effectLayer.addChild(line);
+
+    const projected = path[path.length - 1];
+    const projectedPixel = toPixel(projected);
+    const marker = new Graphics();
+    marker.lineStyle(2, 0xb8f1ff, 0.95);
+    marker.beginFill(0x65dcff, 0.22);
+    marker.drawCircle(projectedPixel.x, projectedPixel.y, 9);
+    marker.endFill();
+    layers.effectLayer.addChild(marker);
+  }
+}
+
+function drawDraftPath(
   layers: MapLayers,
   selectedFleet: Nullable<Fleet>,
   plannedPath: HexCoord[],
 ): void {
-  clearLayer(layers.effectLayer);
-
   if (!selectedFleet || plannedPath.length === 0) {
     return;
   }

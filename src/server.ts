@@ -15,7 +15,7 @@ import { handleApiRequest as routeApiRequest } from "./server/router";
 import { createInitialDocumentSnapshot } from "./server/seed";
 import { createSessionManager } from "./server/sessions";
 import { parseClientMessage, send, writeJson } from "./server/transport";
-import { buildStateForSession } from "./server/visibility";
+import { buildPlanningForSession, buildStateForSession } from "./server/visibility";
 import { DbAccount, DocumentDb } from "./storage/documentDb";
 import { Action } from "./types";
 
@@ -135,9 +135,11 @@ const httpServer = createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
+  const sessionFromRequest = sessionManager.getSessionFromRequest(request);
   const url = new URL(request.url ?? "/", "http://localhost");
-  const token = url.searchParams.get("token");
-  const session = sessionManager.getSessionByToken(token);
+  const tokenFromQuery = url.searchParams.get("token");
+  const session =
+    sessionFromRequest ?? sessionManager.getSessionByToken(tokenFromQuery);
 
   if (!session) {
     socket.close(4401, "Unauthorized");
@@ -154,6 +156,7 @@ wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
   send(socket, {
     type: "stateUpdate",
     state: buildStateForSession(session, state),
+    planning: buildPlanningForSession(session, state, pendingActions.values()),
   });
 
   socket.on("message", (raw: RawData) => {
@@ -176,6 +179,5 @@ wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
 
 httpServer.listen(PORT, () => {
   console.log(`[server] API + WS ready on http://localhost:${PORT}`);
-  console.log(`[server] default admin: admin / admin123`);
-  console.log(`[server] default player creds: p1/p1, p2/p2, p3/p3`);
+  console.log("[server] seed accounts loaded (admin, p1, p2, p3)");
 });

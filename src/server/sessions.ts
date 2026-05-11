@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { IncomingMessage, ServerResponse } from "http";
 
 import { Account, Session } from "./contracts";
-import { getBearerToken, writeJson } from "./transport";
+import { getSessionToken, writeJson } from "./transport";
 
 export interface SessionManager {
   createSession: (account: Account) => Session;
@@ -50,7 +50,7 @@ export function createSessionManager(sessionTtlMs: number): SessionManager {
   }
 
   function getSessionFromRequest(req: IncomingMessage): Session | null {
-    return getSessionByToken(getBearerToken(req));
+    return getSessionByToken(getSessionToken(req));
   }
 
   function requireSession(req: IncomingMessage, res: ServerResponse): Session | null {

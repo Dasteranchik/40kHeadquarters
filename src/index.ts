@@ -8,6 +8,7 @@ export * from "./systems/combatSystem";
 export * from "./systems/economySystem";
 export * from "./systems/fogOfWarSystem";
 export * from "./systems/planetSystem";
+export * from "./systems/resourceTransferSystem";
 export * from "./turn/resolveTurn";
 export * from "./api/ws";
 export * from "./storage/redisKeys";
