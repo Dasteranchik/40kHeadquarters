@@ -223,6 +223,42 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     }
   }
 
+  function applySetFleetAllyVision(
+    context: ClientContext,
+    message: ClientMessage,
+  ): void {
+    if (message.type !== "setFleetAllyVision") {
+      return;
+    }
+
+    if (deps.state.phase !== "PLANNING" || context.session.role !== "player") {
+      sendOperationResult(context, false, "Fleet vision can be changed only during PLANNING");
+      return;
+    }
+
+    const playerId = context.session.playerId;
+    const fleet = deps.state.fleets[message.fleetId];
+    if (!playerId || !fleet || fleet.ownerPlayerId !== playerId) {
+      sendOperationResult(context, false, "Fleet does not belong to player");
+      return;
+    }
+
+    if (typeof message.enabled !== "boolean") {
+      sendOperationResult(context, false, "enabled must be a boolean");
+      return;
+    }
+
+    fleet.shareVisionWithAllies = message.enabled;
+    deps.readyPlayers.delete(playerId);
+    deps.persistDatabase();
+    sendOperationResult(
+      context,
+      true,
+      message.enabled ? "Fleet vision shared with allies" : "Fleet vision sharing disabled",
+    );
+    broadcastState();
+  }
+
   function applyEndTurn(context: ClientContext, message: ClientMessage): void {
     if (message.type !== "endTurn") {
       return;
@@ -232,10 +268,6 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       return;
     }
 
-    deps.state.phase = "LOCKED";
-    broadcastState();
-
-    deps.state.phase = "RESOLUTION";
     resolveAndBroadcastTurn();
   }
 
@@ -243,6 +275,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     applySubmitAction(context, message);
     applyRemoveAction(context, message);
     applyResourceTransfer(context, message);
+    applySetFleetAllyVision(context, message);
     applyReady(context, message);
     applyEndTurn(context, message);
   }

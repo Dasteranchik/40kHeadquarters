@@ -47,7 +47,6 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
 
   const validated = validateActions(state, actions);
 
-  const movement = executeMovement(state, validated.moveActions);
   applyFleetStances(state, validated.stanceActions);
 
   // Diplomacy is applied before combat so DECLARE_WAR / mutual agreements
@@ -56,8 +55,13 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
 
   const planet = applyPlanetSystems(state, validated.planetActions);
 
-  // Combat resolves twice per turn: opening clash and end-of-turn clash.
+  // Fleets already sharing a hex fight before any planned movement. Destroyed
+  // fleets are consequently unable to execute their movement orders.
   const combatStart = resolveCombat(state);
+
+  const movement = executeMovement(state, validated.moveActions);
+
+  // Movement can bring hostile fleets together, causing a second clash.
   const combatEnd = resolveCombat(state);
   const combat = mergeCombatReports([combatStart, combatEnd]);
 

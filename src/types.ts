@@ -12,7 +12,7 @@ export interface HexCoord {
   r: number;
 }
 
-export type GamePhase = "PLANNING" | "LOCKED" | "RESOLUTION" | "UPDATE";
+export type GamePhase = "PLANNING" | "RESOLUTION" | "UPDATE";
 
 export type TerrainType = "OPEN" | "NEBULA" | "OBSTACLE";
 
@@ -81,6 +81,7 @@ export interface Fleet {
   influence: number;
   actionPoints: number;
   visionRange: number;
+  shareVisionWithAllies: boolean;
   capacity: number;
   stance: FleetStance;
   domain: FleetDomain;

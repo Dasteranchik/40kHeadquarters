@@ -19,7 +19,7 @@ export interface CanvasControllerDeps {
   toHex: (x: number, y: number) => HexCoord;
   isHoverHexValid: (coord: HexCoord) => boolean;
   onHoverHex: (coord: HexCoord | null) => void;
-  onPrimaryClick: (clientX: number, clientY: number) => void;
+  onPrimaryClick: (clientX: number, clientY: number, shiftKey: boolean) => void;
   onPanMove: () => void;
   onPanStateChange: (active: boolean) => void;
   wheelZoomSensitivity: number;
@@ -80,7 +80,7 @@ export function createCanvasController(
 
     deps.onPanStateChange(false);
     if (triggerClick && !panResult.wasMoved) {
-      deps.onPrimaryClick(event.clientX, event.clientY);
+      deps.onPrimaryClick(event.clientX, event.clientY, event.shiftKey);
     }
   }
 

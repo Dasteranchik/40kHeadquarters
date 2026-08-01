@@ -204,6 +204,22 @@ button.is-active.ghost {
   background: linear-gradient(180deg, #274d3b 0%, #183324 100%);
 }
 
+button.ally-vision-on,
+button.ally-vision-on.ghost {
+  border-color: #55dc91;
+  background: linear-gradient(180deg, #246044 0%, #163d2b 100%);
+  color: #eafff3;
+  box-shadow: 0 0 10px rgb(85 220 145 / 70%), inset 0 0 0 1px #8bf0b7;
+}
+
+button.ally-vision-off,
+button.ally-vision-off.ghost {
+  border-color: #e05b62;
+  background: linear-gradient(180deg, #612b31 0%, #3d191d 100%);
+  color: #fff0f1;
+  box-shadow: 0 0 10px rgb(224 91 98 / 65%), inset 0 0 0 1px #f08a90;
+}
+
 .admin-hidden {
   display: none;
 }

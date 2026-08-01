@@ -107,6 +107,7 @@ const submitMoveBtn = document.getElementById("submitMoveBtn") as HTMLButtonElem
 const clearPathBtn = document.getElementById("clearPathBtn") as HTMLButtonElement;
 const setAttackBtn = document.getElementById("setAttackBtn") as HTMLButtonElement;
 const setDefenseBtn = document.getElementById("setDefenseBtn") as HTMLButtonElement;
+const shareAllyVisionBtn = document.getElementById("shareAllyVisionBtn") as HTMLButtonElement;
 const warBtn = document.getElementById("warBtn") as HTMLButtonElement;
 const allyBtn = document.getElementById("allyBtn") as HTMLButtonElement;
 const readyBtn = document.getElementById("readyBtn") as HTMLButtonElement;
@@ -209,6 +210,7 @@ const hudElements: HudElements = {
   clearPathBtn,
   setAttackBtn,
   setDefenseBtn,
+  shareAllyVisionBtn,
   warBtn,
   allyBtn,
   readyBtn,
@@ -1070,6 +1072,11 @@ function refreshHud(): void {
     hudElements.clearPathBtn.disabled = true;
     hudElements.setAttackBtn.disabled = true;
     hudElements.setDefenseBtn.disabled = true;
+    hudElements.shareAllyVisionBtn.disabled = true;
+    hudElements.shareAllyVisionBtn.classList.remove(
+      "ally-vision-on",
+      "ally-vision-off",
+    );
     hudElements.warBtn.disabled = true;
     hudElements.allyBtn.disabled = true;
     hudElements.readyBtn.disabled = true;
@@ -1115,6 +1122,16 @@ function refreshHud(): void {
   hudElements.clearPathBtn.disabled = controlsDisabled || runtime.plannedPath.length === 0;
   hudElements.setAttackBtn.disabled = controlsDisabled || !selected;
   hudElements.setDefenseBtn.disabled = controlsDisabled || !selected;
+  hudElements.shareAllyVisionBtn.disabled =
+    controlsDisabled || !selected || state.phase !== "PLANNING";
+  hudElements.shareAllyVisionBtn.classList.toggle(
+    "ally-vision-on",
+    Boolean(selected?.shareVisionWithAllies),
+  );
+  hudElements.shareAllyVisionBtn.classList.toggle(
+    "ally-vision-off",
+    Boolean(selected) && !selected?.shareVisionWithAllies,
+  );
   hudElements.readyBtn.disabled = controlsDisabled;
   updateStanceButtons(hudElements, selected, selectedStance);
 
@@ -1181,7 +1198,11 @@ const orderActions = createOrderActions({
   renderScene,
 });
 
-function handleCanvasPrimaryClick(clientX: number, clientY: number): void {
+function handleCanvasPrimaryClick(
+  clientX: number,
+  clientY: number,
+  shiftKey: boolean,
+): void {
   const state = runtime.gameState;
   const playerId = activePlayerId(runtime);
   if (!state || !playerId) {
@@ -1208,6 +1229,51 @@ function handleCanvasPrimaryClick(clientX: number, clientY: number): void {
   const selected = getSelectedFleet(runtime, state);
   const hasPlanet = Boolean(tile.planetId && state.planets[tile.planetId]);
   const unitCount = fleetsHere.length + (hasPlanet ? 1 : 0);
+
+  if (shiftKey && selected && state.phase === "PLANNING") {
+    hexContextMenu.hide();
+
+    const isFleetOrigin =
+      clicked.q === selected.position.q && clicked.r === selected.position.r;
+    const selectedPathIndex = runtime.plannedPath.findIndex(
+      (step) => step.q === clicked.q && step.r === clicked.r,
+    );
+
+    if (isFleetOrigin || selectedPathIndex >= 0) {
+      runtime.plannedPath = isFleetOrigin
+        ? []
+        : runtime.plannedPath.slice(0, selectedPathIndex);
+      appendEvent(
+        `Rolled route back to ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
+      );
+      refreshHud();
+      renderScene();
+      return;
+    }
+
+    if (tile.terrainType === "OBSTACLE") {
+      appendEvent(`Cannot add obstacle ${coordKey(clicked)} to route`);
+      return;
+    }
+
+    const routeStart = runtime.plannedPath[runtime.plannedPath.length - 1]
+      ?? selected.position;
+    const remainingActionPoints = selected.actionPoints - runtime.plannedPath.length;
+    const segment = buildPath(state, routeStart, clicked, remainingActionPoints);
+    if (!segment) {
+      appendEvent("No valid route segment within remaining AP");
+      return;
+    }
+
+    runtime.plannedPath = [...runtime.plannedPath, ...segment];
+    appendEvent(
+      `Added waypoint ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
+    );
+    refreshHud();
+    renderScene();
+    return;
+  }
+
   const shouldOpenContextMenu =
     unitCount > 1 && (ownFleetsHere.length > 0 || !selected);
 
@@ -1286,6 +1352,7 @@ bindMainEvents(
     clearPathBtn,
     setAttackBtn,
     setDefenseBtn,
+    shareAllyVisionBtn,
     warBtn,
     allyBtn,
     readyBtn,
@@ -1313,6 +1380,19 @@ bindMainEvents(
     },
     onSetDefense: () => {
       orderActions.submitStance("DEFENSE");
+    },
+    onToggleAllyVision: () => {
+      const state = runtime.gameState;
+      const selected = state ? getSelectedFleet(runtime, state) : null;
+      if (!selected) {
+        return;
+      }
+
+      sendMessage({
+        type: "setFleetAllyVision",
+        fleetId: selected.id,
+        enabled: !selected.shareVisionWithAllies,
+      });
     },
     onDeclareWar: () => {
       orderActions.submitDiplomacy("DECLARE_WAR");

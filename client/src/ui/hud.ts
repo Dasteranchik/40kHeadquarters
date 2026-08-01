@@ -19,6 +19,7 @@ export interface HudElements {
   clearPathBtn: HTMLButtonElement;
   setAttackBtn: HTMLButtonElement;
   setDefenseBtn: HTMLButtonElement;
+  shareAllyVisionBtn: HTMLButtonElement;
   warBtn: HTMLButtonElement;
   allyBtn: HTMLButtonElement;
   readyBtn: HTMLButtonElement;
@@ -55,6 +56,7 @@ export function buildSelectedFleetDetails(fleet: Fleet, stance: FleetStance): st
     `Health: ${Math.max(0, Math.round(fleet.health))}`,
     `Influence: ${Math.round(fleet.influence)}`,
     `Vision Range: ${fleet.visionRange}`,
+    `Allied Vision: ${fleet.shareVisionWithAllies ? "shared" : "private"}`,
     `Capacity: ${fleet.capacity}`,
     `Domain: ${fleet.domain}`,
     `Inventory: ${formatStore(fleet.inventory)}`,

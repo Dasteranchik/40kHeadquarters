@@ -8,6 +8,7 @@ import {
   PlayerVisibleState,
   VisibleFleet,
 } from "../types";
+import { areMutualAllies } from "../utils/relations";
 
 function hashToUnitInterval(value: string): number {
   let hash = 2166136261;
@@ -46,9 +47,16 @@ export function collectVisibleTileKeysForPlayer(
     }
   }
 
-  const fleets = Object.values(state.fleets).filter(
-    (fleet) => fleet.ownerPlayerId === player.id,
-  );
+  const fleets = Object.values(state.fleets).filter((fleet) => {
+    if (fleet.ownerPlayerId === player.id) {
+      return true;
+    }
+
+    return (
+      fleet.shareVisionWithAllies &&
+      areMutualAllies(state.players, player.id, fleet.ownerPlayerId)
+    );
+  });
 
   for (const fleet of fleets) {
     for (const tile of state.map.tiles) {

@@ -7,6 +7,7 @@ export interface MainEventElements {
   clearPathBtn: HTMLButtonElement;
   setAttackBtn: HTMLButtonElement;
   setDefenseBtn: HTMLButtonElement;
+  shareAllyVisionBtn: HTMLButtonElement;
   warBtn: HTMLButtonElement;
   allyBtn: HTMLButtonElement;
   readyBtn: HTMLButtonElement;
@@ -28,6 +29,7 @@ export interface MainEventHandlers {
   onClearPath: () => void;
   onSetAttack: () => void;
   onSetDefense: () => void;
+  onToggleAllyVision: () => void;
   onDeclareWar: () => void;
   onProposeAlliance: () => void;
   onReady: () => void;
@@ -56,6 +58,7 @@ export function bindMainEvents(
   elements.clearPathBtn.addEventListener("click", handlers.onClearPath);
   elements.setAttackBtn.addEventListener("click", handlers.onSetAttack);
   elements.setDefenseBtn.addEventListener("click", handlers.onSetDefense);
+  elements.shareAllyVisionBtn.addEventListener("click", handlers.onToggleAllyVision);
   elements.warBtn.addEventListener("click", handlers.onDeclareWar);
   elements.allyBtn.addEventListener("click", handlers.onProposeAlliance);
   elements.readyBtn.addEventListener("click", handlers.onReady);

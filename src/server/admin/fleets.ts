@@ -94,6 +94,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       influence: Math.max(0, Math.trunc(body.influence ?? 5)),
       actionPoints: Math.max(0, Math.trunc(body.actionPoints ?? 3)),
       visionRange: Math.max(0, Math.trunc(body.visionRange ?? 2)),
+      shareVisionWithAllies: false,
       capacity: Math.max(0, Math.trunc(body.capacity ?? 10)),
       stance: body.stance ?? "ATTACK",
       domain: body.domain ?? "SPACE",

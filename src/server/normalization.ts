@@ -310,6 +310,7 @@ function normalizeFleet(id: string, value: unknown): Fleet {
     influence: intOrDefault(fleet.influence, 5, 0),
     actionPoints: intOrDefault(fleet.actionPoints, 3, 0),
     visionRange: intOrDefault(fleet.visionRange, 2, 0),
+    shareVisionWithAllies: fleet.shareVisionWithAllies === true,
     capacity: intOrDefault(fleet.capacity, 10, 0),
     stance: fleet.stance === "DEFENSE" ? "DEFENSE" : "ATTACK",
     domain: fleet.domain === "GROUND" ? "GROUND" : "SPACE",

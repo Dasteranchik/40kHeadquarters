@@ -1,10 +1,10 @@
 ﻿import { createInitialGameState } from "./server/seed";
 import { resolveTurn } from "./turn/resolveTurn";
-import { Action, GameState } from "./types";
+import type { Action, GameState } from "./types";
 
 const state: GameState = createInitialGameState();
 state.gameId = "demo-1";
-state.phase = "LOCKED";
+state.phase = "PLANNING";
 
 const actions: Action[] = [
   {

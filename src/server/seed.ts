@@ -133,6 +133,7 @@ function createFleet(
     influence,
     actionPoints: 3,
     visionRange: 2,
+    shareVisionWithAllies: false,
     capacity: 10,
     stance: "ATTACK",
     domain,

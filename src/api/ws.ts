@@ -19,6 +19,12 @@ export interface EndTurnMessage {
   type: "endTurn";
 }
 
+export interface SetFleetAllyVisionMessage {
+  type: "setFleetAllyVision";
+  fleetId: string;
+  enabled: boolean;
+}
+
 export type ResourceEndpointKind = "FLEET" | "PLANET_STORAGE";
 
 export interface ResourceEndpointRef {
@@ -43,6 +49,7 @@ export type ClientMessage =
   | RemoveActionMessage
   | PlayerReadyMessage
   | EndTurnMessage
+  | SetFleetAllyVisionMessage
   | ResourceTransferMessage;
 
 export interface PlannedMovePreview {
