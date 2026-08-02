@@ -1,12 +1,13 @@
 ﻿import "./style.css";
 
 import { Application, Container } from "pixi.js";
+import { initLocalization } from "./i18n";
 
 import type {
   ClientMessage,
   ResourceEndpointKind,
 } from "../../src/api/ws";
-import { coordKey } from "../../src/hex";
+import { areNeighbors, coordKey } from "../../src/hex";
 import {
   INFO_CATEGORIES,
   PRODUCT_RECIPES,
@@ -16,7 +17,6 @@ import {
   TITHE_LEVEL_ORDER,
 } from "../../src/planetDomain";
 import {
-  buildPath,
   clearMapLayers,
   fleetsAtCoord,
   getTile,
@@ -43,6 +43,7 @@ import {
   isAdmin,
   reconcilePendingFleetStances,
 } from "./game/selectors";
+import { areMutualAllies } from "../../src/utils/relations";
 import { createCanvasController } from "./input/canvasController";
 import { createMapCameraController, createPanGestureState } from "./map/camera";
 import { createNetworkSessionController } from "./network/session";
@@ -80,6 +81,8 @@ const PAN_DRAG_THRESHOLD_PX = 5;
 const RENDER_RESOLUTION = Math.max(1, window.devicePixelRatio || 1);
 const MAP_TEXT_MAX_RESOLUTION = 4;
 
+initLocalization();
+
 const params = new URLSearchParams(window.location.search);
 const apiBase = params.get("api") ?? `http://${window.location.hostname}:8080`;
 const wsBase = params.get("ws") ?? `ws://${window.location.hostname}:8080`;
@@ -103,8 +106,11 @@ const loginPassInput = document.getElementById("loginPass") as HTMLInputElement;
 const loginBtn = document.getElementById("loginBtn") as HTMLButtonElement;
 const logoutBtn = document.getElementById("logoutBtn") as HTMLButtonElement;
 
-const submitMoveBtn = document.getElementById("submitMoveBtn") as HTMLButtonElement;
 const clearPathBtn = document.getElementById("clearPathBtn") as HTMLButtonElement;
+const armyTransportTargetSelect = document.getElementById("armyTransportTarget") as HTMLSelectElement;
+const armyEmbarkBtn = document.getElementById("armyEmbarkBtn") as HTMLButtonElement;
+const armyDisembarkBtn = document.getElementById("armyDisembarkBtn") as HTMLButtonElement;
+const armyTransportRequestsEl = document.getElementById("armyTransportRequests") as HTMLDivElement;
 const setAttackBtn = document.getElementById("setAttackBtn") as HTMLButtonElement;
 const setDefenseBtn = document.getElementById("setDefenseBtn") as HTMLButtonElement;
 const shareAllyVisionBtn = document.getElementById("shareAllyVisionBtn") as HTMLButtonElement;
@@ -206,7 +212,6 @@ const hudElements: HudElements = {
   selectedFleetLine,
   selectedFleetDetailsEl,
   pathLine,
-  submitMoveBtn,
   clearPathBtn,
   setAttackBtn,
   setDefenseBtn,
@@ -498,7 +503,7 @@ function fillTargetFleetOptions(
   const fleets = fleetsAtCoord(state, selectedFleet.position)
     .filter((fleet) => fleet.id !== selectedFleet.id)
     .filter((fleet) => (activePlayer ? fleet.ownerPlayerId === activePlayer : false))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => a.id - b.id);
 
   for (const fleet of fleets) {
     const option = document.createElement("option");
@@ -875,11 +880,11 @@ function buildProductAvailability(
 
 function activePlayerHasFaction(
   state: GameState,
-  playerId: string,
-  factionId: string,
+  playerId: number,
+  factionCode: string,
 ): boolean {
   const player = state.players[playerId];
-  return Boolean(player && player.alignment === "IMPERIAL" && player.factionId === factionId);
+  return Boolean(player && player.alignment === "IMPERIAL" && state.factions[player.factionId]?.code === factionCode);
 }
 
 function buildPlanetDetails(planet: Planet): string {
@@ -1055,6 +1060,72 @@ function submitCreateProduct(): void {
   });
 }
 
+function refreshArmyTransportControls(state: GameState | null, selected: Fleet | null): void {
+  const playerId = activePlayerId(runtime);
+  armyTransportTargetSelect.innerHTML = "";
+  armyTransportRequestsEl.innerHTML = "";
+  const isArmy = selected?.domain === "GROUND";
+  const canPlan = Boolean(state && playerId && state.phase === "PLANNING");
+
+  if (state && selected && isArmy && playerId) {
+    const currentCarrier = selected.carrierFleetId
+      ? state.fleets[selected.carrierFleetId]
+      : undefined;
+    const armyPosition = currentCarrier?.position ?? selected.position;
+    for (const fleet of Object.values(state.fleets)) {
+      const isEligibleOwner =
+        fleet.ownerPlayerId === playerId ||
+        areMutualAllies(state.players, playerId, fleet.ownerPlayerId);
+      if (
+        fleet.domain !== "SPACE" ||
+        !isEligibleOwner ||
+        fleet.id === selected.carrierFleetId ||
+        fleet.position.q !== armyPosition.q ||
+        fleet.position.r !== armyPosition.r
+      ) continue;
+      const option = document.createElement("option");
+      option.value = String(fleet.id);
+      const ownerName = state.players[fleet.ownerPlayerId]?.name ?? fleet.ownerPlayerId;
+      const ownership = fleet.ownerPlayerId === playerId ? "own" : "ally";
+      option.textContent = `${fleet.id} (${ownerName}, ${ownership})`;
+      armyTransportTargetSelect.append(option);
+    }
+  }
+  armyTransportTargetSelect.disabled = !canPlan || !isArmy || armyTransportTargetSelect.options.length === 0;
+  armyEmbarkBtn.disabled = armyTransportTargetSelect.disabled;
+  armyDisembarkBtn.disabled = !canPlan || !isArmy || !selected?.carrierFleetId;
+
+  if (!state || !playerId) return;
+  if (selected?.domain === "SPACE" && selected.ownerPlayerId === playerId) {
+    for (const army of Object.values(state.fleets)) {
+      if (army.domain !== "GROUND" || army.carrierFleetId !== selected.id) continue;
+      const row = document.createElement("div");
+      row.className = "entity-row";
+      row.append(document.createTextNode(`Embarked army ${army.id} `));
+      const button = document.createElement("button");
+      button.textContent = "Disembark on planet";
+      button.disabled = !canPlan;
+      button.addEventListener("click", () => sendMessage({ type: "disembarkArmy", armyId: army.id }));
+      row.append(button);
+      armyTransportRequestsEl.append(row);
+    }
+  }
+  for (const request of state.pendingArmyTransportRequests) {
+    const carrier = state.fleets[request.fleetId];
+    if (carrier?.ownerPlayerId !== playerId) continue;
+    const row = document.createElement("div");
+    row.className = "entity-row";
+    row.append(document.createTextNode(`Army ${request.armyId} requests ${request.fleetId} `));
+    for (const [label, accept] of [["Accept", true], ["Decline", false]] as const) {
+      const button = document.createElement("button");
+      button.textContent = label;
+      button.addEventListener("click", () => sendMessage({ type: "respondArmyEmbark", requestId: request.id, accept }));
+      row.append(button);
+    }
+    armyTransportRequestsEl.append(row);
+  }
+}
+
 function refreshHud(): void {
   updateAuthView(hudElements, runtime.session);
 
@@ -1068,7 +1139,6 @@ function refreshHud(): void {
     hudElements.selectedFleetDetailsEl.textContent = "-";
     hudElements.pathLine.textContent = "Planned path: 0 steps";
 
-    hudElements.submitMoveBtn.disabled = true;
     hudElements.clearPathBtn.disabled = true;
     hudElements.setAttackBtn.disabled = true;
     hudElements.setDefenseBtn.disabled = true;
@@ -1086,6 +1156,7 @@ function refreshHud(): void {
     updateStanceButtons(hudElements, null, null);
     refreshTransferControls(null, null);
     refreshPlanetActionControls(null, null);
+    refreshArmyTransportControls(null, null);
     return;
   }
 
@@ -1095,11 +1166,13 @@ function refreshHud(): void {
   hudElements.resourceValueEl.textContent = String(getPlayerResources(state, playerId));
 
   const selected = getSelectedFleet(runtime, state);
+  refreshArmyTransportControls(state, selected);
   const selectedStance = selected ? effectiveFleetStance(runtime, selected) : null;
   if (selected) {
     const pendingTag = selectedStance === selected.stance ? "" : ", pending";
+    const unitLabel = selected.domain === "GROUND" ? "army" : "fleet";
     hudElements.selectedFleetLine.textContent =
-      `Selected fleet: ${selected.id} (AP ${selected.actionPoints}, ${selectedStance}${pendingTag})`;
+      `Selected ${unitLabel}: ${selected.id} (AP ${selected.actionPoints}, ${selectedStance}${pendingTag})`;
     hudElements.selectedFleetDetailsEl.textContent = buildSelectedFleetDetails(selected, selectedStance);
   } else {
     hudElements.selectedFleetLine.textContent = "Selected fleet: none";
@@ -1118,7 +1191,6 @@ function refreshHud(): void {
   }
 
   const controlsDisabled = !playerId;
-  hudElements.submitMoveBtn.disabled = controlsDisabled || !selected || runtime.plannedPath.length === 0;
   hudElements.clearPathBtn.disabled = controlsDisabled || runtime.plannedPath.length === 0;
   hudElements.setAttackBtn.disabled = controlsDisabled || !selected;
   hudElements.setDefenseBtn.disabled = controlsDisabled || !selected;
@@ -1190,7 +1262,7 @@ const orderActions = createOrderActions({
   runtime,
   getActivePlayerId: () => activePlayerId(runtime),
   getSelectedFleet: (state) => getSelectedFleet(runtime, state),
-  getTargetPlayerId: () => targetSelect.value,
+  getTargetPlayerId: () => Number(targetSelect.value),
   nextActionId,
   sendMessage,
   appendEvent,
@@ -1201,7 +1273,6 @@ const orderActions = createOrderActions({
 function handleCanvasPrimaryClick(
   clientX: number,
   clientY: number,
-  shiftKey: boolean,
 ): void {
   const state = runtime.gameState;
   const playerId = activePlayerId(runtime);
@@ -1230,24 +1301,39 @@ function handleCanvasPrimaryClick(
   const hasPlanet = Boolean(tile.planetId && state.planets[tile.planetId]);
   const unitCount = fleetsHere.length + (hasPlanet ? 1 : 0);
 
-  if (shiftKey && selected && state.phase === "PLANNING") {
+  if (
+    selected &&
+    clicked.q === selected.position.q &&
+    clicked.r === selected.position.r
+  ) {
+    hexContextMenu.hide();
+    runtime.selectedFleetId = null;
+    runtime.plannedPath = [];
+    appendEvent(`Deselected ${selected.id}`);
+    refreshHud();
+    renderScene();
+    return;
+  }
+
+  if (selected && selected.domain === "SPACE" && state.phase === "PLANNING") {
     hexContextMenu.hide();
 
-    const isFleetOrigin =
-      clicked.q === selected.position.q && clicked.r === selected.position.r;
     const selectedPathIndex = runtime.plannedPath.findIndex(
       (step) => step.q === clicked.q && step.r === clicked.r,
     );
 
-    if (isFleetOrigin || selectedPathIndex >= 0) {
-      runtime.plannedPath = isFleetOrigin
-        ? []
-        : runtime.plannedPath.slice(0, selectedPathIndex);
+    if (selectedPathIndex >= 0) {
+      runtime.plannedPath = runtime.plannedPath.slice(0, selectedPathIndex + 1);
       appendEvent(
         `Rolled route back to ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
       );
       refreshHud();
       renderScene();
+      if (runtime.plannedPath.length > 0) {
+        orderActions.submitMove();
+      } else {
+        orderActions.clearPath();
+      }
       return;
     }
 
@@ -1258,19 +1344,21 @@ function handleCanvasPrimaryClick(
 
     const routeStart = runtime.plannedPath[runtime.plannedPath.length - 1]
       ?? selected.position;
-    const remainingActionPoints = selected.actionPoints - runtime.plannedPath.length;
-    const segment = buildPath(state, routeStart, clicked, remainingActionPoints);
-    if (!segment) {
-      appendEvent("No valid route segment within remaining AP");
+    if (!areNeighbors(routeStart, clicked)) {
+      appendEvent("Route must be built one adjacent hex at a time");
       return;
     }
-
-    runtime.plannedPath = [...runtime.plannedPath, ...segment];
+    if (runtime.plannedPath.length >= selected.actionPoints) {
+      appendEvent("No action points remaining");
+      return;
+    }
+    runtime.plannedPath = [...runtime.plannedPath, { ...clicked }];
     appendEvent(
       `Added waypoint ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
     );
     refreshHud();
     renderScene();
+    orderActions.submitMove();
     return;
   }
 
@@ -1306,15 +1394,6 @@ function handleCanvasPrimaryClick(
     return;
   }
 
-  const path = buildPath(state, selected.position, clicked, selected.actionPoints);
-  if (!path) {
-    appendEvent("No valid path within AP");
-    return;
-  }
-
-  runtime.plannedPath = path;
-  refreshHud();
-  renderScene();
 }
 
 const canvasController = createCanvasController({
@@ -1348,7 +1427,6 @@ bindMainEvents(
   {
     loginBtn,
     logoutBtn,
-    submitMoveBtn,
     clearPathBtn,
     setAttackBtn,
     setDefenseBtn,
@@ -1373,7 +1451,6 @@ bindMainEvents(
     onLogout: () => {
       void networkSession.logout();
     },
-    onSubmitMove: orderActions.submitMove,
     onClearPath: orderActions.clearPath,
     onSetAttack: () => {
       orderActions.submitStance("ATTACK");
@@ -1479,6 +1556,22 @@ transferResourceSelect.addEventListener("change", () => {
 });
 transferTargetFleetSelect.addEventListener("change", () => {
   refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
+});
+armyEmbarkBtn.addEventListener("click", () => {
+  const state = runtime.gameState;
+  const army = state ? getSelectedFleet(runtime, state) : null;
+  if (!army || army.domain !== "GROUND" || !armyTransportTargetSelect.value) return;
+  sendMessage({
+    type: "requestArmyEmbark",
+    armyId: army.id,
+    fleetId: Number(armyTransportTargetSelect.value),
+  });
+});
+armyDisembarkBtn.addEventListener("click", () => {
+  const state = runtime.gameState;
+  const army = state ? getSelectedFleet(runtime, state) : null;
+  if (!army || army.domain !== "GROUND") return;
+  sendMessage({ type: "disembarkArmy", armyId: army.id });
 });
 transferSubmitBtn.addEventListener("click", () => {
   submitTransfer();

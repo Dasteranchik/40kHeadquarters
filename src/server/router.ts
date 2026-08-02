@@ -33,6 +33,7 @@ export interface ApiRouteHandlers {
   ) => Promise<void>;
   handleListFleets: (req: IncomingMessage, res: ServerResponse) => void;
   handleAddFleet: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  handleAddArmy: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleDeleteFleet: (req: IncomingMessage, res: ServerResponse, fleetId: string) => void;
   handleUpdateFleet: (
     req: IncomingMessage,
@@ -117,6 +118,11 @@ export async function handleApiRequest(
 
   if (path === "/api/admin/fleets" && method === "POST") {
     await handlers.handleAddFleet(req, res);
+    return;
+  }
+
+  if (path === "/api/admin/armies" && method === "POST") {
+    await handlers.handleAddArmy(req, res);
     return;
   }
 

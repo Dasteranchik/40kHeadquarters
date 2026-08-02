@@ -19,10 +19,12 @@ import {
   IntelFragmentMap,
   PendingPlanetInformantAction,
   PendingPlanetTitheChange,
+  ArmyTransportRequest,
   Planet,
   Player,
   ResourceStore,
 } from "../types";
+import { defaultPlayerColor, isPlayerColor } from "../utils/playerColor";
 
 const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
   { id: "astra_militarum", name: "Астра Милитарум" },
@@ -94,6 +96,9 @@ function normalizeTags(value: unknown): PlanetTag[] {
 }
 
 function defaultWorldType(planet: Partial<Planet>): PlanetWorldType {
+  if ((planet.worldType as string | undefined) === "DEATH_WORLD") {
+    return "CEMETERY_WORLD";
+  }
   if (isPlanetWorldType(planet.worldType)) {
     return planet.worldType;
   }
@@ -146,9 +151,11 @@ function fallbackFactionNameById(factionId: string): string {
 }
 
 function normalizeFaction(factionId: string, value: unknown): Faction {
+  const id = Number(factionId);
   if (!value || typeof value !== "object") {
     return {
-      id: factionId,
+      id,
+      code: factionId,
       name: fallbackFactionNameById(factionId),
     };
   }
@@ -165,7 +172,10 @@ function normalizeFaction(factionId: string, value: unknown): Faction {
       : undefined;
 
   return {
-    id: factionId,
+    id: Number(id),
+    code: typeof (raw as { code?: unknown }).code === "string"
+      ? (raw as { code: string }).code
+      : factionId,
     name: normalizedName,
     description: normalizedDescription,
   };
@@ -173,20 +183,24 @@ function normalizeFaction(factionId: string, value: unknown): Faction {
 
 function defaultFactions(): Record<string, Faction> {
   const result: Record<string, Faction> = {};
-  for (const faction of DEFAULT_FACTIONS) {
-    result[faction.id] = {
-      id: faction.id,
+  DEFAULT_FACTIONS.forEach((faction, index) => {
+    const id = index + 1;
+    result[id] = {
+      id,
+      code: faction.id,
       name: faction.name,
     };
-  }
+  });
   return result;
 }
 
 function addMissingDefaultFactions(factions: Record<string, Faction>): void {
   for (const faction of DEFAULT_FACTIONS) {
-    if (!factions[faction.id]) {
-      factions[faction.id] = {
-        id: faction.id,
+    if (!Object.values(factions).some((entry) => entry.code === faction.id)) {
+      const id = Math.max(0, ...Object.values(factions).map((entry) => entry.id)) + 1;
+      factions[id] = {
+        id,
+        code: faction.id,
         name: faction.name,
       };
     }
@@ -200,7 +214,7 @@ function normalizeFactions(value: unknown): Record<string, Faction> {
 
   const factions: Record<string, Faction> = {};
   for (const [factionId, factionValue] of Object.entries(value as Record<string, unknown>)) {
-    if (!isValidId(factionId)) {
+    if (!Number.isInteger(Number(factionId)) || Number(factionId) <= 0) {
       continue;
     }
 
@@ -222,7 +236,7 @@ function resolveDefaultFactionId(factions: Record<string, Faction>): string {
     return ids[0];
   }
 
-  return DEFAULT_FACTIONS[0].id;
+  return String(Object.values(factions).sort((a, b) => a.id - b.id)[0].id);
 }
 
 function normalizePlayer(
@@ -235,20 +249,18 @@ function normalizePlayer(
   const derivedAlignment = name.toLowerCase().includes("imperial")
     ? "IMPERIAL"
     : "NON_IMPERIAL";
-  const rawFactionId =
-    typeof player.factionId === "string" && player.factionId.trim().length > 0
-      ? player.factionId.trim()
-      : "";
+  const rawFactionId = Number(player.factionId);
 
   return {
-    id,
+    id: Number(id),
     name,
+    color: isPlayerColor(player.color) ? player.color.toLowerCase() : defaultPlayerColor(Number(id)),
     resources: intOrDefault(player.resources, 100, 0),
     alliances: Array.isArray(player.alliances)
-      ? player.alliances.filter((entry): entry is string => typeof entry === "string")
+      ? player.alliances.filter((entry) => Number.isInteger(Number(entry))).map(Number)
       : [],
     wars: Array.isArray(player.wars)
-      ? player.wars.filter((entry): entry is string => typeof entry === "string")
+      ? player.wars.filter((entry) => Number.isInteger(Number(entry))).map(Number)
       : [],
     exploredTiles: Array.isArray(player.exploredTiles)
       ? player.exploredTiles.map((coord) => normalizePosition(coord))
@@ -257,7 +269,7 @@ function normalizePlayer(
       player.alignment === "IMPERIAL" || player.alignment === "NON_IMPERIAL"
         ? player.alignment
         : derivedAlignment,
-    factionId: isValidId(rawFactionId) ? rawFactionId : fallbackFactionId,
+    factionId: Number.isInteger(rawFactionId) ? rawFactionId : Number(fallbackFactionId),
     intelFragments: normalizeIntelMap(player.intelFragments),
   };
 }
@@ -276,7 +288,7 @@ function normalizePlanet(id: string, value: unknown): Planet {
   const titheLevel = isTitheLevel(planet.titheLevel) ? planet.titheLevel : "DECUMA_PRIMA";
 
   return {
-    id,
+    id: Number(id),
     position: normalizePosition(planet.position),
     worldType,
     worldTags: worldTags.length > 0 ? worldTags : defaultTagsByWorldType(worldType),
@@ -299,11 +311,8 @@ function normalizeFleet(id: string, value: unknown): Fleet {
   const fleet = (value ?? {}) as Partial<Fleet>;
 
   return {
-    id,
-    ownerPlayerId:
-      typeof fleet.ownerPlayerId === "string" && fleet.ownerPlayerId
-        ? fleet.ownerPlayerId
-        : "",
+    id: Number(id),
+    ownerPlayerId: Number(fleet.ownerPlayerId),
     position: normalizePosition(fleet.position),
     combatPower: intOrDefault(fleet.combatPower, 10, 0),
     health: intOrDefault(fleet.health, 100, 1),
@@ -315,7 +324,27 @@ function normalizeFleet(id: string, value: unknown): Fleet {
     stance: fleet.stance === "DEFENSE" ? "DEFENSE" : "ATTACK",
     domain: fleet.domain === "GROUND" ? "GROUND" : "SPACE",
     inventory: normalizeResourceStore(fleet.inventory),
+    ...(typeof fleet.carrierFleetId === "string" && fleet.carrierFleetId
+      ? { carrierFleetId: fleet.carrierFleetId }
+      : {}),
   };
+}
+
+function normalizeArmyTransportRequests(value: unknown): ArmyTransportRequest[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): ArmyTransportRequest[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const request = entry as Partial<ArmyTransportRequest>;
+    if (typeof request.id !== "string" || typeof request.armyId !== "string" ||
+        typeof request.fleetId !== "string" || typeof request.requestedByPlayerId !== "string") return [];
+    return [{
+      id: request.id,
+      armyId: request.armyId,
+      fleetId: request.fleetId,
+      requestedByPlayerId: request.requestedByPlayerId,
+      requestedOnTurn: intOrDefault(request.requestedOnTurn, 1, 1),
+    }];
+  });
 }
 
 function normalizePendingTitheChanges(value: unknown): PendingPlanetTitheChange[] {
@@ -412,7 +441,7 @@ export function normalizeGameState(state: GameState): GameState {
   for (const [playerId, value] of Object.entries(state.players ?? {})) {
     const player = normalizePlayer(playerId, value, fallbackFactionId);
     if (!normalizedFactions[player.factionId]) {
-      player.factionId = fallbackFactionId;
+      player.factionId = Number(fallbackFactionId);
     }
 
     normalizedPlayers[playerId] = player;
@@ -437,8 +466,31 @@ export function normalizeGameState(state: GameState): GameState {
   state.players = normalizedPlayers;
   state.planets = normalizedPlanets;
   state.fleets = normalizedFleets;
+  state.nextIds = {
+    player: intOrDefault(state.nextIds?.player, 1, 1),
+    faction: Math.max(intOrDefault(state.nextIds?.faction, 1, 1), ...Object.values(state.factions).map((entry) => entry.id + 1)),
+    planet: intOrDefault(state.nextIds?.planet, 1, 1),
+    unit: intOrDefault(state.nextIds?.unit, 1, 1),
+  };
   state.pendingTitheChanges = normalizePendingTitheChanges(state.pendingTitheChanges);
   state.pendingInformantActions = normalizePendingInformants(state.pendingInformantActions);
+  state.pendingArmyTransportRequests = normalizeArmyTransportRequests(
+    (state as Partial<GameState>).pendingArmyTransportRequests,
+  ).filter((request) => {
+    const army = state.fleets[request.armyId];
+    const fleet = state.fleets[request.fleetId];
+    return army?.domain === "GROUND" && fleet?.domain === "SPACE" && army.carrierFleetId !== fleet.id;
+  });
+
+  for (const army of Object.values(state.fleets)) {
+    if (army.domain !== "GROUND" || !army.carrierFleetId) continue;
+    const carrier = state.fleets[army.carrierFleetId];
+    if (!carrier || carrier.domain !== "SPACE") {
+      delete army.carrierFleetId;
+      continue;
+    }
+    army.position = { ...carrier.position };
+  }
 
   pruneRelations(state);
   syncPlanetTileLinks(state);

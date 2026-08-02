@@ -37,8 +37,8 @@ function sortedActions(actions: Action[]): Action[] {
 function validateMoveAction(
   state: GameState,
   action: MoveFleetAction,
-  apUsedByFleet: Map<string, number>,
-  projectedPositionByFleet: Map<string, HexCoord>,
+  apUsedByFleet: Map<number, number>,
+  projectedPositionByFleet: Map<number, HexCoord>,
   tileIndex: Map<string, Tile>,
 ): ValidationError | null {
   const fleet = state.fleets[action.payload.fleetId];
@@ -48,6 +48,10 @@ function validateMoveAction(
 
   if (fleet.ownerPlayerId !== action.playerId) {
     return { actionId: action.id, reason: "Fleet does not belong to player" };
+  }
+
+  if (fleet.domain === "GROUND") {
+    return { actionId: action.id, reason: "Armies cannot move independently" };
   }
 
   const pathLength = action.payload.path.length;
@@ -153,8 +157,8 @@ function playerHasFleetOnPlanet(
 function validatePlanetAction(
   state: GameState,
   action: PlanetAction,
-  moraleUsedByPlayer: Set<string>,
-  manualProductionUsedByPlanet: Set<string>,
+  moraleUsedByPlayer: Set<number>,
+  manualProductionUsedByPlanet: Set<number>,
 ): ValidationError | null {
   const player = state.players[action.playerId];
   if (!player) {
@@ -268,7 +272,7 @@ function validatePlanetAction(
       };
     }
 
-    if (player.factionId !== ECCLESIARCHY_FACTION_ID) {
+    if (state.factions[player.factionId]?.code !== ECCLESIARCHY_FACTION_ID) {
       return {
         actionId: action.id,
         reason: "ECCLESIARCHY_RAISE_MORALE requires Ecclesiarchy faction",
@@ -293,7 +297,7 @@ function validatePlanetAction(
       };
     }
 
-    if (player.factionId !== INQUISITION_FACTION_ID) {
+    if (state.factions[player.factionId]?.code !== INQUISITION_FACTION_ID) {
       return {
         actionId: action.id,
         reason: "INQUISITION_DEPLOY_INFORMANT requires Inquisition faction",
@@ -309,7 +313,7 @@ function validatePlanetAction(
       };
     }
 
-    if (player.factionId !== ADMINISTRATUM_FACTION_ID) {
+    if (state.factions[player.factionId]?.code !== ADMINISTRATUM_FACTION_ID) {
       return {
         actionId: action.id,
         reason: "ADMINISTRATUM_SET_TITHE requires Administratum faction",
@@ -341,11 +345,11 @@ export function validateActions(
   const planetActions: PlanetAction[] = [];
   const errors: ValidationError[] = [];
 
-  const apUsedByFleet = new Map<string, number>();
-  const projectedPositionByFleet = new Map<string, HexCoord>();
+  const apUsedByFleet = new Map<number, number>();
+  const projectedPositionByFleet = new Map<number, HexCoord>();
   const diplomacyPairSeen = new Set<string>();
-  const moraleUsedByPlayer = new Set<string>();
-  const manualProductionUsedByPlanet = new Set<string>();
+  const moraleUsedByPlayer = new Set<number>();
+  const manualProductionUsedByPlanet = new Set<number>();
   const tileIndex = buildTileIndex(state.map);
 
   for (const action of sortedActions(actions)) {

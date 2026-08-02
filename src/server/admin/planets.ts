@@ -33,7 +33,6 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     const body = await readJsonBody<AddPlanetRequest>(req);
     if (
       !body ||
-      typeof body.id !== "string" ||
       !isFiniteNumber(body.q) ||
       !isFiniteNumber(body.r)
     ) {
@@ -41,15 +40,6 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       return;
     }
 
-    if (!isValidId(body.id)) {
-      writeJson(res, 400, { error: "Planet id must match [a-zA-Z0-9_-]{2,32}" });
-      return;
-    }
-
-    if (deps.state.planets[body.id]) {
-      writeJson(res, 409, { error: "Planet id already exists" });
-      return;
-    }
 
     if (body.worldType !== undefined && !isPlanetWorldType(body.worldType)) {
       writeJson(res, 400, { error: "worldType is invalid" });
@@ -126,7 +116,7 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     const titheLevel = body.titheLevel ?? "DECUMA_PRIMA";
     const visionRange = Math.max(0, Math.trunc(body.visionRange ?? 1));
     const planet: Planet = {
-      id: body.id,
+      id: deps.state.nextIds.planet++,
       position: coord,
       worldType: body.worldType ?? "AGRI_WORLD",
       worldTags: body.worldTags ? [...new Set(body.worldTags)] : [],
@@ -188,7 +178,7 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       return;
     }
 
-    const planets = Object.values(deps.state.planets).sort((a, b) => a.id.localeCompare(b.id));
+    const planets = Object.values(deps.state.planets).sort((a, b) => a.id - b.id);
     writeJson(res, 200, { planets });
   }
 

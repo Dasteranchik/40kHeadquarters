@@ -72,7 +72,6 @@ export function createAdminActions(deps: AdminActionDeps) {
 export function buildAdminCreatePlayerPayload(
   inputs: AdminPlayerFormInputs,
 ): {
-  id: string;
   name: string;
   username?: string;
   password?: string;
@@ -80,7 +79,6 @@ export function buildAdminCreatePlayerPayload(
   const username = inputs.usernameInput.value.trim();
   const password = inputs.passwordInput.value.trim();
   return {
-    id: inputs.idInput.value.trim(),
     name: inputs.nameInput.value.trim(),
     username: username || undefined,
     password: password || undefined,
@@ -90,14 +88,12 @@ export function buildAdminCreatePlayerPayload(
 export function buildAdminCreatePlanetPayload(
   inputs: AdminPlanetFormInputs,
 ): {
-  id: string;
   q: number;
   r: number;
   resourceProduction: number;
   influenceValue: number;
 } {
   return {
-    id: inputs.idInput.value.trim(),
     q: Number(inputs.qInput.value),
     r: Number(inputs.rInput.value),
     resourceProduction: Number(inputs.resourceInput.value),
@@ -108,8 +104,7 @@ export function buildAdminCreatePlanetPayload(
 export function buildAdminCreateFleetPayload(
   inputs: AdminFleetFormInputs,
 ): {
-  id: string;
-  ownerPlayerId: string;
+  ownerPlayerId: number;
   q: number;
   r: number;
   combatPower: number;
@@ -119,8 +114,7 @@ export function buildAdminCreateFleetPayload(
   capacity: number;
 } {
   return {
-    id: inputs.idInput.value.trim(),
-    ownerPlayerId: inputs.ownerSelect.value,
+    ownerPlayerId: Number(inputs.ownerSelect.value),
     q: Number(inputs.qInput.value),
     r: Number(inputs.rInput.value),
     combatPower: Number(inputs.powerInput.value || "10"),

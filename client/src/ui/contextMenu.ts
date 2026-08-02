@@ -125,7 +125,7 @@ function sortFleetsForMenu(fleets: Fleet[], playerId: string): Fleet[] {
       return ownOrder;
     }
 
-    return a.id.localeCompare(b.id);
+    return a.id - b.id;
   });
 }
 

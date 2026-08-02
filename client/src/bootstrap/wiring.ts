@@ -3,7 +3,6 @@ import type { CanvasController } from "../input/canvasController";
 export interface MainEventElements {
   loginBtn: HTMLButtonElement;
   logoutBtn: HTMLButtonElement;
-  submitMoveBtn: HTMLButtonElement;
   clearPathBtn: HTMLButtonElement;
   setAttackBtn: HTMLButtonElement;
   setDefenseBtn: HTMLButtonElement;
@@ -25,7 +24,6 @@ export interface MainEventElements {
 export interface MainEventHandlers {
   onLogin: () => void;
   onLogout: () => void;
-  onSubmitMove: () => void;
   onClearPath: () => void;
   onSetAttack: () => void;
   onSetDefense: () => void;
@@ -54,7 +52,6 @@ export function bindMainEvents(
   elements.loginBtn.addEventListener("click", handlers.onLogin);
   elements.logoutBtn.addEventListener("click", handlers.onLogout);
 
-  elements.submitMoveBtn.addEventListener("click", handlers.onSubmitMove);
   elements.clearPathBtn.addEventListener("click", handlers.onClearPath);
   elements.setAttackBtn.addEventListener("click", handlers.onSetAttack);
   elements.setDefenseBtn.addEventListener("click", handlers.onSetDefense);

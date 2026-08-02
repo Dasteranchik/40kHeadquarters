@@ -15,7 +15,6 @@ export interface HudElements {
   selectedFleetLine: HTMLParagraphElement;
   selectedFleetDetailsEl: HTMLPreElement;
   pathLine: HTMLParagraphElement;
-  submitMoveBtn: HTMLButtonElement;
   clearPathBtn: HTMLButtonElement;
   setAttackBtn: HTMLButtonElement;
   setDefenseBtn: HTMLButtonElement;
@@ -58,7 +57,8 @@ export function buildSelectedFleetDetails(fleet: Fleet, stance: FleetStance): st
     `Vision Range: ${fleet.visionRange}`,
     `Allied Vision: ${fleet.shareVisionWithAllies ? "shared" : "private"}`,
     `Capacity: ${fleet.capacity}`,
-    `Domain: ${fleet.domain}`,
+    `Unit: ${fleet.domain === "GROUND" ? "ARMY" : "FLEET"}`,
+    ...(fleet.carrierFleetId ? [`Carrier: ${fleet.carrierFleetId}`] : []),
     `Inventory: ${formatStore(fleet.inventory)}`,
     `Stance: ${stance}`,
     `Stance Pending: ${isPendingStance ? "yes" : "no"}`,

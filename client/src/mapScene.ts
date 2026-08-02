@@ -2,6 +2,7 @@ import { Container, Graphics, Text } from "pixi.js";
 
 import { coordKey, hexDistance } from "../../src/hex";
 import type { Fleet, GameState, HexCoord, TerrainType, Tile } from "../../src/types";
+import { defaultPlayerColor, playerColorToNumber } from "../../src/utils/playerColor";
 import { axialToPixel, HEX_DIRECTIONS, hexPolygon, pixelToAxial } from "./hexMath";
 
 export const HEX_SIZE = 30;
@@ -75,7 +76,7 @@ export function ownFleetAtCoord(
   coord: HexCoord,
   playerId: string,
 ): Nullable<Fleet> {
-  const ownFleets = ownFleetsAtCoord(state, coord, playerId).sort((a, b) => a.id.localeCompare(b.id));
+  const ownFleets = ownFleetsAtCoord(state, coord, playerId).sort((a, b) => a.id - b.id);
   return ownFleets[0] ?? null;
 }
 
@@ -170,14 +171,9 @@ function tileColor(terrainType: TerrainType): number {
   return 0x223247;
 }
 
-function ownerColor(ownerId: string): number {
-  const map: Record<string, number> = {
-    p1: 0x63d6ff,
-    p2: 0xff9a63,
-    p3: 0xc7ff67,
-  };
-
-  return map[ownerId] ?? 0xd4d7de;
+function ownerColor(state: GameState, ownerId: number): number {
+  const color = state.players[ownerId]?.color ?? defaultPlayerColor(ownerId);
+  return playerColorToNumber(color);
 }
 
 function clearLayer(layer: Container): void {
@@ -297,7 +293,7 @@ function drawFleets(
 
       const body = new Graphics();
       body.lineStyle(2, fleet.id === selectedFleet?.id ? 0xffffff : 0x1a2533, 1);
-      body.beginFill(ownerColor(fleet.ownerPlayerId), 1);
+      body.beginFill(ownerColor(state, fleet.ownerPlayerId), 1);
       body.drawCircle(x, y, 7);
       body.endFill();
       layers.fleetLayer.addChild(body);

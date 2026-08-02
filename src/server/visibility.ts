@@ -9,7 +9,7 @@ import { Session } from "./contracts";
 function canSessionSeeFleetOwner(
   session: Session,
   state: GameState,
-  ownerPlayerId: string,
+  ownerPlayerId: number,
 ): boolean {
   if (session.role === "admin") {
     return true;
@@ -94,17 +94,25 @@ export function filterFleetsForSession(
 }
 
 export function buildStateForSession(session: Session, state: GameState): GameState {
+  const pendingArmyTransportRequests = session.role === "admin"
+    ? state.pendingArmyTransportRequests
+    : state.pendingArmyTransportRequests.filter((request) => {
+        const army = state.fleets[request.armyId];
+        const fleet = state.fleets[request.fleetId];
+        return Boolean(session.playerId && (army?.ownerPlayerId === session.playerId || fleet?.ownerPlayerId === session.playerId));
+      });
   return {
     ...state,
     fleets: filterFleetsForSession(session, state, state.fleets),
+    pendingArmyTransportRequests,
   };
 }
 
 function buildPlanningSnapshot(state: GameState, actions: Iterable<Action>): PlanningSnapshot {
   const validated = validateActions(state, [...actions]);
   const plannedPathByFleetId = new Map<
-    string,
-    { ownerPlayerId: string; path: HexCoord[] }
+    number,
+    { ownerPlayerId: number; path: HexCoord[] }
   >();
 
   for (const action of validated.moveActions) {
@@ -128,7 +136,7 @@ function buildPlanningSnapshot(state: GameState, actions: Iterable<Action>): Pla
   return {
     movePreviews: [...plannedPathByFleetId.entries()]
       .filter(([, value]) => value.path.length > 0)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => a - b)
       .map(([fleetId, value]) => ({
         fleetId,
         ownerPlayerId: value.ownerPlayerId,
@@ -164,7 +172,7 @@ export function buildResolutionForSession(
   session: Session,
   state: GameState,
   resolution: TurnResolution,
-  ownerByFleetIdBeforeResolution: Map<string, string>,
+  ownerByFleetIdBeforeResolution: Map<number, number>,
 ): TurnResolution {
   if (session.role === "admin") {
     return resolution;
@@ -177,7 +185,7 @@ export function buildResolutionForSession(
       [],
   );
 
-  const canSeeFleetId = (fleetId: string): boolean => {
+  const canSeeFleetId = (fleetId: number): boolean => {
     const fleetNow = state.fleets[fleetId];
     if (fleetNow && canSessionSeeFleet(session, state, fleetNow, spottingTiles)) {
       return true;

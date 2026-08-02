@@ -23,7 +23,7 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
       return;
     }
 
-    const factions = Object.values(deps.state.factions).sort((a, b) => a.id.localeCompare(b.id));
+    const factions = Object.values(deps.state.factions).sort((a, b) => a.id - b.id);
     writeJson(res, 200, { factions });
   }
 
@@ -33,18 +33,13 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
     }
 
     const body = await readJsonBody<AddFactionRequest>(req);
-    if (!body || typeof body.id !== "string" || !isNonEmptyString(body.name)) {
+    if (!body || !isValidId(body.code) || !isNonEmptyString(body.name)) {
       writeJson(res, 400, { error: "Invalid faction payload" });
       return;
     }
 
-    if (!isValidId(body.id)) {
-      writeJson(res, 400, { error: "Faction id must match [a-zA-Z0-9_-]{2,32}" });
-      return;
-    }
-
-    if (deps.state.factions[body.id]) {
-      writeJson(res, 409, { error: "Faction id already exists" });
+    if (Object.values(deps.state.factions).some((entry) => entry.code === body.code)) {
+      writeJson(res, 409, { error: "Faction code already exists" });
       return;
     }
 
@@ -54,7 +49,8 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
     }
 
     const faction: Faction = {
-      id: body.id,
+      id: deps.state.nextIds.faction++,
+      code: body.code,
       name: body.name.trim(),
       description:
         typeof body.description === "string" && body.description.trim().length > 0
@@ -127,7 +123,8 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
       return;
     }
 
-    const assignedPlayer = Object.values(deps.state.players).find((player) => player.factionId === factionId);
+    const numericFactionId = Number(factionId);
+    const assignedPlayer = Object.values(deps.state.players).find((player) => player.factionId === numericFactionId);
     if (assignedPlayer) {
       writeJson(res, 409, {
         error: `Faction is assigned to player ${assignedPlayer.id}. Reassign players before deletion.`,

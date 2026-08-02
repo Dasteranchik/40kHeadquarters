@@ -1,6 +1,7 @@
 ﻿import "./admin.css";
 
 import { PLANET_WORLD_TYPES, TITHE_LEVEL_ORDER } from "../../src/planetDomain";
+import { defaultPlayerColor } from "../../src/utils/playerColor";
 import type {
   Faction,
   Fleet,
@@ -55,10 +56,12 @@ const adminPanel = document.getElementById("adminPanel") as HTMLElement;
 const factionsPanel = document.getElementById("factionsPanel") as HTMLElement;
 const planetsPanel = document.getElementById("planetsPanel") as HTMLElement;
 const fleetsPanel = document.getElementById("fleetsPanel") as HTMLElement;
+const armiesPanel = document.getElementById("armiesPanel") as HTMLElement;
 const relationsPanel = document.getElementById("relationsPanel") as HTMLElement;
 
 const addPlayerId = document.getElementById("addPlayerId") as HTMLInputElement;
 const addPlayerName = document.getElementById("addPlayerName") as HTMLInputElement;
+const addPlayerColor = document.getElementById("addPlayerColor") as HTMLInputElement;
 const addPlayerUsername = document.getElementById("addPlayerUsername") as HTMLInputElement;
 const addPlayerPassword = document.getElementById("addPlayerPassword") as HTMLInputElement;
 const addPlayerAlignment = document.getElementById("addPlayerAlignment") as HTMLSelectElement;
@@ -101,9 +104,17 @@ const addFleetAp = document.getElementById("addFleetAp") as HTMLInputElement;
 const addFleetVision = document.getElementById("addFleetVision") as HTMLInputElement;
 const addFleetCapacity = document.getElementById("addFleetCapacity") as HTMLInputElement;
 const addFleetStance = document.getElementById("addFleetStance") as HTMLSelectElement;
-const addFleetDomain = document.getElementById("addFleetDomain") as HTMLSelectElement;
 const addFleetInventory = document.getElementById("addFleetInventory") as HTMLInputElement;
 const addFleetBtn = document.getElementById("addFleetBtn") as HTMLButtonElement;
+const addArmyBtn = document.getElementById("addArmyBtn") as HTMLButtonElement;
+const addArmyOwner = document.getElementById("addArmyOwner") as HTMLSelectElement;
+const addArmyDestinationKind = document.getElementById("addArmyDestinationKind") as HTMLSelectElement;
+const addArmyDestination = document.getElementById("addArmyDestination") as HTMLSelectElement;
+const addArmyPower = document.getElementById("addArmyPower") as HTMLInputElement;
+const addArmyHealth = document.getElementById("addArmyHealth") as HTMLInputElement;
+const addArmyInfluence = document.getElementById("addArmyInfluence") as HTMLInputElement;
+const addArmyVision = document.getElementById("addArmyVision") as HTMLInputElement;
+const addArmyStance = document.getElementById("addArmyStance") as HTMLSelectElement;
 const fleetsSearch = document.getElementById("fleetsSearch") as HTMLInputElement;
 const fleetsList = document.getElementById("fleetsList") as HTMLDivElement;
 
@@ -127,7 +138,7 @@ const runtime: AdminState = {
 };
 
 function setPanelsVisible(visible: boolean): void {
-  for (const panel of [adminPanel, factionsPanel, planetsPanel, fleetsPanel, relationsPanel]) {
+  for (const panel of [adminPanel, factionsPanel, planetsPanel, fleetsPanel, armiesPanel, relationsPanel]) {
     panel.classList.toggle("hidden", !visible);
   }
 }
@@ -288,11 +299,11 @@ function initStaticSelects(): void {
 }
 
 function sortedFactions(): Faction[] {
-  return [...runtime.factions].sort((a, b) => a.id.localeCompare(b.id));
+  return [...runtime.factions].sort((a, b) => a.id - b.id);
 }
 
-function factionNameById(factionId: string): string {
-  return runtime.factions.find((faction) => faction.id === factionId)?.name ?? factionId;
+function factionNameById(factionId: number): string {
+  return runtime.factions.find((faction) => faction.id === factionId)?.name ?? String(factionId);
 }
 
 function buildFactionSelect(selectedFactionId: string): HTMLSelectElement {
@@ -340,11 +351,11 @@ function syncAddPlayerFactionSelect(): void {
 }
 
 function sortedPlayers(): AdminPlayer[] {
-  return [...runtime.players].sort((a, b) => a.id.localeCompare(b.id));
+  return [...runtime.players].sort((a, b) => a.id - b.id);
 }
 
-function playerNameById(playerId: string): string {
-  return runtime.players.find((player) => player.id === playerId)?.name ?? playerId;
+function playerNameById(playerId: number): string {
+  return runtime.players.find((player) => player.id === playerId)?.name ?? String(playerId);
 }
 
 function populatePlayerIdSelect(select: HTMLSelectElement, preferredPlayerId: string): void {
@@ -395,6 +406,7 @@ function syncPlayerIdSelects(): void {
   const prevRelationB = relPlayerB.value;
 
   populatePlayerIdSelect(addFleetOwner, prevFleetOwner);
+  populatePlayerIdSelect(addArmyOwner, addArmyOwner.value);
   populatePlayerIdSelect(relPlayerA, prevRelationA);
   populatePlayerIdSelect(relPlayerB, prevRelationB);
 
@@ -409,6 +421,35 @@ function syncPlayerIdSelects(): void {
     if (next) {
       relPlayerB.value = next.value;
     }
+  }
+}
+
+function syncArmyDestinations(): void {
+  const previous = addArmyDestination.value;
+  addArmyDestination.innerHTML = "";
+  const isPlanet = addArmyDestinationKind.value === "PLANET";
+  const destinations = isPlanet
+    ? runtime.planets.map((planet) => ({
+        id: planet.id,
+        label: `${planet.id} — ${planet.worldType} [${planet.position.q},${planet.position.r}]`,
+      }))
+    : runtime.fleets
+        .filter((fleet) => fleet.domain === "SPACE")
+        .map((fleet) => ({
+          id: fleet.id,
+          label: `${fleet.id} — ${playerNameById(fleet.ownerPlayerId)} [${fleet.position.q},${fleet.position.r}]`,
+        }));
+
+  for (const destination of destinations) {
+    const option = document.createElement("option");
+    option.value = String(destination.id);
+    option.textContent = destination.label;
+    addArmyDestination.appendChild(option);
+  }
+  addArmyDestination.disabled = destinations.length === 0;
+  addArmyBtn.disabled = destinations.length === 0 || addArmyOwner.disabled;
+  if (destinations.some((destination) => String(destination.id) === previous)) {
+    addArmyDestination.value = previous;
   }
 }
 
@@ -428,6 +469,8 @@ async function loadAllData(): Promise<void> {
   ]);
 
   runtime.players = playersResp.players;
+  const nextPlayerId = Math.max(0, ...runtime.players.map((player) => player.id)) + 1;
+  addPlayerColor.value = defaultPlayerColor(nextPlayerId);
   runtime.factions = factionsResp.factions;
   runtime.planets = planetsResp.planets;
   runtime.fleets = fleetsResp.fleets;
@@ -499,6 +542,8 @@ function renderPlayers(): void {
     item.appendChild(title);
 
     const nameInput = createInput(player.name);
+    const colorInput = createInput(player.color);
+    colorInput.type = "color";
     const resourcesInput = createNumberInput(player.resources);
     const usernameInput = createInput(player.login?.username ?? "");
     const passwordInput = createInput("");
@@ -512,6 +557,7 @@ function renderPlayers(): void {
     fields.className = "grid";
     fields.append(
       createLabeledField("Name", nameInput),
+      createLabeledField("Unit color", colorInput),
       createLabeledField("Resources", resourcesInput),
       createLabeledField("Alignment", alignmentSelect),
       createLabeledField("Faction", factionSelect),
@@ -531,9 +577,10 @@ function renderPlayers(): void {
             method: "PUT",
             body: JSON.stringify({
               name: nameInput.value,
+              color: colorInput.value,
               resources: Number(resourcesInput.value),
               alignment: alignmentSelect.value,
-              factionId: factionSelect.value,
+              factionId: Number(factionSelect.value),
               username: usernameInput.value.trim() || undefined,
               password: passwordInput.value || undefined,
             }),
@@ -644,7 +691,7 @@ function renderPlanets(): void {
   planetsList.innerHTML = "";
 
   const query = planetsSearch.value;
-  const planets = [...runtime.planets].sort((a, b) => a.id.localeCompare(b.id));
+  const planets = [...runtime.planets].sort((a, b) => a.id - b.id);
   for (const planet of planets) {
     const searchText = [
       planet.id,
@@ -764,7 +811,7 @@ function renderFleets(): void {
   fleetsList.innerHTML = "";
 
   const query = fleetsSearch.value;
-  const fleets = [...runtime.fleets].sort((a, b) => a.id.localeCompare(b.id));
+  const fleets = [...runtime.fleets].sort((a, b) => a.id - b.id);
   for (const fleet of fleets) {
     const searchText = [
       fleet.id,
@@ -830,7 +877,7 @@ function renderFleets(): void {
           await apiRequest(`/api/admin/fleets/${encodeURIComponent(fleet.id)}`, {
             method: "PUT",
             body: JSON.stringify({
-              ownerPlayerId: ownerSelect.value,
+              ownerPlayerId: Number(ownerSelect.value),
               q: Number(qInput.value),
               r: Number(rInput.value),
               combatPower: Number(powerInput.value),
@@ -877,6 +924,7 @@ function renderFleets(): void {
 function renderAll(): void {
   syncAddPlayerFactionSelect();
   syncPlayerIdSelects();
+  syncArmyDestinations();
   renderPlayers();
   renderFactions();
   renderPlanets();
@@ -889,15 +937,15 @@ async function addPlayer(): Promise<void> {
     await apiRequest("/api/admin/players", {
       method: "POST",
       body: JSON.stringify({
-        id: addPlayerId.value.trim(),
         name: addPlayerName.value.trim(),
+        color: addPlayerColor.value,
         alignment: addPlayerAlignment.value,
-        factionId: addPlayerFaction.value || undefined,
+        factionId: addPlayerFaction.value ? Number(addPlayerFaction.value) : undefined,
         username: addPlayerUsername.value.trim() || undefined,
         password: addPlayerPassword.value || undefined,
       }),
     });
-    appendEvent(`Player ${addPlayerId.value.trim()} created`);
+    appendEvent(`Player ${addPlayerName.value.trim()} created`);
     await loadAllData();
   } catch (error) {
     appendEvent(`Player create failed: ${(error as Error).message}`);
@@ -909,7 +957,7 @@ async function addFaction(): Promise<void> {
     await apiRequest("/api/admin/factions", {
       method: "POST",
       body: JSON.stringify({
-        id: addFactionId.value.trim(),
+        code: addFactionId.value.trim(),
         name: addFactionName.value.trim(),
         description: addFactionDescription.value.trim() || undefined,
       }),
@@ -959,7 +1007,7 @@ async function addFleet(): Promise<void> {
       method: "POST",
       body: JSON.stringify({
         id: addFleetId.value.trim(),
-        ownerPlayerId: addFleetOwner.value,
+        ownerPlayerId: Number(addFleetOwner.value),
         q: Number(addFleetQ.value),
         r: Number(addFleetR.value),
         combatPower: Number(addFleetPower.value),
@@ -969,14 +1017,43 @@ async function addFleet(): Promise<void> {
         visionRange: Number(addFleetVision.value),
         capacity: Number(addFleetCapacity.value),
         stance: addFleetStance.value,
-        domain: addFleetDomain.value,
+        domain: "SPACE",
         inventory,
       }),
     });
-    appendEvent(`Fleet ${addFleetId.value.trim()} created`);
+    appendEvent("Fleet created");
     await loadAllData();
   } catch (error) {
     appendEvent(`Fleet create failed: ${(error as Error).message}`);
+  }
+}
+
+async function addArmy(): Promise<void> {
+  try {
+    if (!addArmyOwner.value || !addArmyDestination.value) {
+      throw new Error("Army owner and destination are required");
+    }
+    const kind = addArmyDestinationKind.value === "FLEET" ? "FLEET" : "PLANET";
+    const destinationId = Number(addArmyDestination.value);
+    const destination = kind === "FLEET"
+      ? { kind, fleetId: destinationId }
+      : { kind, planetId: destinationId };
+    await apiRequest("/api/admin/armies", {
+      method: "POST",
+      body: JSON.stringify({
+        ownerPlayerId: Number(addArmyOwner.value),
+        destination,
+        combatPower: Number(addArmyPower.value),
+        health: Number(addArmyHealth.value),
+        influence: Number(addArmyInfluence.value),
+        visionRange: Number(addArmyVision.value),
+        stance: addArmyStance.value,
+      }),
+    });
+    appendEvent("Army created");
+    await loadAllData();
+  } catch (error) {
+    appendEvent(`Army create failed: ${(error as Error).message}`);
   }
 }
 
@@ -988,8 +1065,8 @@ async function mutateRelation(remove: boolean): Promise<void> {
 
   const payload = {
     type: relType.value,
-    playerAId: relPlayerA.value,
-    playerBId: relPlayerB.value,
+    playerAId: Number(relPlayerA.value),
+    playerBId: Number(relPlayerB.value),
   };
 
   try {
@@ -1088,6 +1165,12 @@ addFleetBtn.addEventListener("click", () => {
   void addFleet();
 });
 
+addArmyBtn.addEventListener("click", () => {
+  void addArmy();
+});
+
+addArmyDestinationKind.addEventListener("change", syncArmyDestinations);
+
 addRelationBtn.addEventListener("click", () => {
   void mutateRelation(false);
 });
@@ -1120,3 +1203,6 @@ initStaticSelects();
 setPanelsVisible(false);
 renderAll();
 void restoreSession();
+import { initLocalization } from "./i18n";
+
+initLocalization();

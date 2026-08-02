@@ -13,7 +13,7 @@ export interface OrderActionsDeps {
   runtime: OrdersRuntimeState;
   getActivePlayerId: () => string | null;
   getSelectedFleet: (state: GameState) => Nullable<Fleet>;
-  getTargetPlayerId: () => string;
+  getTargetPlayerId: () => number;
   nextActionId: (prefix: string) => string;
   sendMessage: (message: ClientMessage) => boolean;
   appendEvent: (message: string) => void;
@@ -49,11 +49,10 @@ export function createOrderActions(deps: OrderActionsDeps) {
       return;
     }
 
-    deps.runtime.plannedPath = [];
     deps.refreshHud();
     deps.renderScene();
     deps.appendEvent(
-      `MOVE_FLEET submitted for ${selected.id} (${submittedSteps} steps)`,
+      `Route updated for ${selected.id} (${submittedSteps} steps)`,
     );
   }
 
@@ -110,7 +109,17 @@ export function createOrderActions(deps: OrderActionsDeps) {
   }
 
   function clearPath(): void {
+    const state = deps.runtime.gameState;
+    const playerId = deps.getActivePlayerId();
+    const selected = state ? deps.getSelectedFleet(state) : null;
     deps.runtime.plannedPath = [];
+    if (playerId && selected) {
+      const action: Action = {
+        id: deps.nextActionId("move-clear"), playerId, type: "MOVE_FLEET",
+        payload: { fleetId: selected.id, path: [] },
+      };
+      deps.sendMessage({ type: "submitAction", action });
+    }
     deps.refreshHud();
     deps.renderScene();
   }

@@ -71,7 +71,7 @@ export function collectVisibleTileKeysForPlayer(
 
 export function collectVisibleTileKeysByPlayerId(
   state: GameState,
-  playerId: string,
+  playerId: number,
 ): Set<string> {
   const player = state.players[playerId];
   if (!player) {
@@ -91,7 +91,7 @@ function mergeExploration(player: Player, visible: Set<string>): HexCoord[] {
 }
 
 function visibleFleetForPlayer(
-  viewerId: string,
+  viewerId: number,
   fleet: Fleet,
   turnNumber: number,
 ): VisibleFleet {

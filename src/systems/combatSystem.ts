@@ -10,13 +10,16 @@ function isAtWar(players: Record<string, Player>, a: string, b: string): boolean
 }
 
 function orderedFleetsById(fleets: Record<string, Fleet>): Fleet[] {
-  return Object.values(fleets).sort((a, b) => a.id.localeCompare(b.id));
+  return Object.values(fleets).sort((a, b) => a.id - b.id);
 }
 
 function groupFleetsByTile(state: GameState): Map<string, Fleet[]> {
   const byTile = new Map<string, Fleet[]>();
 
   for (const fleet of orderedFleetsById(state.fleets)) {
+    if (fleet.domain === "GROUND" && fleet.carrierFleetId) {
+      continue;
+    }
     const key = coordKey(fleet.position);
     const list = byTile.get(key);
     if (list) {
@@ -70,7 +73,7 @@ function hostileFleetsFor(
 }
 
 export function resolveCombat(state: GameState): CombatReport {
-  const damageByFleetId = new Map<string, number>();
+  const damageByFleetId = new Map<number, number>();
   const fleetsByTile = groupFleetsByTile(state);
 
   for (const tileFleets of fleetsByTile.values()) {
@@ -109,9 +112,9 @@ export function resolveCombat(state: GameState): CombatReport {
   }
 
   const damageEvents: CombatReport["damageEvents"] = [];
-  const destroyedFleetIds: string[] = [];
+  const destroyedFleetIds: number[] = [];
   const sortedDamage = [...damageByFleetId.entries()].sort(([a], [b]) =>
-    a.localeCompare(b),
+    a - b,
   );
 
   for (const [fleetId, damage] of sortedDamage) {
@@ -133,6 +136,11 @@ export function resolveCombat(state: GameState): CombatReport {
   }
 
   for (const fleetId of destroyedFleetIds) {
+    for (const army of Object.values(state.fleets)) {
+      if (army.domain === "GROUND" && army.carrierFleetId === fleetId) {
+        destroyedFleetIds.push(army.id);
+      }
+    }
     delete state.fleets[fleetId];
   }
 

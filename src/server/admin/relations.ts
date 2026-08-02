@@ -13,8 +13,8 @@ export interface RelationAdminHandlers {
 }
 
 function buildRelationsPayload(state: AdminHandlerDeps["state"]): {
-  alliances: Array<{ playerAId: string; playerBId: string }>;
-  wars: Array<{ playerAId: string; playerBId: string }>;
+  alliances: Array<{ playerAId: number; playerBId: number }>;
+  wars: Array<{ playerAId: number; playerBId: number }>;
 } {
   return {
     alliances: collectRelationPairs(state.players, "alliances"),
@@ -39,8 +39,8 @@ export function createRelationAdminHandlers(deps: AdminHandlerDeps): RelationAdm
     const body = await readJsonBody<RelationRequest>(req);
     if (
       !body ||
-      typeof body.playerAId !== "string" ||
-      typeof body.playerBId !== "string" ||
+      !Number.isInteger(body.playerAId) ||
+      !Number.isInteger(body.playerBId) ||
       (body.type !== "WAR" && body.type !== "ALLIANCE")
     ) {
       writeJson(res, 400, { error: "Invalid relation payload" });
@@ -84,8 +84,8 @@ export function createRelationAdminHandlers(deps: AdminHandlerDeps): RelationAdm
     const body = await readJsonBody<RelationRequest>(req);
     if (
       !body ||
-      typeof body.playerAId !== "string" ||
-      typeof body.playerBId !== "string" ||
+      !Number.isInteger(body.playerAId) ||
+      !Number.isInteger(body.playerBId) ||
       (body.type !== "WAR" && body.type !== "ALLIANCE")
     ) {
       writeJson(res, 400, { error: "Invalid relation payload" });

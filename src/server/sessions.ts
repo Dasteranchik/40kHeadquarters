@@ -11,7 +11,7 @@ export interface SessionManager {
   requireSession: (req: IncomingMessage, res: ServerResponse) => Session | null;
   requireAdmin: (req: IncomingMessage, res: ServerResponse) => Session | null;
   deleteSession: (token: string) => void;
-  removeSessionsForPlayer: (playerId: string) => void;
+  removeSessionsForPlayer: (playerId: number) => void;
 }
 
 export function createSessionManager(sessionTtlMs: number): SessionManager {
@@ -81,7 +81,7 @@ export function createSessionManager(sessionTtlMs: number): SessionManager {
     sessions.delete(token);
   }
 
-  function removeSessionsForPlayer(playerId: string): void {
+  function removeSessionsForPlayer(playerId: number): void {
     for (const [token, session] of sessions.entries()) {
       if (session.playerId === playerId) {
         sessions.delete(token);

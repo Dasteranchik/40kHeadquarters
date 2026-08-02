@@ -4,7 +4,7 @@ import type { Fleet, GameState, HexCoord, Planet, ResourceStore } from "../types
 
 export interface TransferActor {
   role: "admin" | "player";
-  playerId?: string;
+  playerId?: number;
 }
 
 export interface TransferResult {
@@ -107,7 +107,7 @@ function sameHex(a: HexCoord, b: HexCoord): boolean {
 
 function playerHasFleetAt(
   state: GameState,
-  playerId: string,
+  playerId: number,
   coord: HexCoord,
 ): boolean {
   return Object.values(state.fleets).some(

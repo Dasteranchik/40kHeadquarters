@@ -21,7 +21,7 @@ export interface EndTurnMessage {
 
 export interface SetFleetAllyVisionMessage {
   type: "setFleetAllyVision";
-  fleetId: string;
+  fleetId: number;
   enabled: boolean;
 }
 
@@ -44,17 +44,37 @@ export interface ResourceTransferMessage {
   payload: ResourceTransferPayload;
 }
 
+export interface RequestArmyEmbarkMessage {
+  type: "requestArmyEmbark";
+  armyId: number;
+  fleetId: number;
+}
+
+export interface RespondArmyEmbarkMessage {
+  type: "respondArmyEmbark";
+  requestId: string;
+  accept: boolean;
+}
+
+export interface DisembarkArmyMessage {
+  type: "disembarkArmy";
+  armyId: number;
+}
+
 export type ClientMessage =
   | SubmitActionMessage
   | RemoveActionMessage
   | PlayerReadyMessage
   | EndTurnMessage
   | SetFleetAllyVisionMessage
-  | ResourceTransferMessage;
+  | ResourceTransferMessage
+  | RequestArmyEmbarkMessage
+  | RespondArmyEmbarkMessage
+  | DisembarkArmyMessage;
 
 export interface PlannedMovePreview {
-  fleetId: string;
-  ownerPlayerId: string;
+  fleetId: number;
+  ownerPlayerId: number;
   path: HexCoord[];
   projectedPosition: HexCoord;
 }

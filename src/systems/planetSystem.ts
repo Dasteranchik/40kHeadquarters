@@ -34,7 +34,7 @@ function orderedPlanetActions(actions: PlanetAction[]): PlanetAction[] {
 }
 
 function fleetSortById(a: Fleet, b: Fleet): number {
-  return a.id.localeCompare(b.id);
+    return a.id - b.id;
 }
 
 function getStoreAmount(store: ResourceStore, resourceKey: ResourceKey): number {
@@ -132,10 +132,10 @@ function isImperialPlayer(state: GameState, playerId: string): boolean {
 function playerHasFaction(
   state: GameState,
   playerId: string,
-  factionId: string,
+  factionCode: string,
 ): boolean {
   const player = state.players[playerId];
-  return player?.factionId === factionId;
+  return Boolean(player && state.factions[player.factionId]?.code === factionCode);
 }
 
 function event(
@@ -560,7 +560,7 @@ function applyRaiseMorale(
   action: PlanetAction,
   planet: Planet,
   report: PlanetReport,
-  usedPlayers: Set<string>,
+  usedPlayers: Set<number>,
 ): void {
   if (!isImperialPlayer(state, action.playerId)) {
     reject(report, action, "raise morale is only for imperial players");
@@ -722,7 +722,7 @@ function applyManualProduction(
   action: PlanetAction,
   planet: Planet,
   report: PlanetReport,
-  usedPlanets: Set<string>,
+  usedPlanets: Set<number>,
 ): void {
   const fleets = playerFleetsOnPlanet(state, planet, action.playerId);
   if (fleets.length === 0) {
@@ -743,8 +743,8 @@ function executePlanetAction(
   state: GameState,
   action: PlanetAction,
   report: PlanetReport,
-  moraleUsedByPlayer: Set<string>,
-  manualProductionUsedByPlanet: Set<string>,
+  moraleUsedByPlayer: Set<number>,
+  manualProductionUsedByPlanet: Set<number>,
 ): void {
   const planet = state.planets[action.payload.planetId];
   if (!planet) {
@@ -817,8 +817,8 @@ export function applyPlanetSystems(
   applyPendingTitheChanges(state, report);
   applyTurnGeneration(state, report);
 
-  const moraleUsedByPlayer = new Set<string>();
-  const manualProductionUsedByPlanet = new Set<string>();
+  const moraleUsedByPlayer = new Set<number>();
+  const manualProductionUsedByPlanet = new Set<number>();
 
   for (const action of orderedPlanetActions(actions)) {
     executePlanetAction(

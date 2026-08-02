@@ -22,6 +22,11 @@ export function executeMovement(
     if (pathLength > 0) {
       fleet.position = action.payload.path[pathLength - 1];
       fleet.actionPoints = Math.max(0, fleet.actionPoints - pathLength);
+      for (const army of Object.values(state.fleets)) {
+        if (army.domain === "GROUND" && army.carrierFleetId === fleet.id) {
+          army.position = { ...fleet.position };
+        }
+      }
     }
 
     executed.push({

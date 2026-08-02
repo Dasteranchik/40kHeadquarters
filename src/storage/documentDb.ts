@@ -9,7 +9,7 @@ export interface DbAccount {
   username: string;
   password: string;
   role: DbRole;
-  playerId?: string;
+  playerId?: number;
 }
 
 export interface DocumentSnapshot {

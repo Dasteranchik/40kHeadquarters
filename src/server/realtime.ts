@@ -2,6 +2,7 @@ import { WebSocket } from "ws";
 
 import { ClientMessage } from "../api/ws";
 import { applyPlanningResourceTransfer } from "../systems/resourceTransferSystem";
+import { disembarkArmy, requestArmyEmbark, respondArmyEmbark } from "../systems/armyTransportSystem";
 import { resolveTurn } from "../turn/resolveTurn";
 import { Action, GameState } from "../types";
 import { applyImmediateDiplomacy } from "./immediateDiplomacy";
@@ -17,7 +18,7 @@ export interface RealtimeDeps {
   state: GameState;
   pendingActions: Map<string, Action>;
   pendingAllianceProposals: Set<string>;
-  readyPlayers: Set<string>;
+  readyPlayers: Set<number>;
   clients: Map<WebSocket, ClientContext>;
   persistDatabase: () => void;
 }
@@ -56,7 +57,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
   }
 
   function resolveAndBroadcastTurn(): void {
-    const ownerByFleetIdBeforeResolution = new Map<string, string>();
+    const ownerByFleetIdBeforeResolution = new Map<number, number>();
     for (const fleet of Object.values(deps.state.fleets)) {
       ownerByFleetIdBeforeResolution.set(fleet.id, fleet.ownerPlayerId);
     }
@@ -271,12 +272,39 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     resolveAndBroadcastTurn();
   }
 
+  function applyArmyTransport(context: ClientContext, message: ClientMessage): void {
+    if (deps.state.phase !== "PLANNING" || !context.session.playerId) return;
+    const playerId = context.session.playerId;
+    const actions = deps.pendingActions.values();
+    let result: { ok: boolean; message: string } | null = null;
+    switch (message.type) {
+      case "requestArmyEmbark":
+        result = requestArmyEmbark(deps.state, actions, playerId, message.armyId, message.fleetId);
+        break;
+      case "respondArmyEmbark":
+        result = respondArmyEmbark(deps.state, actions, playerId, message.requestId, message.accept);
+        break;
+      case "disembarkArmy":
+        result = disembarkArmy(deps.state, actions, playerId, message.armyId);
+        break;
+      default:
+        return;
+    }
+    sendOperationResult(context, result.ok, result.message);
+    if (result.ok) {
+      deps.readyPlayers.delete(playerId);
+      deps.persistDatabase();
+      broadcastState();
+    }
+  }
+
   function handleClientMessage(context: ClientContext, message: ClientMessage): void {
     applySubmitAction(context, message);
     applyRemoveAction(context, message);
     applyResourceTransfer(context, message);
     applySetFleetAllyVision(context, message);
     applyReady(context, message);
+    applyArmyTransport(context, message);
     applyEndTurn(context, message);
   }
 

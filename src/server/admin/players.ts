@@ -2,6 +2,7 @@ import { IncomingMessage, ServerResponse } from "http";
 
 import { Player } from "../../types";
 import { removeFromArray } from "../../utils/relations";
+import { defaultPlayerColor, isPlayerColor } from "../../utils/playerColor";
 import { isFiniteNumber, isPlayerAlignment, isValidId } from "../../utils/validation";
 import {
   Account,
@@ -35,18 +36,8 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     }
 
     const body = await readJsonBody<AddPlayerRequest>(req);
-    if (!body || typeof body.id !== "string" || typeof body.name !== "string") {
+    if (!body || typeof body.name !== "string" || !body.name.trim()) {
       writeJson(res, 400, { error: "Invalid player payload" });
-      return;
-    }
-
-    if (!isValidId(body.id)) {
-      writeJson(res, 400, { error: "Player id must match [a-zA-Z0-9_-]{2,32}" });
-      return;
-    }
-
-    if (deps.state.players[body.id]) {
-      writeJson(res, 409, { error: "Player id already exists" });
       return;
     }
 
@@ -55,24 +46,35 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       return;
     }
 
-    if (body.factionId !== undefined && !isValidId(body.factionId)) {
-      writeJson(res, 400, { error: "factionId must match [a-zA-Z0-9_-]{2,32}" });
+    if (body.color !== undefined && !isPlayerColor(body.color)) {
+      writeJson(res, 400, { error: "color must match #RRGGBB" });
       return;
     }
 
-    if (body.factionId !== undefined && !deps.state.factions[body.factionId]) {
+    const requestedFactionId =
+      body.factionId === undefined ? undefined : Number(body.factionId);
+    if (
+      requestedFactionId !== undefined &&
+      (!Number.isInteger(requestedFactionId) || requestedFactionId <= 0)
+    ) {
+      writeJson(res, 400, { error: "factionId must be a positive integer" });
+      return;
+    }
+
+    if (requestedFactionId !== undefined && !deps.state.factions[requestedFactionId]) {
       writeJson(res, 400, { error: "factionId is invalid" });
       return;
     }
 
-    const defaultFactionId = body.factionId ?? getDefaultFactionId(deps.state);
+    const defaultFactionId = requestedFactionId ?? getDefaultFactionId(deps.state);
     if (!defaultFactionId) {
       writeJson(res, 400, { error: "No factions configured" });
       return;
     }
 
-    const username = body.username ?? body.id;
-    const password = body.password ?? body.id;
+    const id = deps.state.nextIds.player;
+    const username = body.username ?? `p${id}`;
+    const password = body.password ?? `p${id}`;
 
     if (!isValidId(username)) {
       writeJson(res, 400, { error: "Username must match [a-zA-Z0-9_-]{2,32}" });
@@ -84,9 +86,12 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       return;
     }
 
+    deps.state.nextIds.player += 1;
+
     const player: Player = {
-      id: body.id,
-      name: body.name,
+      id,
+      name: body.name.trim(),
+      color: body.color?.toLowerCase() ?? defaultPlayerColor(id),
       resources: 100,
       alliances: [],
       wars: [],
@@ -109,7 +114,8 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     writeJson(res, 201, { player, login: { username } });
   }
 
-  function handleDeletePlayer(req: IncomingMessage, res: ServerResponse, playerId: string): void {
+  function handleDeletePlayer(req: IncomingMessage, res: ServerResponse, playerIdRaw: string): void {
+    const playerId = Number(playerIdRaw);
     if (!requireAdminPlanning(req, res, deps)) {
       return;
     }
@@ -160,7 +166,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       return;
     }
 
-    const loginByPlayerId = new Map<string, { username: string }>();
+    const loginByPlayerId = new Map<number, { username: string }>();
     for (const account of deps.accounts.values()) {
       if (account.role === "player" && account.playerId) {
         loginByPlayerId.set(account.playerId, {
@@ -170,7 +176,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     }
 
     const players = Object.values(deps.state.players)
-      .sort((a, b) => a.id.localeCompare(b.id))
+      .sort((a, b) => a.id - b.id)
       .map((player) => ({
         ...player,
         login: loginByPlayerId.get(player.id) ?? null,
@@ -182,8 +188,9 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
   async function handleUpdatePlayer(
     req: IncomingMessage,
     res: ServerResponse,
-    playerId: string,
+    playerIdRaw: string,
   ): Promise<void> {
+    const playerId = Number(playerIdRaw);
     if (!requireAdminPlanning(req, res, deps)) {
       return;
     }
@@ -225,18 +232,33 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       return;
     }
 
-    if (body.factionId !== undefined && !isValidId(body.factionId)) {
-      writeJson(res, 400, { error: "factionId must match [a-zA-Z0-9_-]{2,32}" });
+
+    if (body.color !== undefined && !isPlayerColor(body.color)) {
+      writeJson(res, 400, { error: "color must match #RRGGBB" });
       return;
     }
 
-    if (body.factionId !== undefined && !deps.state.factions[body.factionId]) {
+    const requestedFactionId =
+      body.factionId === undefined ? undefined : Number(body.factionId);
+    if (
+      requestedFactionId !== undefined &&
+      (!Number.isInteger(requestedFactionId) || requestedFactionId <= 0)
+    ) {
+      writeJson(res, 400, { error: "factionId must be a positive integer" });
+      return;
+    }
+
+    if (requestedFactionId !== undefined && !deps.state.factions[requestedFactionId]) {
       writeJson(res, 400, { error: "factionId is invalid" });
       return;
     }
 
     if (body.name !== undefined) {
       player.name = body.name.trim() || player.name;
+    }
+
+    if (body.color !== undefined) {
+      player.color = body.color.toLowerCase();
     }
 
     if (body.resources !== undefined) {
@@ -247,20 +269,21 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       player.alignment = body.alignment;
     }
 
-    if (body.factionId !== undefined) {
-      player.factionId = body.factionId;
+    if (requestedFactionId !== undefined) {
+      player.factionId = requestedFactionId;
     }
 
     let entry = findPlayerAccount(deps.accounts, playerId);
     if (!entry) {
-      if (deps.accounts.has(playerId)) {
+      const fallbackUsername = `p${playerId}`;
+      if (deps.accounts.has(fallbackUsername)) {
         writeJson(res, 409, { error: "Default username is occupied by another account" });
         return;
       }
 
       const fallback: Account = {
-        username: playerId,
-        password: playerId,
+        username: fallbackUsername,
+        password: fallbackUsername,
         role: "player",
         playerId,
       };

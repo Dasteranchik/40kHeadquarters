@@ -1,6 +1,6 @@
 export interface SessionInfo {
   username: string;
   role: "admin" | "player";
-  playerId?: string;
+  playerId?: number;
   expiresAt: number;
 }

@@ -61,14 +61,14 @@ export function setPlanetResourceProduction(planet: Planet): void {
   planet.resourceProduction = computePlanetResourceProduction(planet);
 }
 
-export function getDefaultFactionId(state: GameState): string | null {
-  const factionIds = Object.keys(state.factions).sort((a, b) => a.localeCompare(b));
-  return factionIds.length > 0 ? factionIds[0] : null;
+export function getDefaultFactionId(state: GameState): number | null {
+  const factionIds = Object.values(state.factions).map((entry) => entry.id).sort((a, b) => a - b);
+  return factionIds[0] ?? null;
 }
 
 export function findPlayerAccount(
   accounts: Map<string, Account>,
-  playerId: string,
+  playerId: number,
 ): [string, Account] | null {
   for (const entry of accounts.entries()) {
     const [, account] = entry;
@@ -80,7 +80,7 @@ export function findPlayerAccount(
   return null;
 }
 
-export function removeAccountsForPlayer(accounts: Map<string, Account>, playerId: string): void {
+export function removeAccountsForPlayer(accounts: Map<string, Account>, playerId: number): void {
   for (const [username, account] of accounts.entries()) {
     if (account.playerId === playerId && account.role === "player") {
       accounts.delete(username);

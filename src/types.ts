@@ -11,6 +11,7 @@ export interface HexCoord {
   q: number;
   r: number;
 }
+export type EntityId = any;
 
 export type GamePhase = "PLANNING" | "RESOLUTION" | "UPDATE";
 
@@ -18,7 +19,7 @@ export type TerrainType = "OPEN" | "NEBULA" | "OBSTACLE";
 
 export interface Tile extends HexCoord {
   terrainType: TerrainType;
-  planetId?: string;
+  planetId?: EntityId;
 }
 
 export interface MapState {
@@ -31,7 +32,7 @@ export type ResourceStore = Partial<Record<ResourceKey, number>>;
 export type IntelFragmentMap = Partial<Record<InfoCategory, number>>;
 
 export interface Planet {
-  id: string;
+  id: number;
   position: HexCoord;
   worldType: PlanetWorldType;
   worldTags: PlanetTag[];
@@ -52,20 +53,22 @@ export interface Planet {
 export type PlayerAlignment = "IMPERIAL" | "NON_IMPERIAL";
 
 export interface Faction {
-  id: string;
+  id: number;
+  code: string;
   name: string;
   description?: string;
 }
 
 export interface Player {
-  id: string;
+  id: number;
   name: string;
+  color: string;
   resources: number;
-  alliances: string[];
-  wars: string[];
+  alliances: EntityId[];
+  wars: EntityId[];
   exploredTiles: HexCoord[];
   alignment: PlayerAlignment;
-  factionId: string;
+  factionId: number;
   intelFragments: IntelFragmentMap;
 }
 
@@ -73,8 +76,8 @@ export type FleetStance = "ATTACK" | "DEFENSE";
 export type FleetDomain = "SPACE" | "GROUND";
 
 export interface Fleet {
-  id: string;
-  ownerPlayerId: string;
+  id: number;
+  ownerPlayerId: EntityId;
   position: HexCoord;
   combatPower: number;
   health: number;
@@ -86,18 +89,28 @@ export interface Fleet {
   stance: FleetStance;
   domain: FleetDomain;
   inventory: ResourceStore;
+  /** Set only for a GROUND army currently embarked on a SPACE fleet. */
+  carrierFleetId?: EntityId;
+}
+
+export interface ArmyTransportRequest {
+  id: string;
+  armyId: EntityId;
+  fleetId: EntityId;
+  requestedByPlayerId: EntityId;
+  requestedOnTurn: number;
 }
 
 export interface PendingPlanetTitheChange {
-  planetId: string;
+  planetId: EntityId;
   titheLevel: TitheLevel;
-  requestedByPlayerId: string;
+  requestedByPlayerId: EntityId;
   applyOnTurn: number;
 }
 
 export interface PendingPlanetInformantAction {
-  planetId: string;
-  playerId: string;
+  planetId: EntityId;
+  playerId: EntityId;
   infoCategory: InfoCategory;
   applyOnTurn: number;
 }
@@ -111,38 +124,40 @@ export interface GameState {
   fleets: Record<string, Fleet>;
   planets: Record<string, Planet>;
   factions: Record<string, Faction>;
+  nextIds: { player: number; faction: number; planet: number; unit: number };
   pendingTitheChanges: PendingPlanetTitheChange[];
   pendingInformantActions: PendingPlanetInformantAction[];
+  pendingArmyTransportRequests: ArmyTransportRequest[];
 }
 
 export type DiplomacyActionType = "DECLARE_WAR" | "PROPOSE_ALLIANCE";
 
 export interface MoveFleetAction {
   id: string;
-  playerId: string;
+  playerId: EntityId;
   type: "MOVE_FLEET";
   payload: {
-    fleetId: string;
+    fleetId: EntityId;
     path: HexCoord[];
   };
 }
 
 export interface DiplomacyAction {
   id: string;
-  playerId: string;
+  playerId: EntityId;
   type: "DIPLOMACY";
   payload: {
-    targetPlayerId: string;
+    targetPlayerId: EntityId;
     action: DiplomacyActionType;
   };
 }
 
 export interface SetFleetStanceAction {
   id: string;
-  playerId: string;
+  playerId: EntityId;
   type: "SET_FLEET_STANCE";
   payload: {
-    fleetId: string;
+    fleetId: EntityId;
     stance: FleetStance;
   };
 }
@@ -160,12 +175,12 @@ export type PlanetActionKind =
 
 export interface PlanetAction {
   id: string;
-  playerId: string;
+  playerId: EntityId;
   type: "PLANET_ACTION";
   payload: {
-    planetId: string;
+    planetId: EntityId;
     kind: PlanetActionKind;
-    fleetId?: string;
+    fleetId?: EntityId;
     resourceKey?: ResourceKey;
     amount?: number;
     productKey?: ProductResourceKey;
@@ -195,7 +210,7 @@ export interface ValidatedTurnActions {
 
 export interface MovementExecution {
   actionId: string;
-  fleetId: string;
+  fleetId: EntityId;
   from: HexCoord;
   to: HexCoord;
   spentAP: number;
@@ -207,19 +222,19 @@ export interface MovementReport {
 }
 
 export interface DiplomacyReport {
-  declaredWars: Array<{ playerAId: string; playerBId: string }>;
-  formedAlliances: Array<{ playerAId: string; playerBId: string }>;
+  declaredWars: Array<{ playerAId: EntityId; playerBId: EntityId }>;
+  formedAlliances: Array<{ playerAId: EntityId; playerBId: EntityId }>;
 }
 
 export interface CombatDamageEvent {
-  fleetId: string;
+  fleetId: EntityId;
   damage: number;
   healthAfter: number;
 }
 
 export interface CombatReport {
   damageEvents: CombatDamageEvent[];
-  destroyedFleetIds: string[];
+  destroyedFleetIds: EntityId[];
 }
 
 export interface EconomyReport {
@@ -229,7 +244,7 @@ export interface EconomyReport {
 
 export interface PlanetEvent {
   actionId?: string;
-  planetId: string;
+  planetId: EntityId;
   kind:
     | "PENDING_INFORMANT_APPLIED"
     | "PENDING_TITHE_APPLIED"
@@ -252,8 +267,8 @@ export interface PlanetReport {
 }
 
 export interface VisibleFleet {
-  id: string;
-  ownerPlayerId: string;
+  id: number;
+  ownerPlayerId: EntityId;
   position: HexCoord;
   combatPower: number;
   health: number;
@@ -262,7 +277,7 @@ export interface VisibleFleet {
 }
 
 export interface PlayerVisibleState {
-  playerId: string;
+  playerId: EntityId;
   visibleTiles: HexCoord[];
   exploredTiles: HexCoord[];
   fleets: VisibleFleet[];

@@ -8,12 +8,12 @@ export interface AdminHandlerDeps {
   accounts: Map<string, Account>;
   pendingActions: Map<string, Action>;
   pendingAllianceProposals: Set<string>;
-  readyPlayers: Set<string>;
+  readyPlayers: Set<number>;
   requireAdmin: (req: IncomingMessage, res: ServerResponse) => Session | null;
   ensurePlanningPhase: (res: ServerResponse) => boolean;
   persistDatabase: () => void;
   broadcastState: () => void;
-  removeSessionsForPlayer: (playerId: string) => void;
+  removeSessionsForPlayer: (playerId: number) => void;
 }
 
 export function requireAdminPlanning(

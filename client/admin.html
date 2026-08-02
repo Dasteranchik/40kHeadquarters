@@ -34,12 +34,16 @@
           <h2>Players</h2>
           <div class="grid add-grid">
             <div>
-              <label for="addPlayerId">Player ID</label>
-              <input id="addPlayerId" placeholder="player id" />
+              <label for="addPlayerId">Player ID (automatic)</label>
+              <input id="addPlayerId" placeholder="assigned automatically" disabled />
             </div>
             <div>
               <label for="addPlayerName">Name</label>
               <input id="addPlayerName" placeholder="name" />
+            </div>
+            <div>
+              <label for="addPlayerColor">Unit color</label>
+              <input id="addPlayerColor" type="color" value="#63d6ff" />
             </div>
             <div>
               <label for="addPlayerUsername">Username</label>
@@ -70,7 +74,7 @@
           <h2>Factions</h2>
           <div class="grid add-grid">
             <div>
-              <label for="addFactionId">Faction ID</label>
+              <label for="addFactionId">Faction Code</label>
               <input id="addFactionId" placeholder="faction id" />
             </div>
             <div>
@@ -91,8 +95,8 @@
           <h2>Planets</h2>
           <div class="grid add-grid">
             <div>
-              <label for="addPlanetId">Planet ID</label>
-              <input id="addPlanetId" placeholder="planet id" />
+              <label for="addPlanetId">Planet ID (automatic)</label>
+              <input id="addPlanetId" placeholder="assigned automatically" disabled />
             </div>
             <div>
               <label for="addPlanetQ">Q</label>
@@ -148,8 +152,8 @@
           <h2>Fleets</h2>
           <div class="grid add-grid">
             <div>
-              <label for="addFleetId">Fleet ID</label>
-              <input id="addFleetId" placeholder="fleet id" />
+              <label for="addFleetId">Fleet ID (automatic)</label>
+              <input id="addFleetId" placeholder="assigned automatically" disabled />
             </div>
             <div>
               <label for="addFleetOwner">Owner Player ID</label>
@@ -195,13 +199,6 @@
               </select>
             </div>
             <div>
-              <label for="addFleetDomain">Domain</label>
-              <select id="addFleetDomain">
-                <option value="SPACE">SPACE</option>
-                <option value="GROUND">GROUND</option>
-              </select>
-            </div>
-            <div>
               <label for="addFleetInventory">Inventory JSON</label>
               <input id="addFleetInventory" placeholder='{"ORE":3}' />
             </div>
@@ -209,6 +206,51 @@
           <button id="addFleetBtn">Add Fleet</button>
           <input id="fleetsSearch" placeholder="Quick search fleets..." />
           <div id="fleetsList" class="list"></div>
+        </section>
+
+        <section id="armiesPanel" class="panel hidden">
+          <h2>Armies</h2>
+          <div class="grid add-grid">
+            <div>
+              <label for="addArmyOwner">Owner Player</label>
+              <select id="addArmyOwner"></select>
+            </div>
+            <div>
+              <label for="addArmyDestinationKind">Placement</label>
+              <select id="addArmyDestinationKind">
+                <option value="PLANET">Planet</option>
+                <option value="FLEET">Fleet</option>
+              </select>
+            </div>
+            <div>
+              <label for="addArmyDestination">Destination</label>
+              <select id="addArmyDestination"></select>
+            </div>
+            <div>
+              <label for="addArmyPower">Combat Power</label>
+              <input id="addArmyPower" type="number" value="10" min="0" />
+            </div>
+            <div>
+              <label for="addArmyHealth">Health</label>
+              <input id="addArmyHealth" type="number" value="100" min="1" />
+            </div>
+            <div>
+              <label for="addArmyInfluence">Influence</label>
+              <input id="addArmyInfluence" type="number" value="5" min="0" />
+            </div>
+            <div>
+              <label for="addArmyVision">Vision Range</label>
+              <input id="addArmyVision" type="number" value="1" min="0" />
+            </div>
+            <div>
+              <label for="addArmyStance">Stance</label>
+              <select id="addArmyStance">
+                <option value="ATTACK">ATTACK</option>
+                <option value="DEFENSE">DEFENSE</option>
+              </select>
+            </div>
+          </div>
+          <button id="addArmyBtn">Add Army</button>
         </section>
 
         <section id="relationsPanel" class="panel hidden">

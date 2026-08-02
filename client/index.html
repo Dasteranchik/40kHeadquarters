@@ -44,12 +44,11 @@
           </section>
 
           <section>
-            <h2>Fleet Orders</h2>
+            <h2>Unit Orders</h2>
             <p id="selectedFleetLine">Selected fleet: none</p>
             <pre id="selectedFleetDetails" class="fleet-details">-</pre>
             <p id="pathLine">Planned path: 0 steps</p>
             <div class="actions-row">
-              <button id="submitMoveBtn">Submit Move</button>
               <button id="clearPathBtn" class="ghost">Clear Path</button>
             </div>
             <div class="actions-row">
@@ -59,6 +58,17 @@
             <div class="actions-row">
               <button id="shareAllyVisionBtn" class="ghost">Видимость для союзников</button>
             </div>
+          </section>
+
+          <section>
+            <h2>Army Transport</h2>
+            <label for="armyTransportTarget">Fleet in the same hex</label>
+            <select id="armyTransportTarget"></select>
+            <div class="actions-row">
+              <button id="armyEmbarkBtn">Request embark</button>
+              <button id="armyDisembarkBtn" class="ghost">Disembark on planet</button>
+            </div>
+            <div id="armyTransportRequests" class="entity-list"></div>
           </section>
 
           <section>
@@ -146,7 +156,7 @@
 
             <div class="admin-block">
               <h3>Add Player</h3>
-              <input id="adminPlayerId" placeholder="player id" />
+              <input id="adminPlayerId" placeholder="assigned automatically" disabled />
               <input id="adminPlayerName" placeholder="player name" />
               <input id="adminPlayerUsername" placeholder="login username (optional)" />
               <input id="adminPlayerPassword" placeholder="login password (optional)" />
@@ -156,7 +166,7 @@
 
             <div class="admin-block">
               <h3>Add Planet</h3>
-              <input id="adminPlanetId" placeholder="planet id" />
+              <input id="adminPlanetId" placeholder="assigned automatically" disabled />
               <div class="grid2">
                 <input id="adminPlanetQ" placeholder="q" type="number" />
                 <input id="adminPlanetR" placeholder="r" type="number" />
@@ -171,7 +181,7 @@
 
             <div class="admin-block">
               <h3>Add Fleet</h3>
-              <input id="adminFleetId" placeholder="fleet id" />
+              <input id="adminFleetId" placeholder="assigned automatically" disabled />
               <select id="adminFleetOwner"></select>
               <div class="grid2">
                 <input id="adminFleetQ" placeholder="q" type="number" />

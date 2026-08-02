@@ -20,14 +20,14 @@ export interface Account {
   username: string;
   password: string;
   role: Role;
-  playerId?: string;
+  playerId?: number;
 }
 
 export interface Session {
   token: string;
   username: string;
   role: Role;
-  playerId?: string;
+  playerId?: number;
   expiresAt: number;
 }
 
@@ -42,16 +42,15 @@ export interface LoginRequest {
 }
 
 export interface AddPlayerRequest {
-  id: string;
   name: string;
+  color?: string;
   username?: string;
   password?: string;
   alignment?: PlayerAlignment;
-  factionId?: string;
+  factionId?: number;
 }
 
 export interface AddPlanetRequest {
-  id: string;
   q: number;
   r: number;
   worldType?: PlanetWorldType;
@@ -69,8 +68,7 @@ export interface AddPlanetRequest {
 }
 
 export interface AddFleetRequest {
-  id: string;
-  ownerPlayerId: string;
+  ownerPlayerId: number;
   q: number;
   r: number;
   combatPower?: number;
@@ -84,19 +82,32 @@ export interface AddFleetRequest {
   inventory?: ResourceStore;
 }
 
+export interface AddArmyRequest {
+  ownerPlayerId: number;
+  destination:
+    | { kind: "PLANET"; planetId: number }
+    | { kind: "FLEET"; fleetId: number };
+  combatPower?: number;
+  health?: number;
+  influence?: number;
+  visionRange?: number;
+  stance?: FleetStance;
+}
+
 export interface AddFactionRequest {
-  id: string;
+  code: string;
   name: string;
   description?: string;
 }
 
 export interface UpdatePlayerRequest {
   name?: string;
+  color?: string;
   resources?: number;
   username?: string;
   password?: string;
   alignment?: PlayerAlignment;
-  factionId?: string;
+  factionId?: number;
 }
 
 export interface UpdatePlanetRequest {
@@ -117,7 +128,7 @@ export interface UpdatePlanetRequest {
 }
 
 export interface UpdateFleetRequest {
-  ownerPlayerId?: string;
+  ownerPlayerId?: number;
   q?: number;
   r?: number;
   combatPower?: number;
@@ -140,8 +151,8 @@ export type RelationType = "WAR" | "ALLIANCE";
 
 export interface RelationRequest {
   type: RelationType;
-  playerAId: string;
-  playerBId: string;
+  playerAId: number;
+  playerBId: number;
 }
 
 export interface PlanetInformantRequest {

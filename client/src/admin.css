@@ -134,6 +134,27 @@ textarea {
   margin-bottom: 6px;
 }
 
+select {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background-color: #182739;
+  color: var(--text);
+}
+
+button:hover,
+select:hover,
+input:hover,
+textarea:hover,
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #4d7bb2;
+  outline: none;
+}
+
 button.ghost {
   background: #162233;
 }

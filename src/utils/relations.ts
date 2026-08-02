@@ -3,27 +3,27 @@ import { Player } from "../types";
 export type RelationField = keyof Pick<Player, "alliances" | "wars">;
 
 export interface RelationPair {
-  playerAId: string;
-  playerBId: string;
+  playerAId: number;
+  playerBId: number;
 }
 
-export function directedPairKey(fromPlayerId: string, toPlayerId: string): string {
+export function directedPairKey(fromPlayerId: number, toPlayerId: number): string {
   return `${fromPlayerId}->${toPlayerId}`;
 }
 
-export function undirectedPairKey(playerAId: string, playerBId: string): string {
+export function undirectedPairKey(playerAId: number, playerBId: number): string {
   return playerAId < playerBId
     ? `${playerAId}|${playerBId}`
     : `${playerBId}|${playerAId}`;
 }
 
-export function addUnique(values: string[], value: string): void {
+export function addUnique(values: number[], value: number): void {
   if (!values.includes(value)) {
     values.push(value);
   }
 }
 
-export function removeFromArray(values: string[], value: string): void {
+export function removeFromArray(values: number[], value: number): void {
   const index = values.indexOf(value);
   if (index >= 0) {
     values.splice(index, 1);
@@ -33,8 +33,8 @@ export function removeFromArray(values: string[], value: string): void {
 export function linkPlayers(
   players: Record<string, Player>,
   field: RelationField,
-  playerAId: string,
-  playerBId: string,
+  playerAId: number,
+  playerBId: number,
 ): void {
   const playerA = players[playerAId];
   const playerB = players[playerBId];
@@ -49,8 +49,8 @@ export function linkPlayers(
 export function unlinkPlayers(
   players: Record<string, Player>,
   field: RelationField,
-  playerAId: string,
-  playerBId: string,
+  playerAId: number,
+  playerBId: number,
 ): void {
   const playerA = players[playerAId];
   const playerB = players[playerBId];
@@ -80,7 +80,7 @@ export function collectRelationPairs(
         continue;
       }
 
-      const [playerAId, playerBId] = key.split("|");
+      const [playerAId, playerBId] = key.split("|").map(Number);
       seen.add(key);
       result.push({ playerAId, playerBId });
     }
@@ -96,8 +96,8 @@ export function collectRelationPairs(
 
 export function areMutualAllies(
   players: Record<string, Player>,
-  playerAId: string,
-  playerBId: string,
+  playerAId: number,
+  playerBId: number,
 ): boolean {
   const playerA = players[playerAId];
   const playerB = players[playerBId];

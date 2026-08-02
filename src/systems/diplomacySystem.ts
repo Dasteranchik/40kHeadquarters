@@ -37,7 +37,7 @@ export function applyDiplomacy(
   };
 
   for (const pair of declaredWarPairs) {
-    const [a, b] = pair.split("|");
+    const [a, b] = pair.split("|").map(Number);
     linkPlayers(players, "wars", a, b);
     unlinkPlayers(players, "alliances", a, b);
     report.declaredWars.push({ playerAId: a, playerBId: b });
@@ -45,7 +45,7 @@ export function applyDiplomacy(
 
   const processedAlliancePairs = new Set<string>();
   for (const proposal of allianceProposals) {
-    const [a, b] = proposal.split("->");
+    const [a, b] = proposal.split("->").map(Number);
     const reverse = directedPairKey(b, a);
     const pair = undirectedPairKey(a, b);
 

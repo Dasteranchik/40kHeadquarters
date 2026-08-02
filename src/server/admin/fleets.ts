@@ -7,12 +7,13 @@ import {
   isFleetStance,
   isValidId,
 } from "../../utils/validation";
-import { AddFleetRequest, UpdateFleetRequest } from "../contracts";
+import { AddArmyRequest, AddFleetRequest, UpdateFleetRequest } from "../contracts";
 import { readJsonBody, writeJson } from "../transport";
 import { AdminHandlerDeps, requireAdminPlanning } from "./deps";
 import { getTileAt, parseResourceStore } from "./helpers";
 
 export interface FleetAdminHandlers {
+  handleAddArmy: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleAddFleet: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleDeleteFleet: (req: IncomingMessage, res: ServerResponse, fleetId: string) => void;
   handleListFleets: (req: IncomingMessage, res: ServerResponse) => void;
@@ -24,6 +25,81 @@ export interface FleetAdminHandlers {
 }
 
 export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHandlers {
+  async function handleAddArmy(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!requireAdminPlanning(req, res, deps)) return;
+
+    const body = await readJsonBody<AddArmyRequest>(req);
+    if (!body || !Number.isInteger(body.ownerPlayerId) || !body.destination) {
+      writeJson(res, 400, { error: "Invalid army payload" });
+      return;
+    }
+    if (!deps.state.players[body.ownerPlayerId]) {
+      writeJson(res, 404, { error: "Owner player not found" });
+      return;
+    }
+    if (body.stance !== undefined && !isFleetStance(body.stance)) {
+      writeJson(res, 400, { error: "Stance must be ATTACK or DEFENSE" });
+      return;
+    }
+
+    let position: Fleet["position"];
+    let carrierFleetId: number | undefined;
+    switch (body.destination.kind) {
+      case "PLANET": {
+        const planet = deps.state.planets[body.destination.planetId];
+        if (!planet) {
+          writeJson(res, 404, { error: "Destination planet not found" });
+          return;
+        }
+        position = { ...planet.position };
+        break;
+      }
+      case "FLEET": {
+        const carrier = deps.state.fleets[body.destination.fleetId];
+        if (!carrier || carrier.domain !== "SPACE") {
+          writeJson(res, 404, { error: "Destination carrier fleet not found" });
+          return;
+        }
+        const embarkedCount = Object.values(deps.state.fleets).filter(
+          (unit) => unit.carrierFleetId === carrier.id,
+        ).length;
+        if (embarkedCount >= carrier.capacity) {
+          writeJson(res, 400, { error: "Destination fleet has no free capacity" });
+          return;
+        }
+        position = { ...carrier.position };
+        carrierFleetId = carrier.id;
+        break;
+      }
+      default: {
+        const exhaustive: never = body.destination;
+        writeJson(res, 400, { error: `Unknown army destination: ${String(exhaustive)}` });
+        return;
+      }
+    }
+
+    const army: Fleet = {
+      id: deps.state.nextIds.unit++,
+      ownerPlayerId: body.ownerPlayerId,
+      position,
+      combatPower: Math.max(0, Math.trunc(body.combatPower ?? 10)),
+      health: Math.max(1, Math.trunc(body.health ?? 100)),
+      influence: Math.max(0, Math.trunc(body.influence ?? 5)),
+      actionPoints: 0,
+      visionRange: Math.max(0, Math.trunc(body.visionRange ?? 1)),
+      shareVisionWithAllies: false,
+      capacity: 0,
+      stance: body.stance ?? "ATTACK",
+      domain: "GROUND",
+      inventory: {},
+      ...(carrierFleetId === undefined ? {} : { carrierFleetId }),
+    };
+    deps.state.fleets[army.id] = army;
+    deps.persistDatabase();
+    deps.broadcastState();
+    writeJson(res, 201, { army });
+  }
+
   async function handleAddFleet(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!requireAdminPlanning(req, res, deps)) {
       return;
@@ -32,8 +108,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     const body = await readJsonBody<AddFleetRequest>(req);
     if (
       !body ||
-      typeof body.id !== "string" ||
-      typeof body.ownerPlayerId !== "string" ||
+      !Number.isInteger(body.ownerPlayerId) ||
       !isFiniteNumber(body.q) ||
       !isFiniteNumber(body.r)
     ) {
@@ -41,15 +116,6 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       return;
     }
 
-    if (!isValidId(body.id)) {
-      writeJson(res, 400, { error: "Fleet id must match [a-zA-Z0-9_-]{2,32}" });
-      return;
-    }
-
-    if (deps.state.fleets[body.id]) {
-      writeJson(res, 409, { error: "Fleet id already exists" });
-      return;
-    }
 
     if (!deps.state.players[body.ownerPlayerId]) {
       writeJson(res, 404, { error: "Owner player not found" });
@@ -61,8 +127,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       return;
     }
 
-    if (body.domain !== undefined && !isFleetDomain(body.domain)) {
-      writeJson(res, 400, { error: "domain must be SPACE or GROUND" });
+    if (body.domain !== undefined && body.domain !== "SPACE") {
+      writeJson(res, 400, { error: "Ground units must be created through the army endpoint" });
       return;
     }
 
@@ -86,7 +152,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     }
 
     const fleet: Fleet = {
-      id: body.id,
+      id: deps.state.nextIds.unit++,
       ownerPlayerId: body.ownerPlayerId,
       position,
       combatPower: Math.max(0, Math.trunc(body.combatPower ?? 10)),
@@ -97,7 +163,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       shareVisionWithAllies: false,
       capacity: Math.max(0, Math.trunc(body.capacity ?? 10)),
       stance: body.stance ?? "ATTACK",
-      domain: body.domain ?? "SPACE",
+      domain: "SPACE",
       inventory: parsedInventory,
     };
 
@@ -140,7 +206,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       return;
     }
 
-    const fleets = Object.values(deps.state.fleets).sort((a, b) => a.id.localeCompare(b.id));
+    const fleets = Object.values(deps.state.fleets).sort((a, b) => a.id - b.id);
     writeJson(res, 200, { fleets });
   }
 
@@ -165,8 +231,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       return;
     }
 
-    if (body.ownerPlayerId !== undefined && typeof body.ownerPlayerId !== "string") {
-      writeJson(res, 400, { error: "ownerPlayerId must be a string" });
+    if (body.ownerPlayerId !== undefined && !Number.isInteger(body.ownerPlayerId)) {
+      writeJson(res, 400, { error: "ownerPlayerId must be an integer" });
       return;
     }
 
@@ -274,6 +340,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
   }
 
   return {
+    handleAddArmy,
     handleAddFleet,
     handleDeleteFleet,
     handleListFleets,

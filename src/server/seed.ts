@@ -16,6 +16,7 @@ import {
   Tile,
 } from "../types";
 import { Account } from "./contracts";
+import { defaultPlayerColor } from "../utils/playerColor";
 
 const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
   { id: "astra_militarum", name: "Астра Милитарум" },
@@ -35,12 +36,14 @@ const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
 
 function createDefaultFactions(): Record<string, Faction> {
   const result: Record<string, Faction> = {};
-  for (const faction of DEFAULT_FACTIONS) {
-    result[faction.id] = {
-      id: faction.id,
+  DEFAULT_FACTIONS.forEach((faction, index) => {
+    const id = index + 1;
+    result[id] = {
+      id,
+      code: faction.id,
       name: faction.name,
     };
-  }
+  });
 
   return result;
 }
@@ -65,14 +68,15 @@ export function buildMap(width: number, height: number): MapState {
 }
 
 function createPlayer(
-  id: string,
+  id: number,
   name: string,
   alignment: Player["alignment"],
-  factionId: string,
+  factionId: number,
 ): Player {
   return {
     id,
     name,
+    color: defaultPlayerColor(id),
     resources: 100,
     alliances: [],
     wars: [],
@@ -84,7 +88,7 @@ function createPlayer(
 }
 
 function createPlanet(
-  id: string,
+  id: number,
   q: number,
   r: number,
   worldType: Planet["worldType"],
@@ -116,8 +120,8 @@ function createPlanet(
 }
 
 function createFleet(
-  id: string,
-  ownerPlayerId: string,
+  id: number,
+  ownerPlayerId: number,
   q: number,
   r: number,
   combatPower: number,
@@ -149,13 +153,13 @@ export function createInitialGameState(): GameState {
     map: buildMap(18, 12),
     factions: createDefaultFactions(),
     players: {
-      p1: createPlayer("p1", "Imperial Navy", "IMPERIAL", "battle_fleet"),
-      p2: createPlayer("p2", "Orcs", "NON_IMPERIAL", "pirates"),
-      p3: createPlayer("p3", "Necrons", "NON_IMPERIAL", "chaos"),
+      1: createPlayer(1, "Imperial Navy", "IMPERIAL", 2),
+      2: createPlayer(2, "Orcs", "NON_IMPERIAL", 4),
+      3: createPlayer(3, "Necrons", "NON_IMPERIAL", 11),
     },
     planets: {
-      pl1: createPlanet(
-        "pl1",
+      1: createPlanet(
+        1,
         2,
         2,
         "AGRI_WORLD",
@@ -166,8 +170,8 @@ export function createInitialGameState(): GameState {
           ARISTOCRACY: 1,
         },
       ),
-      pl2: createPlanet(
-        "pl2",
+      2: createPlanet(
+        2,
         8,
         3,
         "MINING_WORLD",
@@ -178,8 +182,8 @@ export function createInitialGameState(): GameState {
           NAVAL: 1,
         },
       ),
-      pl3: createPlanet(
-        "pl3",
+      3: createPlanet(
+        3,
         14,
         9,
         "HIVE_WORLD",
@@ -190,8 +194,8 @@ export function createInitialGameState(): GameState {
           FORBIDDEN: 1,
         },
       ),
-      pl4: createPlanet(
-        "pl4",
+      4: createPlanet(
+        4,
         3,
         9,
         "FEUDAL_WORLD",
@@ -202,8 +206,8 @@ export function createInitialGameState(): GameState {
           NAVAL: 1,
         },
       ),
-      pl5: createPlanet(
-        "pl5",
+      5: createPlanet(
+        5,
         15,
         2,
         "QUARRY_WORLD",
@@ -216,15 +220,17 @@ export function createInitialGameState(): GameState {
       ),
     },
     fleets: {
-      f1: createFleet("f1", "p1", 1, 1, 11, 4, "SPACE"),
-      f2: createFleet("f2", "p1", 2, 1, 9, 5, "GROUND"),
-      f3: createFleet("f3", "p2", 3, 1, 10, 4, "SPACE"),
-      f4: createFleet("f4", "p2", 15, 1, 12, 3, "GROUND"),
-      f5: createFleet("f5", "p3", 8, 10, 13, 4, "SPACE"),
-      f6: createFleet("f6", "p3", 9, 10, 8, 6, "SPACE"),
+      1: createFleet(1, 1, 1, 1, 11, 4, "SPACE"),
+      2: createFleet(2, 1, 2, 1, 9, 5, "GROUND"),
+      3: createFleet(3, 2, 3, 1, 10, 4, "SPACE"),
+      4: createFleet(4, 2, 15, 1, 12, 3, "GROUND"),
+      5: createFleet(5, 3, 8, 10, 13, 4, "SPACE"),
+      6: createFleet(6, 3, 9, 10, 8, 6, "SPACE"),
     },
     pendingTitheChanges: [],
     pendingInformantActions: [],
+    pendingArmyTransportRequests: [],
+    nextIds: { player: 4, faction: 14, planet: 6, unit: 7 },
   };
 }
 
@@ -234,14 +240,15 @@ export function createInitialAccounts(gameState: GameState): Record<string, Acco
       username: "admin",
       password: "admin123",
       role: "admin",
-      playerId: "p1",
+      playerId: 1,
     },
   };
 
   for (const player of Object.values(gameState.players)) {
-    result[player.id] = {
-      username: player.id,
-      password: player.id,
+    const username = `p${player.id}`;
+    result[username] = {
+      username,
+      password: username,
       role: "player",
       playerId: player.id,
     };

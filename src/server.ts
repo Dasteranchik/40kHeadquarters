@@ -28,7 +28,7 @@ const persisted = db.getSnapshot();
 const state = normalizeGameState(persisted.gameState);
 const pendingActions = new Map<string, Action>();
 const pendingAllianceProposals = new Set<string>();
-const readyPlayers = new Set<string>();
+const readyPlayers = new Set<number>();
 const clients = new Map<WebSocket, ClientContext>();
 
 const accounts = new Map<string, Account>();
@@ -41,7 +41,7 @@ if (!accounts.has("admin")) {
     username: "admin",
     password: "admin123",
     role: "admin",
-    playerId: "p1",
+    playerId: 1,
   });
 }
 
@@ -91,7 +91,7 @@ function broadcastState(): void {
   realtime.broadcastState();
 }
 
-function removeSessionsForPlayer(playerId: string): void {
+function removeSessionsForPlayer(playerId: number): void {
   sessionManager.removeSessionsForPlayer(playerId);
 }
 

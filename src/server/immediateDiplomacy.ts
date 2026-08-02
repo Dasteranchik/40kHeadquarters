@@ -7,8 +7,8 @@ import {
 
 export function clearAllianceProposalsForPair(
   pendingAllianceProposals: Set<string>,
-  playerAId: string,
-  playerBId: string,
+  playerAId: number,
+  playerBId: number,
 ): void {
   pendingAllianceProposals.delete(directedPairKey(playerAId, playerBId));
   pendingAllianceProposals.delete(directedPairKey(playerBId, playerAId));
@@ -16,10 +16,10 @@ export function clearAllianceProposalsForPair(
 
 export function clearAllianceProposalsForPlayer(
   pendingAllianceProposals: Set<string>,
-  playerId: string,
+  playerId: number,
 ): void {
   for (const key of [...pendingAllianceProposals]) {
-    const [fromPlayerId, toPlayerId] = key.split("->");
+    const [fromPlayerId, toPlayerId] = key.split("->").map(Number);
     if (fromPlayerId === playerId || toPlayerId === playerId) {
       pendingAllianceProposals.delete(key);
     }
