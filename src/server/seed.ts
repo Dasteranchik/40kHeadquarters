@@ -77,6 +77,7 @@ function createPlayer(
     id,
     name,
     color: defaultPlayerColor(id),
+    canTakePlanetResources: false,
     resources: 100,
     alliances: [],
     wars: [],
@@ -101,20 +102,24 @@ function createPlanet(
 
   return {
     id,
+    name: `Planet ${id}`,
     position: { q, r },
     worldType,
     worldTags,
     population,
     morale: 5,
     titheLevel: "DECUMA_PRIMA",
+    maxTitheLevel: "DECUMA_PRIMA",
     titheTarget: titheValue("DECUMA_PRIMA"),
     tithePaid: 0,
+    titheContributions: {},
+    resourceGeneration: Object.fromEntries(outputs.map((key) => [key, 1])),
     resourceProduction: perResource * outputs.length,
     influenceValue: 2,
     visionRange: 1,
     overviewRange: 1,
     rawStock: {},
-    productStorage: {},
+    productStorageByPlayerId: {},
     infoFragments,
   };
 }
@@ -230,7 +235,8 @@ export function createInitialGameState(): GameState {
     pendingTitheChanges: [],
     pendingInformantActions: [],
     pendingArmyTransportRequests: [],
-    nextIds: { player: 4, faction: 14, planet: 6, unit: 7 },
+    events: [],
+    nextIds: { player: 4, faction: 14, planet: 6, unit: 7, event: 1 },
   };
 }
 
@@ -262,5 +268,6 @@ export function createInitialDocumentSnapshot(): DocumentSnapshot {
   return {
     gameState,
     accounts: createInitialAccounts(gameState),
+    sessions: {},
   };
 }

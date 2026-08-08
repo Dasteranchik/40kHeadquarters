@@ -1,6 +1,7 @@
 import { ResourceEndpointKind, ResourceTransferPayload } from "../api/ws";
 import { isResourceKey, type ResourceKey } from "../planetDomain";
 import type { Fleet, GameState, HexCoord, Planet, ResourceStore } from "../types";
+import { getPlayerProductStorage } from "./planetStorage";
 
 export interface TransferActor {
   role: "admin" | "player";
@@ -15,7 +16,7 @@ export interface TransferResult {
 
 interface ResolvedEndpoint {
   kind: ResourceEndpointKind;
-  id: string;
+  id: number;
   position: HexCoord;
   store: ResourceStore;
   fleet: Fleet | null;
@@ -28,7 +29,7 @@ function getStoreAmount(store: ResourceStore, key: ResourceKey): number {
     return 0;
   }
 
-  return Math.max(0, Math.trunc(value));
+  return Math.max(0, value);
 }
 
 function isResourceEndpointKind(value: unknown): value is ResourceEndpointKind {
@@ -40,12 +41,12 @@ function addToStore(store: ResourceStore, key: ResourceKey, amount: number): voi
     return;
   }
 
-  store[key] = getStoreAmount(store, key) + amount;
+  store[key] = Math.round((getStoreAmount(store, key) + amount) * 100) / 100;
 }
 
 function takeFromStore(store: ResourceStore, key: ResourceKey, amount: number): number {
   const available = getStoreAmount(store, key);
-  const moved = Math.min(available, Math.max(0, Math.trunc(amount)));
+  const moved = Math.min(Math.floor(available), Math.max(0, Math.trunc(amount)));
   if (moved <= 0) {
     return 0;
   }
@@ -54,22 +55,18 @@ function takeFromStore(store: ResourceStore, key: ResourceKey, amount: number): 
   if (left <= 0) {
     delete store[key];
   } else {
-    store[key] = left;
+    store[key] = Math.round(left * 100) / 100;
   }
 
   return moved;
 }
 
-function inventoryLoad(fleet: Fleet): number {
-  return Object.values(fleet.inventory).reduce((sum, value) => {
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return sum;
-    }
-    return sum + Math.max(0, Math.trunc(value));
-  }, 0);
-}
-
-function resolveEndpoint(state: GameState, kind: ResourceEndpointKind, id: string): ResolvedEndpoint | null {
+function resolveEndpoint(
+  state: GameState,
+  kind: ResourceEndpointKind,
+  id: number,
+  playerId?: number,
+): ResolvedEndpoint | null {
   if (kind === "FLEET") {
     const fleet = state.fleets[id];
     if (!fleet) {
@@ -87,7 +84,7 @@ function resolveEndpoint(state: GameState, kind: ResourceEndpointKind, id: strin
   }
 
   const planet = state.planets[id];
-  if (!planet) {
+  if (!planet || !playerId) {
     return null;
   }
 
@@ -95,7 +92,7 @@ function resolveEndpoint(state: GameState, kind: ResourceEndpointKind, id: strin
     kind,
     id,
     position: planet.position,
-  store: planet.productStorage,
+    store: getPlayerProductStorage(planet, playerId),
     fleet: null,
     planet,
   };
@@ -158,8 +155,7 @@ function transferIntoFleet(
   key: ResourceKey,
   requested: number,
 ): number {
-  const freeCapacity = Math.max(0, Math.trunc(targetFleet.capacity) - inventoryLoad(targetFleet));
-  const moved = Math.min(freeCapacity, requested);
+  const moved = Math.max(0, Math.trunc(requested));
   if (moved <= 0) {
     return 0;
   }
@@ -219,7 +215,7 @@ function moveResource(
   };
 }
 
-export function applyPlanningResourceTransfer(
+export function applyImmediateResourceTransfer(
   state: GameState,
   actor: TransferActor,
   payload: ResourceTransferPayload,
@@ -231,8 +227,10 @@ export function applyPlanningResourceTransfer(
     typeof payload.from !== "object" ||
     !payload.to ||
     typeof payload.to !== "object" ||
-    typeof payload.from.id !== "string" ||
-    typeof payload.to.id !== "string"
+    !Number.isInteger(payload.from.id) ||
+    payload.from.id <= 0 ||
+    !Number.isInteger(payload.to.id) ||
+    payload.to.id <= 0
   ) {
     return {
       ok: false,
@@ -277,7 +275,7 @@ export function applyPlanningResourceTransfer(
     };
   }
 
-  const from = resolveEndpoint(state, payload.from.kind, payload.from.id);
+  const from = resolveEndpoint(state, payload.from.kind, payload.from.id, actor.playerId);
   if (!from) {
     return {
       ok: false,
@@ -286,7 +284,7 @@ export function applyPlanningResourceTransfer(
     };
   }
 
-  const to = resolveEndpoint(state, payload.to.kind, payload.to.id);
+  const to = resolveEndpoint(state, payload.to.kind, payload.to.id, actor.playerId);
   if (!to) {
     return {
       ok: false,

@@ -50,6 +50,10 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       writeJson(res, 400, { error: "color must match #RRGGBB" });
       return;
     }
+    if (body.canTakePlanetResources !== undefined && typeof body.canTakePlanetResources !== "boolean") {
+      writeJson(res, 400, { error: "canTakePlanetResources must be boolean" });
+      return;
+    }
 
     const requestedFactionId =
       body.factionId === undefined ? undefined : Number(body.factionId);
@@ -92,6 +96,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       id,
       name: body.name.trim(),
       color: body.color?.toLowerCase() ?? defaultPlayerColor(id),
+      canTakePlanetResources: body.canTakePlanetResources ?? false,
       resources: 100,
       alliances: [],
       wars: [],
@@ -137,6 +142,10 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       if (fleet.ownerPlayerId === playerId) {
         delete deps.state.fleets[fleetId];
       }
+    }
+
+    for (const planet of Object.values(deps.state.planets)) {
+      delete planet.productStorageByPlayerId[String(playerId)];
     }
 
     for (const [actionId, action] of deps.pendingActions.entries()) {
@@ -237,6 +246,10 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       writeJson(res, 400, { error: "color must match #RRGGBB" });
       return;
     }
+    if (body.canTakePlanetResources !== undefined && typeof body.canTakePlanetResources !== "boolean") {
+      writeJson(res, 400, { error: "canTakePlanetResources must be boolean" });
+      return;
+    }
 
     const requestedFactionId =
       body.factionId === undefined ? undefined : Number(body.factionId);
@@ -259,6 +272,9 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
 
     if (body.color !== undefined) {
       player.color = body.color.toLowerCase();
+    }
+    if (body.canTakePlanetResources !== undefined) {
+      player.canTakePlanetResources = body.canTakePlanetResources;
     }
 
     if (body.resources !== undefined) {

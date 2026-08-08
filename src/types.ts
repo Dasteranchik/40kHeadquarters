@@ -29,24 +29,29 @@ export interface MapState {
 }
 
 export type ResourceStore = Partial<Record<ResourceKey, number>>;
+export type PlayerProductStorages = Record<string, ResourceStore>;
 export type IntelFragmentMap = Partial<Record<InfoCategory, number>>;
 
 export interface Planet {
   id: number;
+  name: string;
   position: HexCoord;
   worldType: PlanetWorldType;
   worldTags: PlanetTag[];
   population: number;
   morale: number;
   titheLevel: TitheLevel;
+  maxTitheLevel: TitheLevel;
   titheTarget: number;
   tithePaid: number;
+  titheContributions: ResourceStore;
+  resourceGeneration: ResourceStore;
   resourceProduction: number;
   influenceValue: number;
   visionRange: number;
   overviewRange: number;
   rawStock: ResourceStore;
-  productStorage: ResourceStore;
+  productStorageByPlayerId: PlayerProductStorages;
   infoFragments: IntelFragmentMap;
 }
 
@@ -63,6 +68,7 @@ export interface Player {
   id: number;
   name: string;
   color: string;
+  canTakePlanetResources: boolean;
   resources: number;
   alliances: EntityId[];
   wars: EntityId[];
@@ -124,10 +130,20 @@ export interface GameState {
   fleets: Record<string, Fleet>;
   planets: Record<string, Planet>;
   factions: Record<string, Faction>;
-  nextIds: { player: number; faction: number; planet: number; unit: number };
+  nextIds: { player: number; faction: number; planet: number; unit: number; event: number };
+  events: GameEvent[];
   pendingTitheChanges: PendingPlanetTitheChange[];
   pendingInformantActions: PendingPlanetInformantAction[];
   pendingArmyTransportRequests: ArmyTransportRequest[];
+}
+
+
+export interface GameEvent {
+  id: number;
+  turnNumber: number;
+  kind: "COMBAT" | "MOVEMENT" | "DIPLOMACY" | "SYSTEM";
+  message: string;
+  playerIds: number[];
 }
 
 export type DiplomacyActionType = "DECLARE_WAR" | "PROPOSE_ALLIANCE";
@@ -165,7 +181,6 @@ export interface SetFleetStanceAction {
 export type PlanetActionKind =
   | "TAKE_STOCK"
   | "RAID_STOCK"
-  | "PRODUCE_RESOURCE"
   | "DEPOSIT_TO_STORAGE"
   | "TAKE_FROM_STORAGE"
   | "CREATE_PRODUCT"
@@ -228,6 +243,7 @@ export interface DiplomacyReport {
 
 export interface CombatDamageEvent {
   fleetId: EntityId;
+  attackerFleetIds: EntityId[];
   damage: number;
   healthAfter: number;
 }
@@ -249,7 +265,6 @@ export interface PlanetEvent {
     | "PENDING_INFORMANT_APPLIED"
     | "PENDING_TITHE_APPLIED"
     | "TURN_GENERATION"
-    | "MANUAL_GENERATION"
     | "TAKE_STOCK"
     | "RAID_STOCK"
     | "TAKE_FROM_STORAGE"

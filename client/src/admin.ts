@@ -1,6 +1,12 @@
 ﻿import "./admin.css";
 
-import { PLANET_WORLD_TYPES, TITHE_LEVEL_ORDER } from "../../src/planetDomain";
+import {
+  PLANET_TAGS,
+  PLANET_WORLD_TYPES,
+  PRODUCT_RESOURCE_KEYS,
+  RAW_RESOURCE_KEYS,
+  TITHE_LEVEL_ORDER,
+} from "../../src/planetDomain";
 import { defaultPlayerColor } from "../../src/utils/playerColor";
 import type {
   Faction,
@@ -9,6 +15,7 @@ import type {
   FleetStance,
   Planet,
   Player,
+  PlayerProductStorages,
   ResourceStore,
 } from "../../src/types";
 
@@ -66,6 +73,7 @@ const addPlayerUsername = document.getElementById("addPlayerUsername") as HTMLIn
 const addPlayerPassword = document.getElementById("addPlayerPassword") as HTMLInputElement;
 const addPlayerAlignment = document.getElementById("addPlayerAlignment") as HTMLSelectElement;
 const addPlayerFaction = document.getElementById("addPlayerFaction") as HTMLSelectElement;
+const addPlayerCanTakeResources = document.getElementById("addPlayerCanTakeResources") as HTMLInputElement;
 const addPlayerBtn = document.getElementById("addPlayerBtn") as HTMLButtonElement;
 const playersSearch = document.getElementById("playersSearch") as HTMLInputElement;
 const playersList = document.getElementById("playersList") as HTMLDivElement;
@@ -78,17 +86,21 @@ const factionsSearch = document.getElementById("factionsSearch") as HTMLInputEle
 const factionsList = document.getElementById("factionsList") as HTMLDivElement;
 
 const addPlanetId = document.getElementById("addPlanetId") as HTMLInputElement;
+const addPlanetName = document.getElementById("addPlanetName") as HTMLInputElement;
 const addPlanetQ = document.getElementById("addPlanetQ") as HTMLInputElement;
 const addPlanetR = document.getElementById("addPlanetR") as HTMLInputElement;
 const addPlanetWorldType = document.getElementById("addPlanetWorldType") as HTMLSelectElement;
-const addPlanetWorldTags = document.getElementById("addPlanetWorldTags") as HTMLInputElement;
+const addPlanetWorldTags = document.getElementById("addPlanetWorldTags") as HTMLDivElement;
 const addPlanetPopulation = document.getElementById("addPlanetPopulation") as HTMLInputElement;
 const addPlanetMorale = document.getElementById("addPlanetMorale") as HTMLInputElement;
 const addPlanetTitheLevel = document.getElementById("addPlanetTitheLevel") as HTMLSelectElement;
+const addPlanetMaxTitheLevel = document.getElementById("addPlanetMaxTitheLevel") as HTMLSelectElement;
 const addPlanetTithePaid = document.getElementById("addPlanetTithePaid") as HTMLInputElement;
 const addPlanetInf = document.getElementById("addPlanetInf") as HTMLInputElement;
 const addPlanetVision = document.getElementById("addPlanetVision") as HTMLInputElement;
 const addPlanetOverview = document.getElementById("addPlanetOverview") as HTMLInputElement;
+const addPlanetGeneration = document.getElementById("addPlanetGeneration") as HTMLDivElement;
+const addPlanetRawStock = document.getElementById("addPlanetRawStock") as HTMLDivElement;
 const addPlanetBtn = document.getElementById("addPlanetBtn") as HTMLButtonElement;
 const planetsSearch = document.getElementById("planetsSearch") as HTMLInputElement;
 const planetsList = document.getElementById("planetsList") as HTMLDivElement;
@@ -117,6 +129,8 @@ const addArmyVision = document.getElementById("addArmyVision") as HTMLInputEleme
 const addArmyStance = document.getElementById("addArmyStance") as HTMLSelectElement;
 const fleetsSearch = document.getElementById("fleetsSearch") as HTMLInputElement;
 const fleetsList = document.getElementById("fleetsList") as HTMLDivElement;
+const armiesSearch = document.getElementById("armiesSearch") as HTMLInputElement;
+const armiesList = document.getElementById("armiesList") as HTMLDivElement;
 
 const relType = document.getElementById("relType") as HTMLSelectElement;
 const relPlayerA = document.getElementById("relPlayerA") as HTMLSelectElement;
@@ -222,6 +236,103 @@ function createSelect(value: string, options: string[]): HTMLSelectElement {
   return select;
 }
 
+function createChipSelector(options: readonly string[], selected: readonly string[]): HTMLDivElement {
+  const selector = document.createElement("div");
+  selector.className = "chip-selector";
+  selector.role = "group";
+  const selectedSet = new Set(selected);
+  for (const value of options) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip-toggle";
+    chip.dataset.value = value;
+    chip.textContent = value;
+    const isSelected = selectedSet.has(value);
+    chip.classList.toggle("is-selected", isSelected);
+    chip.setAttribute("aria-pressed", String(isSelected));
+    chip.addEventListener("click", () => {
+      const nextSelected = !chip.classList.contains("is-selected");
+      chip.classList.toggle("is-selected", nextSelected);
+      chip.setAttribute("aria-pressed", String(nextSelected));
+    });
+    selector.append(chip);
+  }
+  return selector;
+}
+
+function selectedChipValues(selector: HTMLElement): string[] {
+  return Array.from(
+    selector.querySelectorAll<HTMLElement>(".chip-toggle.is-selected"),
+    (chip) => chip.dataset.value!,
+  );
+}
+
+function createResourceEditor(
+  keys: readonly string[],
+  store: ResourceStore,
+): HTMLDivElement {
+  const editor = document.createElement("div");
+  editor.className = "resource-editor";
+  for (const key of keys) {
+    const row = document.createElement("div");
+    row.className = "resource-editor-row";
+    const label = document.createElement("label");
+    label.textContent = key;
+    const input = createNumberInput(store[key] ?? 0);
+    input.value = Number(store[key] ?? 0).toFixed(2);
+    input.min = "0";
+    input.step = "0.01";
+    input.dataset.resourceKey = key;
+    row.append(label, input);
+    editor.append(row);
+  }
+  return editor;
+}
+
+function readResourceEditor(editor: HTMLElement): ResourceStore {
+  const store: ResourceStore = {};
+  for (const input of editor.querySelectorAll<HTMLInputElement>("input[data-resource-key]")) {
+    const amount = Math.max(0, Math.round((Number(input.value) || 0) * 100) / 100);
+    if (amount > 0) store[input.dataset.resourceKey!] = amount;
+  }
+  return store;
+}
+
+function createPlayerProductStorageEditor(
+  players: readonly AdminPlayer[],
+  storages: PlayerProductStorages,
+): HTMLDivElement {
+  const container = document.createElement("div");
+  container.className = "player-product-storages";
+  for (const player of [...players].sort((a, b) => a.id - b.id)) {
+    const section = document.createElement("section");
+    section.className = "player-product-storage";
+    section.dataset.playerProductStorage = String(player.id);
+    const title = document.createElement("h3");
+    title.textContent = `Player ${player.id}: ${player.name}`;
+    section.append(
+      title,
+      createResourceEditor(
+        PRODUCT_RESOURCE_KEYS,
+        storages[String(player.id)] ?? {},
+      ),
+    );
+    container.append(section);
+  }
+  return container;
+}
+
+function readPlayerProductStorages(editor: HTMLElement): PlayerProductStorages {
+  const storages: PlayerProductStorages = {};
+  for (const section of editor.querySelectorAll<HTMLElement>("[data-player-product-storage]")) {
+    const playerId = section.dataset.playerProductStorage;
+    const resourceEditor = section.querySelector<HTMLElement>(".resource-editor");
+    if (!playerId || !resourceEditor) continue;
+    storages[playerId] = readResourceEditor(resourceEditor);
+  }
+  return storages;
+}
+
 function createLabeledField(labelText: string, control: HTMLElement): HTMLDivElement {
   const wrapper = document.createElement("div");
   const label = document.createElement("label");
@@ -262,13 +373,6 @@ function parseJsonObjectInput(value: string): Record<string, number> | undefined
   return result;
 }
 
-function parseCommaTags(value: string): string[] {
-  return value
-    .split(",")
-    .map((tag) => tag.trim().toUpperCase())
-    .filter(Boolean);
-}
-
 function toJsonCompact(value: unknown): string {
   const json = JSON.stringify(value);
   return json === "{}" ? "" : json;
@@ -295,7 +399,18 @@ function populateSelect(select: HTMLSelectElement, values: string[]): void {
 
 function initStaticSelects(): void {
   populateSelect(addPlanetWorldType, [...PLANET_WORLD_TYPES]);
+  addPlanetWorldTags.replaceChildren(
+    ...createChipSelector(PLANET_TAGS, []).children,
+  );
+  addPlanetGeneration.replaceChildren(
+    ...createChipSelector(RAW_RESOURCE_KEYS, []).children,
+  );
   populateSelect(addPlanetTitheLevel, [...TITHE_LEVEL_ORDER]);
+  addPlanetTitheLevel.value = "ADEPTUS_NON";
+  addPlanetTitheLevel.disabled = true;
+  addPlanetTithePaid.disabled = true;
+  populateSelect(addPlanetMaxTitheLevel, [...TITHE_LEVEL_ORDER]);
+  addPlanetRawStock.replaceChildren(...createResourceEditor(RAW_RESOURCE_KEYS, {}).children);
 }
 
 function sortedFactions(): Faction[] {
@@ -552,6 +667,9 @@ function renderPlayers(): void {
       "IMPERIAL",
     ]);
     const factionSelect = buildFactionSelect(player.factionId);
+    const canTakeResourcesInput = document.createElement("input");
+    canTakeResourcesInput.type = "checkbox";
+    canTakeResourcesInput.checked = player.canTakePlanetResources;
 
     const fields = document.createElement("div");
     fields.className = "grid";
@@ -561,6 +679,7 @@ function renderPlayers(): void {
       createLabeledField("Resources", resourcesInput),
       createLabeledField("Alignment", alignmentSelect),
       createLabeledField("Faction", factionSelect),
+      createLabeledField("May take planet resources", canTakeResourcesInput),
       createLabeledField("Username", usernameInput),
       createLabeledField("Password", passwordInput),
     );
@@ -581,6 +700,7 @@ function renderPlayers(): void {
               resources: Number(resourcesInput.value),
               alignment: alignmentSelect.value,
               factionId: Number(factionSelect.value),
+              canTakePlanetResources: canTakeResourcesInput.checked,
               username: usernameInput.value.trim() || undefined,
               password: passwordInput.value || undefined,
             }),
@@ -695,6 +815,7 @@ function renderPlanets(): void {
   for (const planet of planets) {
     const searchText = [
       planet.id,
+      planet.name,
       planet.worldType,
       planet.position.q,
       planet.position.r,
@@ -709,40 +830,62 @@ function renderPlanets(): void {
 
     const title = document.createElement("summary");
     title.className = "title";
-    title.textContent = `${planet.id} [${planet.position.q},${planet.position.r}] ${planet.worldType}`;
+    title.textContent = `${planet.name} (#${planet.id}) [${planet.position.q},${planet.position.r}] ${planet.worldType}`;
     item.appendChild(title);
 
+    const nameInput = createInput(planet.name);
     const qInput = createNumberInput(planet.position.q);
     const rInput = createNumberInput(planet.position.r);
     const worldTypeSelect = createSelect(planet.worldType, [...PLANET_WORLD_TYPES]);
-    const worldTagsInput = createInput(planet.worldTags.join(","));
+    const worldTagsSelector = createChipSelector(PLANET_TAGS, planet.worldTags);
     const populationInput = createNumberInput(planet.population);
     const moraleInput = createNumberInput(planet.morale);
     const titheLevelSelect = createSelect(planet.titheLevel, [...TITHE_LEVEL_ORDER]);
+    titheLevelSelect.disabled = true;
+    const maxTitheLevelSelect = createSelect(planet.maxTitheLevel, [...TITHE_LEVEL_ORDER]);
     const tithePaidInput = createNumberInput(planet.tithePaid);
+    tithePaidInput.disabled = true;
     const infInput = createNumberInput(planet.influenceValue);
     const visionInput = createNumberInput(planet.visionRange);
     const overviewInput = createNumberInput(planet.overviewRange);
-    const rawStockInput = createInput(toJsonCompact(planet.rawStock));
-    const productStorageInput = createInput(toJsonCompact(planet.productStorage));
+    const rawStockEditor = createResourceEditor(RAW_RESOURCE_KEYS, planet.rawStock);
+    const generationSelector = createChipSelector(
+      RAW_RESOURCE_KEYS,
+      Object.entries(planet.resourceGeneration)
+        .filter(([, enabled]) => Number(enabled) > 0)
+        .map(([key]) => key),
+    );
+    const titheContributionsInput = createInput(toJsonCompact(planet.titheContributions));
+    const productStorageEditor = createPlayerProductStorageEditor(
+      runtime.players,
+      planet.productStorageByPlayerId,
+    );
     const infoFragmentsInput = createInput(toJsonCompact(planet.infoFragments));
 
     const fields = document.createElement("div");
     fields.className = "grid";
+    const rawStockField = createLabeledField("Current Resources", rawStockEditor);
+    rawStockField.className = "resource-list-field";
+    const productStorageField = createLabeledField("Current Products", productStorageEditor);
+    productStorageField.className = "resource-list-field";
     fields.append(
+      createLabeledField("Planet Name", nameInput),
       createLabeledField("Q", qInput),
       createLabeledField("R", rInput),
       createLabeledField("World Type", worldTypeSelect),
-      createLabeledField("World Tags", worldTagsInput),
+      createLabeledField("World Tags", worldTagsSelector),
       createLabeledField("Population", populationInput),
       createLabeledField("Morale", moraleInput),
       createLabeledField("Tithe Level", titheLevelSelect),
+      createLabeledField("Maximum Tithe Level", maxTitheLevelSelect),
       createLabeledField("Tithe Paid", tithePaidInput),
+      createLabeledField("Tithe Contributions JSON", titheContributionsInput),
       createLabeledField("Influence", infInput),
       createLabeledField("Vision", visionInput),
       createLabeledField("Overview", overviewInput),
-      createLabeledField("Raw Stock JSON", rawStockInput),
-      createLabeledField("Product Storage JSON", productStorageInput),
+      rawStockField,
+      createLabeledField("Generated Resources", generationSelector),
+      productStorageField,
       createLabeledField("Info Fragments JSON", infoFragmentsInput),
     );
     item.appendChild(fields);
@@ -754,26 +897,32 @@ function renderPlanets(): void {
     updateBtn.addEventListener("click", () => {
       void (async () => {
         try {
-          const rawStock = parseJsonObjectInput(rawStockInput.value);
-          const productStorage = parseJsonObjectInput(productStorageInput.value);
+          const rawStock = readResourceEditor(rawStockEditor);
+          const resourceGeneration = Object.fromEntries(
+            selectedChipValues(generationSelector).map((key) => [key, 1]),
+          );
+          const titheContributions = parseJsonObjectInput(titheContributionsInput.value);
+          const productStorageByPlayerId = readPlayerProductStorages(productStorageEditor);
           const infoFragments = parseJsonObjectInput(infoFragmentsInput.value);
 
           await apiRequest(`/api/admin/planets/${encodeURIComponent(planet.id)}`, {
             method: "PUT",
             body: JSON.stringify({
+              name: nameInput.value.trim(),
               q: Number(qInput.value),
               r: Number(rInput.value),
               worldType: worldTypeSelect.value,
-              worldTags: parseCommaTags(worldTagsInput.value),
+              worldTags: selectedChipValues(worldTagsSelector),
               population: Number(populationInput.value),
               morale: Number(moraleInput.value),
-              titheLevel: titheLevelSelect.value,
-              tithePaid: Number(tithePaidInput.value),
+              maxTitheLevel: maxTitheLevelSelect.value,
+              titheContributions,
+              resourceGeneration,
               influenceValue: Number(infInput.value),
               visionRange: Number(visionInput.value),
               overviewRange: Number(overviewInput.value),
               rawStock,
-              productStorage,
+              productStorageByPlayerId,
               infoFragments,
             }),
           });
@@ -807,11 +956,16 @@ function renderPlanets(): void {
   }
 }
 
-function renderFleets(): void {
-  fleetsList.innerHTML = "";
+function renderFleetList(
+  domain: FleetDomain,
+  list: HTMLDivElement,
+  query: string,
+): void {
+  list.innerHTML = "";
 
-  const query = fleetsSearch.value;
-  const fleets = [...runtime.fleets].sort((a, b) => a.id - b.id);
+  const fleets = runtime.fleets
+    .filter((fleet) => fleet.domain === domain)
+    .sort((a, b) => a.id - b.id);
   for (const fleet of fleets) {
     const searchText = [
       fleet.id,
@@ -917,8 +1071,13 @@ function renderFleets(): void {
     actions.append(updateBtn, deleteBtn);
     item.appendChild(actions);
 
-    fleetsList.appendChild(item);
+    list.appendChild(item);
   }
+}
+
+function renderFleets(): void {
+  renderFleetList("SPACE", fleetsList, fleetsSearch.value);
+  renderFleetList("GROUND", armiesList, armiesSearch.value);
 }
 
 function renderAll(): void {
@@ -941,6 +1100,7 @@ async function addPlayer(): Promise<void> {
         color: addPlayerColor.value,
         alignment: addPlayerAlignment.value,
         factionId: addPlayerFaction.value ? Number(addPlayerFaction.value) : undefined,
+        canTakePlanetResources: addPlayerCanTakeResources.checked,
         username: addPlayerUsername.value.trim() || undefined,
         password: addPlayerPassword.value || undefined,
       }),
@@ -971,18 +1131,27 @@ async function addFaction(): Promise<void> {
 
 async function addPlanet(): Promise<void> {
   try {
+    const resourceGeneration = Object.fromEntries(
+      selectedChipValues(addPlanetGeneration).map((key) => [key, 1]),
+    );
     await apiRequest("/api/admin/planets", {
       method: "POST",
       body: JSON.stringify({
+        name: addPlanetName.value.trim(),
         id: addPlanetId.value.trim(),
         q: Number(addPlanetQ.value),
         r: Number(addPlanetR.value),
         worldType: addPlanetWorldType.value,
-        worldTags: parseCommaTags(addPlanetWorldTags.value),
+        worldTags: selectedChipValues(addPlanetWorldTags),
         population: Number(addPlanetPopulation.value),
         morale: Number(addPlanetMorale.value),
-        titheLevel: addPlanetTitheLevel.value,
+        titheLevel: "ADEPTUS_NON",
+        maxTitheLevel: addPlanetMaxTitheLevel.value,
         tithePaid: Number(addPlanetTithePaid.value),
+        titheContributions: {},
+        resourceGeneration,
+        rawStock: readResourceEditor(addPlanetRawStock),
+        productStorageByPlayerId: {},
         influenceValue: Number(addPlanetInf.value),
         visionRange: Number(addPlanetVision.value || "1"),
         overviewRange: Number(addPlanetOverview.value || "1"),
@@ -1123,21 +1292,32 @@ async function logout(): Promise<void> {
 }
 
 async function restoreSession(): Promise<void> {
+  let me: SessionInfo;
   try {
-    const me = await apiRequest<SessionInfo>("/api/me", {
+    me = await apiRequest<SessionInfo>("/api/me", {
       method: "GET",
     });
-
-    if (me.role !== "admin") {
-      throw new Error("Session is not admin");
-    }
-
-    setSession(me);
-
-    await loadAllData();
-    setStatus(`Connected to ${apiBase}`);
-  } catch {
+  } catch (error) {
     setSession(null);
+    setStatus(`Session restore failed: ${(error as Error).message}`);
+    return;
+  }
+
+  if (me.role !== "admin") {
+    setSession(null);
+    setStatus("Session is not admin");
+    return;
+  }
+
+  setSession(me);
+  setStatus(`Connected to ${apiBase}`);
+
+  try {
+    await loadAllData();
+  } catch (error) {
+    const message = (error as Error).message;
+    appendEvent(`Admin data reload failed: ${message}`);
+    setStatus(`Authenticated as ${me.username}; data reload failed: ${message}`);
   }
 }
 
@@ -1192,6 +1372,10 @@ planetsSearch.addEventListener("input", () => {
 });
 
 fleetsSearch.addEventListener("input", () => {
+  renderFleets();
+});
+
+armiesSearch.addEventListener("input", () => {
   renderFleets();
 });
 

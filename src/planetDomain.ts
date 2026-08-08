@@ -221,6 +221,27 @@ export function titheValue(level: TitheLevel): number {
   return TITHE_VALUE_BY_LEVEL[level];
 }
 
+export function calculateTitheProgress(
+  maxLevel: TitheLevel,
+  contributions: Partial<Record<ResourceKey, number>>,
+): { currentLevel: TitheLevel; paid: number; target: number } {
+  const paid = RESOURCE_KEYS.reduce(
+    (sum, key) => sum + Math.max(0, Math.trunc(contributions[key] ?? 0)),
+    0,
+  );
+  const target = titheValue(maxLevel);
+  const cappedPaid = Math.min(target, paid);
+  const score = cappedPaid;
+  const currentLevel = TITHE_LEVEL_ORDER.find((level) => titheValue(level) === score)
+    ?? "ADEPTUS_NON";
+
+  return {
+    currentLevel,
+    paid: cappedPaid,
+    target,
+  };
+}
+
 export function computePopulationProduction(population: number): number {
-  return Math.max(0, Math.floor(population / 10));
+  return Math.max(0, Math.round((population / 1_000_000_000) * 100) / 100);
 }

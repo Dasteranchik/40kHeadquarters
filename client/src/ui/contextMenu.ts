@@ -21,7 +21,17 @@ export interface HexContextMenuDeps {
 export interface HexContextMenuController {
   hide: () => void;
   isOpen: () => boolean;
-  open: (state: GameState, coord: HexCoord, clientX: number, clientY: number) => void;
+  open: (
+    state: GameState,
+    coord: HexCoord,
+    clientX: number,
+    clientY: number,
+    options?: HexContextMenuOpenOptions,
+  ) => void;
+}
+
+export interface HexContextMenuOpenOptions {
+  onPlotRoute?: () => void;
 }
 
 export function createHexContextMenuController(
@@ -41,6 +51,7 @@ export function createHexContextMenuController(
     coord: HexCoord,
     clientX: number,
     clientY: number,
+    options: HexContextMenuOpenOptions = {},
   ): void {
     const playerId = deps.getActivePlayerId();
     const tile = deps.getTile(state, coord);
@@ -61,6 +72,19 @@ export function createHexContextMenuController(
 
     if (planet) {
       deps.elements.bodyEl.appendChild(createPlanetNote(planet));
+    }
+
+    if (options.onPlotRoute) {
+      const routeBtn = document.createElement("button");
+      routeBtn.type = "button";
+      routeBtn.className = "hex-context-route";
+      routeBtn.textContent = "Plot route here";
+      routeBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        hide();
+        options.onPlotRoute?.();
+      });
+      deps.elements.bodyEl.appendChild(routeBtn);
     }
 
     let ownSelectableCount = 0;
@@ -132,7 +156,7 @@ function sortFleetsForMenu(fleets: Fleet[], playerId: string): Fleet[] {
 function createPlanetNote(planet: Planet): HTMLParagraphElement {
   const planetNote = document.createElement("p");
   planetNote.className = "hex-context-note";
-  planetNote.textContent = `Planet ${planet.id}: ${planet.worldType}`;
+  planetNote.textContent = `${planet.name} (#${planet.id}): ${planet.worldType}`;
   return planetNote;
 }
 
@@ -151,7 +175,8 @@ function createFleetRow(
 
   const name = document.createElement("div");
   name.className = "hex-context-name";
-  name.textContent = `${fleet.id}${isOwn ? " (you)" : ` (${fleet.ownerPlayerId})`}`;
+  const unitLabel = fleet.domain === "GROUND" ? "Army" : "Fleet";
+  name.textContent = `${unitLabel} ${fleet.id}${isOwn ? " (you)" : ` (${fleet.ownerPlayerId})`}`;
 
   const stats = document.createElement("div");
   stats.className = "hex-context-stats";

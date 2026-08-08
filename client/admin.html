@@ -64,6 +64,10 @@
               <label for="addPlayerFaction">Faction</label>
               <select id="addPlayerFaction"></select>
             </div>
+            <div>
+              <label for="addPlayerCanTakeResources">May take planet resources</label>
+              <input id="addPlayerCanTakeResources" type="checkbox" />
+            </div>
           </div>
           <button id="addPlayerBtn">Add Player</button>
           <input id="playersSearch" placeholder="Quick search players..." />
@@ -99,6 +103,10 @@
               <input id="addPlanetId" placeholder="assigned automatically" disabled />
             </div>
             <div>
+              <label for="addPlanetName">Planet Name</label>
+              <input id="addPlanetName" placeholder="planet name" />
+            </div>
+            <div>
               <label for="addPlanetQ">Q</label>
               <input id="addPlanetQ" type="number" placeholder="q" />
             </div>
@@ -111,8 +119,8 @@
               <select id="addPlanetWorldType"></select>
             </div>
             <div>
-              <label for="addPlanetWorldTags">World Tags (comma)</label>
-              <input id="addPlanetWorldTags" placeholder="FOOD_PRODUCTION,REFINERY" />
+              <label>World Tags</label>
+              <div id="addPlanetWorldTags" class="chip-selector" role="group"></div>
             </div>
             <div>
               <label for="addPlanetPopulation">Population</label>
@@ -125,6 +133,10 @@
             <div>
               <label for="addPlanetTitheLevel">Tithe Level</label>
               <select id="addPlanetTitheLevel"></select>
+            </div>
+            <div>
+              <label for="addPlanetMaxTitheLevel">Maximum Tithe Level</label>
+              <select id="addPlanetMaxTitheLevel"></select>
             </div>
             <div>
               <label for="addPlanetTithePaid">Tithe Paid</label>
@@ -141,6 +153,14 @@
             <div>
               <label for="addPlanetOverview">Overview Range</label>
               <input id="addPlanetOverview" type="number" placeholder="overviewRange" value="1" />
+            </div>
+            <div>
+              <label>Generated Resources</label>
+              <div id="addPlanetGeneration" class="chip-selector" role="group"></div>
+            </div>
+            <div class="resource-list-field">
+              <label>Current Resources</label>
+              <div id="addPlanetRawStock" class="resource-editor"></div>
             </div>
           </div>
           <button id="addPlanetBtn">Add Planet</button>
@@ -251,6 +271,8 @@
             </div>
           </div>
           <button id="addArmyBtn">Add Army</button>
+          <input id="armiesSearch" placeholder="Quick search armies..." />
+          <div id="armiesList" class="list"></div>
         </section>
 
         <section id="relationsPanel" class="panel hidden">

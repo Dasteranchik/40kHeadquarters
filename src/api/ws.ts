@@ -29,7 +29,7 @@ export type ResourceEndpointKind = "FLEET" | "PLANET_STORAGE";
 
 export interface ResourceEndpointRef {
   kind: ResourceEndpointKind;
-  id: string;
+  id: number;
 }
 
 export interface ResourceTransferPayload {

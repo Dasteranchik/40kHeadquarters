@@ -22,6 +22,10 @@
 
       <main class="workspace">
         <aside class="panel">
+          <nav class="view-tabs" aria-label="Main view">
+            <button id="mapViewBtn" class="is-active" type="button">Map</button>
+            <button id="eventsViewBtn" class="ghost" type="button">Events</button>
+          </nav>
           <section>
             <h2>Authentication</h2>
             <label for="loginUser">Username</label>
@@ -73,7 +77,7 @@
 
           <section>
             <h2>Resource Transfer</h2>
-            <p class="hint">Fleet inventory and planet product storage.</p>
+            <p class="hint">Fleet inventory and your personal planet product storage.</p>
             <label for="transferMode">Transfer mode</label>
             <select id="transferMode"></select>
             <label for="transferTargetFleet">Target fleet (same hex)</label>
@@ -105,10 +109,7 @@
                 <input id="planetRawAmount" type="number" min="1" step="1" value="1" />
               </div>
             </div>
-            <div class="actions-row">
-              <button id="planetTakeStockBtn">Take Stock</button>
-              <button id="planetProduceBtn" class="ghost">Produce</button>
-            </div>
+            <button id="planetTakeStockBtn">Take Stock</button>
             <div class="grid2">
               <div>
                 <label for="planetProduct">Product</label>
@@ -201,10 +202,7 @@
             </div>
           </section>
 
-          <section>
-            <h2>Events</h2>
-            <pre id="eventsLog"></pre>
-          </section>
+          <pre id="eventsLog" class="diagnostic-events"></pre>
         </aside>
 
         <section class="stage-zone">
@@ -234,6 +232,10 @@
             <div id="hexContextBody" class="hex-context-body"></div>
           </div>
           <div id="hoverHexInfo" class="hover-hex-info">Hex: -</div>
+        </section>
+        <section id="playerEventsView" class="player-events-view view-hidden">
+          <h2>Events</h2>
+          <div id="playerEventsList" class="player-events-list"></div>
         </section>
       </main>
     </div>

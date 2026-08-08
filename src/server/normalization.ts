@@ -1,5 +1,6 @@
 ﻿import {
   computePopulationProduction,
+  calculateTitheProgress,
   INFO_CATEGORIES,
   isInfoCategory,
   isPlanetTag,
@@ -22,6 +23,7 @@ import {
   ArmyTransportRequest,
   Planet,
   Player,
+  PlayerProductStorages,
   ResourceStore,
 } from "../types";
 import { defaultPlayerColor, isPlayerColor } from "../utils/playerColor";
@@ -50,7 +52,7 @@ function intOrDefault(value: unknown, fallback: number, min = 0): number {
   return Math.max(min, Math.trunc(value));
 }
 
-function normalizeResourceStore(value: unknown): ResourceStore {
+function normalizeResourceStore(value: unknown, allowFraction = false): ResourceStore {
   if (!value || typeof value !== "object") {
     return {};
   }
@@ -61,12 +63,29 @@ function normalizeResourceStore(value: unknown): ResourceStore {
       continue;
     }
 
-    const amount = intOrDefault(raw, 0, 0);
+    const amount = typeof raw === "number" && Number.isFinite(raw)
+      ? Math.max(0, allowFraction ? Math.round(raw * 100) / 100 : Math.trunc(raw))
+      : 0;
     if (amount > 0) {
       result[key] = amount;
     }
   }
 
+  return result;
+}
+
+function normalizePlayerProductStorages(value: unknown): PlayerProductStorages {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const result: PlayerProductStorages = {};
+  for (const [playerId, store] of Object.entries(value as Record<string, unknown>)) {
+    if (!Number.isInteger(Number(playerId)) || Number(playerId) <= 0) {
+      continue;
+    }
+    result[playerId] = normalizeResourceStore(store, true);
+  }
   return result;
 }
 
@@ -255,6 +274,7 @@ function normalizePlayer(
     id: Number(id),
     name,
     color: isPlayerColor(player.color) ? player.color.toLowerCase() : defaultPlayerColor(Number(id)),
+    canTakePlanetResources: player.canTakePlanetResources === true,
     resources: intOrDefault(player.resources, 100, 0),
     alliances: Array.isArray(player.alliances)
       ? player.alliances.filter((entry) => Number.isInteger(Number(entry))).map(Number)
@@ -274,8 +294,8 @@ function normalizePlayer(
   };
 }
 
-function normalizePlanet(id: string, value: unknown): Planet {
-  const planet = (value ?? {}) as Partial<Planet>;
+function normalizePlanet(id: string, value: unknown, legacyProductOwnerId?: number): Planet {
+  const planet = (value ?? {}) as Partial<Planet> & { productStorage?: unknown };
   const worldType = defaultWorldType(planet);
   const worldTags = normalizeTags(planet.worldTags);
   const population = intOrDefault(
@@ -283,26 +303,56 @@ function normalizePlanet(id: string, value: unknown): Planet {
     intOrDefault(planet.resourceProduction, 6, 0) * 10,
     0,
   );
-  const outputs = RAW_OUTPUTS_BY_WORLD_TYPE[worldType] ?? [];
-
   const titheLevel = isTitheLevel(planet.titheLevel) ? planet.titheLevel : "DECUMA_PRIMA";
+  const legacyGeneration: ResourceStore = {};
+  for (const key of RAW_OUTPUTS_BY_WORLD_TYPE[worldType] ?? []) {
+    legacyGeneration[key] = 1;
+  }
+  const resourceGeneration = planet.resourceGeneration
+    ? normalizeResourceStore(planet.resourceGeneration)
+    : legacyGeneration;
+  for (const key of Object.keys(resourceGeneration)) {
+    resourceGeneration[key as keyof ResourceStore] = 1;
+  }
+  const generatedResourceCount = Object.keys(resourceGeneration).length;
+  const productStorageByPlayerId = normalizePlayerProductStorages(
+    planet.productStorageByPlayerId,
+  );
+  if (
+    Object.keys(productStorageByPlayerId).length === 0
+    && legacyProductOwnerId
+    && planet.productStorage
+  ) {
+    const legacyStore = normalizeResourceStore(planet.productStorage, true);
+    if (Object.keys(legacyStore).length > 0) {
+      productStorageByPlayerId[String(legacyProductOwnerId)] = legacyStore;
+    }
+  }
 
   return {
     id: Number(id),
+    name: typeof planet.name === "string" && planet.name.trim()
+      ? planet.name.trim()
+      : `Planet ${id}`,
     position: normalizePosition(planet.position),
     worldType,
     worldTags: worldTags.length > 0 ? worldTags : defaultTagsByWorldType(worldType),
     population,
     morale: intOrDefault(planet.morale, 5, 0),
     titheLevel,
+    maxTitheLevel: isTitheLevel(planet.maxTitheLevel) ? planet.maxTitheLevel : titheLevel,
     titheTarget: intOrDefault(planet.titheTarget, titheValue(titheLevel), 0),
     tithePaid: intOrDefault(planet.tithePaid, 0, 0),
-    resourceProduction: computePopulationProduction(population) * outputs.length,
+    titheContributions: normalizeResourceStore(planet.titheContributions),
+    resourceGeneration,
+    resourceProduction: Math.round(
+      computePopulationProduction(population) * generatedResourceCount * 100,
+    ) / 100,
     influenceValue: intOrDefault(planet.influenceValue, 1, 0),
     visionRange: intOrDefault(planet.visionRange, 1, 0),
     overviewRange: intOrDefault(planet.overviewRange, intOrDefault(planet.visionRange, 1, 0), 0),
-    rawStock: normalizeResourceStore(planet.rawStock),
-    productStorage: normalizeResourceStore(planet.productStorage),
+    rawStock: normalizeResourceStore(planet.rawStock, true),
+    productStorageByPlayerId,
     infoFragments: normalizeIntelMap(planet.infoFragments),
   };
 }
@@ -434,6 +484,7 @@ function pruneRelations(state: GameState): void {
 }
 
 export function normalizeGameState(state: GameState): GameState {
+  delete (state as GameState & { titheRules?: unknown }).titheRules;
   const normalizedFactions = normalizeFactions((state as Partial<GameState>).factions);
   const fallbackFactionId = resolveDefaultFactionId(normalizedFactions);
 
@@ -448,8 +499,11 @@ export function normalizeGameState(state: GameState): GameState {
   }
 
   const normalizedPlanets: Record<string, Planet> = {};
+  const legacyProductOwnerId = Object.values(normalizedPlayers)
+    .map((player) => player.id)
+    .sort((a, b) => a - b)[0];
   for (const [planetId, value] of Object.entries(state.planets ?? {})) {
-    normalizedPlanets[planetId] = normalizePlanet(planetId, value);
+    normalizedPlanets[planetId] = normalizePlanet(planetId, value, legacyProductOwnerId);
   }
 
   const normalizedFleets: Record<string, Fleet> = {};
@@ -471,8 +525,36 @@ export function normalizeGameState(state: GameState): GameState {
     faction: Math.max(intOrDefault(state.nextIds?.faction, 1, 1), ...Object.values(state.factions).map((entry) => entry.id + 1)),
     planet: intOrDefault(state.nextIds?.planet, 1, 1),
     unit: intOrDefault(state.nextIds?.unit, 1, 1),
+    event: intOrDefault(state.nextIds?.event, 1, 1),
   };
-  state.pendingTitheChanges = normalizePendingTitheChanges(state.pendingTitheChanges);
+  state.events = Array.isArray((state as Partial<GameState>).events)
+    ? (state as Partial<GameState>).events!.filter((event) =>
+        event &&
+        Number.isInteger(event.id) &&
+        Number.isInteger(event.turnNumber) &&
+        typeof event.message === "string" &&
+        Array.isArray(event.playerIds)
+      ).map((event) => ({
+        ...event,
+        playerIds: event.playerIds.filter((id) => Number.isInteger(Number(id))).map(Number),
+      }))
+    : [];
+  state.nextIds.event = Math.max(
+    state.nextIds.event,
+    ...state.events.map((event) => event.id + 1),
+  );
+  for (const planet of Object.values(state.planets)) {
+    const progress = calculateTitheProgress(
+      planet.maxTitheLevel,
+      planet.titheContributions,
+    );
+    planet.titheLevel = progress.currentLevel;
+    planet.tithePaid = progress.paid;
+    planet.titheTarget = progress.target;
+  }
+  // Tithe is now configured directly by the administrator; legacy scheduled
+  // faction changes must not overwrite the derived current level.
+  state.pendingTitheChanges = [];
   state.pendingInformantActions = normalizePendingInformants(state.pendingInformantActions);
   state.pendingArmyTransportRequests = normalizeArmyTransportRequests(
     (state as Partial<GameState>).pendingArmyTransportRequests,

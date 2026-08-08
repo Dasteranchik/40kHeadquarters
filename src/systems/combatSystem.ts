@@ -74,6 +74,7 @@ function hostileFleetsFor(
 
 export function resolveCombat(state: GameState): CombatReport {
   const damageByFleetId = new Map<number, number>();
+  const attackerIdsByFleetId = new Map<number, Set<number>>();
   const fleetsByTile = groupFleetsByTile(state);
 
   for (const tileFleets of fleetsByTile.values()) {
@@ -98,6 +99,9 @@ export function resolveCombat(state: GameState): CombatReport {
           target.id,
           (damageByFleetId.get(target.id) ?? 0) + damage,
         );
+        const attackerIds = attackerIdsByFleetId.get(target.id) ?? new Set<number>();
+        attackerIds.add(attacker.id);
+        attackerIdsByFleetId.set(target.id, attackerIds);
         continue;
       }
 
@@ -107,6 +111,9 @@ export function resolveCombat(state: GameState): CombatReport {
           target.id,
           (damageByFleetId.get(target.id) ?? 0) + damagePerEnemy,
         );
+        const attackerIds = attackerIdsByFleetId.get(target.id) ?? new Set<number>();
+        attackerIds.add(attacker.id);
+        attackerIdsByFleetId.set(target.id, attackerIds);
       }
     }
   }
@@ -126,6 +133,7 @@ export function resolveCombat(state: GameState): CombatReport {
     fleet.health -= damage;
     damageEvents.push({
       fleetId,
+      attackerFleetIds: [...(attackerIdsByFleetId.get(fleetId) ?? [])],
       damage,
       healthAfter: fleet.health,
     });

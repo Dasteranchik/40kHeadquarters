@@ -1,7 +1,12 @@
 import { WebSocket } from "ws";
 
 import { ClientMessage } from "../api/ws";
-import { applyPlanningResourceTransfer } from "../systems/resourceTransferSystem";
+import { validateActions } from "../systems/actionValidator";
+import {
+  applyImmediatePlanetAction,
+  isImmediatePlanetActionKind,
+} from "../systems/planetSystem";
+import { applyImmediateResourceTransfer } from "../systems/resourceTransferSystem";
 import { disembarkArmy, requestArmyEmbark, respondArmyEmbark } from "../systems/armyTransportSystem";
 import { resolveTurn } from "../turn/resolveTurn";
 import { Action, GameState } from "../types";
@@ -58,11 +63,55 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
 
   function resolveAndBroadcastTurn(): void {
     const ownerByFleetIdBeforeResolution = new Map<number, number>();
+    const fleetNameByIdBeforeResolution = new Map<number, string>();
     for (const fleet of Object.values(deps.state.fleets)) {
       ownerByFleetIdBeforeResolution.set(fleet.id, fleet.ownerPlayerId);
+      fleetNameByIdBeforeResolution.set(fleet.id, `${fleet.domain === "GROUND" ? "Army" : "Fleet"} ${fleet.id}`);
     }
 
     const resolution = resolveTurn(deps.state, [...deps.pendingActions.values()]);
+    for (const movement of resolution.movement.executed) {
+      const ownerId = ownerByFleetIdBeforeResolution.get(movement.fleetId);
+      if (!ownerId) continue;
+      deps.state.events.push({
+        id: deps.state.nextIds.event++,
+        turnNumber: resolution.turnNumber,
+        kind: "MOVEMENT",
+        message: `${fleetNameByIdBeforeResolution.get(movement.fleetId) ?? `Unit ${movement.fleetId}`} moved [${movement.from.q},${movement.from.r}] → [${movement.to.q},${movement.to.r}]`,
+        playerIds: [ownerId],
+      });
+    }
+    for (const combat of resolution.combat.damageEvents) {
+      const targetOwnerId = ownerByFleetIdBeforeResolution.get(combat.fleetId);
+      const attackerOwnerIds = combat.attackerFleetIds
+        .map((fleetId) => ownerByFleetIdBeforeResolution.get(fleetId))
+        .filter((ownerId): ownerId is number => ownerId !== undefined);
+      const playerIds = [...new Set([...(targetOwnerId ? [targetOwnerId] : []), ...attackerOwnerIds])];
+      if (playerIds.length === 0) continue;
+      const destroyed = resolution.combat.destroyedFleetIds.includes(combat.fleetId);
+      deps.state.events.push({
+        id: deps.state.nextIds.event++,
+        turnNumber: resolution.turnNumber,
+        kind: "COMBAT",
+        message: `${fleetNameByIdBeforeResolution.get(combat.fleetId) ?? `Unit ${combat.fleetId}`} received ${combat.damage} damage${destroyed ? " and was destroyed" : `; HP ${combat.healthAfter}`}`,
+        playerIds,
+      });
+    }
+    for (const relation of resolution.diplomacy.declaredWars) {
+      deps.state.events.push({
+        id: deps.state.nextIds.event++, turnNumber: resolution.turnNumber, kind: "DIPLOMACY",
+        message: `Players ${relation.playerAId} and ${relation.playerBId} are now at war`,
+        playerIds: [relation.playerAId, relation.playerBId],
+      });
+    }
+    for (const relation of resolution.diplomacy.formedAlliances) {
+      deps.state.events.push({
+        id: deps.state.nextIds.event++, turnNumber: resolution.turnNumber, kind: "DIPLOMACY",
+        message: `Players ${relation.playerAId} and ${relation.playerBId} formed an alliance`,
+        playerIds: [relation.playerAId, relation.playerBId],
+      });
+    }
+    deps.state.events = deps.state.events.slice(-1000);
     deps.pendingActions.clear();
     deps.pendingAllianceProposals.clear();
     deps.readyPlayers.clear();
@@ -107,6 +156,29 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
 
     const action = sanitizeActionForContext(message.action, context);
     if (!action) {
+      return;
+    }
+
+    if (
+      action.type === "PLANET_ACTION"
+      && isImmediatePlanetActionKind(action.payload.kind)
+    ) {
+      const validation = validateActions(deps.state, [action]);
+      const validationError = validation.errors[0];
+      if (validationError) {
+        sendOperationResult(context, false, validationError.reason);
+        return;
+      }
+
+      const result = applyImmediatePlanetAction(deps.state, action);
+      sendOperationResult(context, result.ok, result.message);
+      if (!result.ok) {
+        return;
+      }
+
+      deps.readyPlayers.delete(action.playerId);
+      deps.persistDatabase();
+      broadcastState();
       return;
     }
 
@@ -189,7 +261,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       return;
     }
 
-    const result = applyPlanningResourceTransfer(
+    const result = applyImmediateResourceTransfer(
       deps.state,
       {
         role: context.session.role,

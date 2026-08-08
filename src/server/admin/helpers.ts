@@ -1,18 +1,13 @@
-import {
-  computePopulationProduction,
-  isInfoCategory,
-  isResourceKey,
-  RAW_OUTPUTS_BY_WORLD_TYPE,
-} from "../../planetDomain";
+import { computePopulationProduction, isInfoCategory, isResourceKey } from "../../planetDomain";
 import { Account } from "../contracts";
-import { HexCoord, IntelFragmentMap, Planet, ResourceStore, Tile, GameState } from "../../types";
+import { HexCoord, IntelFragmentMap, Planet, PlayerProductStorages, ResourceStore, Tile, GameState } from "../../types";
 import { isFiniteNumber } from "../../utils/validation";
 
 export function getTileAt(state: GameState, coord: HexCoord): Tile | null {
   return state.map.tiles.find((tile) => tile.q === coord.q && tile.r === coord.r) ?? null;
 }
 
-export function parseResourceStore(value: unknown): ResourceStore | null {
+export function parseResourceStore(value: unknown, allowFraction = false): ResourceStore | null {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -23,12 +18,34 @@ export function parseResourceStore(value: unknown): ResourceStore | null {
       return null;
     }
 
-    const amount = Math.max(0, Math.trunc(raw));
+    const amount = Math.max(0, allowFraction ? Math.round(raw * 100) / 100 : Math.trunc(raw));
     if (amount > 0) {
       result[key] = amount;
     }
   }
 
+  return result;
+}
+
+export function parsePlayerProductStorages(
+  value: unknown,
+  state: GameState,
+): PlayerProductStorages | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const result: PlayerProductStorages = {};
+  for (const [playerId, rawStore] of Object.entries(value as Record<string, unknown>)) {
+    if (!Number.isInteger(Number(playerId)) || !state.players[playerId]) {
+      return null;
+    }
+    const store = parseResourceStore(rawStore, true);
+    if (store === null) {
+      return null;
+    }
+    result[playerId] = store;
+  }
   return result;
 }
 
@@ -53,8 +70,11 @@ export function parseIntelFragments(value: unknown): IntelFragmentMap | null {
 }
 
 export function computePlanetResourceProduction(planet: Planet): number {
-  const outputs = RAW_OUTPUTS_BY_WORLD_TYPE[planet.worldType] ?? [];
-  return computePopulationProduction(planet.population) * outputs.length;
+  const generatedResourceCount = Object.values(planet.resourceGeneration)
+    .filter((enabled) => typeof enabled === "number" && enabled > 0).length;
+  return Math.round(
+    computePopulationProduction(planet.population) * generatedResourceCount * 100,
+  ) / 100;
 }
 
 export function setPlanetResourceProduction(planet: Planet): void {

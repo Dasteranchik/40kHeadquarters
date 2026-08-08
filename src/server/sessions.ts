@@ -12,10 +12,27 @@ export interface SessionManager {
   requireAdmin: (req: IncomingMessage, res: ServerResponse) => Session | null;
   deleteSession: (token: string) => void;
   removeSessionsForPlayer: (playerId: number) => void;
+  getSessions: () => Record<string, Session>;
 }
 
-export function createSessionManager(sessionTtlMs: number): SessionManager {
+export function createSessionManager(
+  sessionTtlMs: number,
+  initialSessions: Record<string, Session> = {},
+  onChanged: () => void = () => {},
+): SessionManager {
   const sessions = new Map<string, Session>();
+  const now = Date.now();
+  for (const [token, session] of Object.entries(initialSessions)) {
+    if (
+      session.token === token
+      && typeof session.username === "string"
+      && (session.role === "admin" || session.role === "player")
+      && Number.isFinite(session.expiresAt)
+      && session.expiresAt > now
+    ) {
+      sessions.set(token, { ...session });
+    }
+  }
 
   function createSession(account: Account): Session {
     const token = randomUUID();
@@ -28,6 +45,7 @@ export function createSessionManager(sessionTtlMs: number): SessionManager {
     };
 
     sessions.set(token, session);
+    onChanged();
     return session;
   }
 
@@ -43,6 +61,7 @@ export function createSessionManager(sessionTtlMs: number): SessionManager {
 
     if (Date.now() > session.expiresAt) {
       sessions.delete(token);
+      onChanged();
       return null;
     }
 
@@ -78,15 +97,28 @@ export function createSessionManager(sessionTtlMs: number): SessionManager {
   }
 
   function deleteSession(token: string): void {
-    sessions.delete(token);
+    if (sessions.delete(token)) {
+      onChanged();
+    }
   }
 
   function removeSessionsForPlayer(playerId: number): void {
+    let changed = false;
     for (const [token, session] of sessions.entries()) {
       if (session.playerId === playerId) {
         sessions.delete(token);
+        changed = true;
       }
     }
+    if (changed) {
+      onChanged();
+    }
+  }
+
+  function getSessions(): Record<string, Session> {
+    return Object.fromEntries(
+      [...sessions.entries()].map(([token, session]) => [token, { ...session }]),
+    );
   }
 
   return {
@@ -97,5 +129,6 @@ export function createSessionManager(sessionTtlMs: number): SessionManager {
     requireAdmin,
     deleteSession,
     removeSessionsForPlayer,
+    getSessions,
   };
 }

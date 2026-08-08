@@ -12,9 +12,18 @@ export interface DbAccount {
   playerId?: number;
 }
 
+export interface DbSession {
+  token: string;
+  username: string;
+  role: DbRole;
+  playerId?: number;
+  expiresAt: number;
+}
+
 export interface DocumentSnapshot {
   gameState: GameState;
   accounts: Record<string, DbAccount>;
+  sessions?: Record<string, DbSession>;
 }
 
 const DEFAULT_DB_PATH = path.resolve(process.cwd(), "data", "db.json");

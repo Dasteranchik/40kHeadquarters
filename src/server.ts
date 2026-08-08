@@ -16,7 +16,7 @@ import { createInitialDocumentSnapshot } from "./server/seed";
 import { createSessionManager } from "./server/sessions";
 import { parseClientMessage, send, writeJson } from "./server/transport";
 import { buildPlanningForSession, buildStateForSession } from "./server/visibility";
-import { DbAccount, DocumentDb } from "./storage/documentDb";
+import { DbAccount, DbSession, DocumentDb } from "./storage/documentDb";
 import { Action } from "./types";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -45,6 +45,8 @@ if (!accounts.has("admin")) {
   });
 }
 
+let sessionManager: ReturnType<typeof createSessionManager>;
+
 function persistDatabase(): void {
   const storedAccounts: Record<string, DbAccount> = {};
   for (const [username, account] of accounts.entries()) {
@@ -59,12 +61,27 @@ function persistDatabase(): void {
   db.replace({
     gameState: state,
     accounts: storedAccounts,
+    sessions: sessionManager?.getSessions() ?? persisted.sessions ?? {},
   });
 }
 
-persistDatabase();
+const restoredSessions = Object.fromEntries(
+  Object.entries(persisted.sessions ?? {}).filter(([, session]) => {
+    const account = accounts.get(session.username);
+    return Boolean(
+      account
+      && account.role === session.role
+      && account.playerId === session.playerId,
+    );
+  }),
+) as Record<string, DbSession>;
 
-const sessionManager = createSessionManager(SESSION_TTL_MS);
+sessionManager = createSessionManager(
+  SESSION_TTL_MS,
+  restoredSessions,
+  persistDatabase,
+);
+persistDatabase();
 
 function requireAdmin(req: IncomingMessage, res: ServerResponse): Session | null {
   return sessionManager.requireAdmin(req, res);

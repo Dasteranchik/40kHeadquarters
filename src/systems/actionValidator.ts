@@ -158,7 +158,6 @@ function validatePlanetAction(
   state: GameState,
   action: PlanetAction,
   moraleUsedByPlayer: Set<number>,
-  manualProductionUsedByPlanet: Set<number>,
 ): ValidationError | null {
   const player = state.players[action.playerId];
   if (!player) {
@@ -321,17 +320,6 @@ function validatePlanetAction(
     }
   }
 
-  if (kind === "PRODUCE_RESOURCE") {
-    if (manualProductionUsedByPlanet.has(planet.id)) {
-      return {
-        actionId: action.id,
-        reason: "Planet can use PRODUCE_RESOURCE only once per turn",
-      };
-    }
-
-    manualProductionUsedByPlanet.add(planet.id);
-  }
-
   return null;
 }
 
@@ -349,7 +337,6 @@ export function validateActions(
   const projectedPositionByFleet = new Map<number, HexCoord>();
   const diplomacyPairSeen = new Set<string>();
   const moraleUsedByPlayer = new Set<number>();
-  const manualProductionUsedByPlanet = new Set<number>();
   const tileIndex = buildTileIndex(state.map);
 
   for (const action of sortedActions(actions)) {
@@ -393,7 +380,6 @@ export function validateActions(
       state,
       action,
       moraleUsedByPlayer,
-      manualProductionUsedByPlanet,
     );
     if (error) {
       errors.push(error);

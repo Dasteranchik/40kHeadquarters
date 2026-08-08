@@ -24,6 +24,7 @@ export interface NetworkSessionDeps {
   renderScene: () => void;
   hideHexContextMenu: () => void;
   reconcilePendingFleetStances: (state: GameState) => void;
+  resizeAndRenderScene: () => void;
 }
 
 export interface NetworkSessionController {
@@ -40,6 +41,7 @@ export interface NetworkSessionController {
 export function createNetworkSessionController(
   deps: NetworkSessionDeps,
 ): NetworkSessionController {
+  let authRevision = 0;
   function setSession(session: SessionInfo | null): void {
     deps.runtime.session = session;
     if (!session) {
@@ -87,9 +89,7 @@ export function createNetworkSessionController(
     deps.reconcilePendingFleetStances(payload.state);
     deps.refreshHud();
 
-    window.requestAnimationFrame(() => {
-      deps.renderScene();
-    });
+    window.requestAnimationFrame(deps.resizeAndRenderScene);
   }
 
   function handleServerMessage(message: ServerMessage): void {
@@ -104,12 +104,14 @@ export function createNetworkSessionController(
       deps.reconcilePendingFleetStances(message.state);
       deps.hideHexContextMenu();
       deps.refreshHud();
-      deps.renderScene();
+      window.requestAnimationFrame(deps.resizeAndRenderScene);
       return;
     }
 
     if (message.type === "operationResult") {
-      deps.appendEvent(`${message.ok ? "OK" : "ERROR"}: ${message.message}`);
+      const resultMessage = `${message.ok ? "OK" : "ERROR"}: ${message.message}`;
+      deps.setStatus(resultMessage);
+      deps.appendEvent(resultMessage);
       return;
     }
 
@@ -164,6 +166,7 @@ export function createNetworkSessionController(
   }
 
   async function login(): Promise<void> {
+    const revision = ++authRevision;
     const { username, password } = deps.getLoginCredentials();
     if (!username || !password) {
       deps.setStatus("Enter username and password");
@@ -176,6 +179,8 @@ export function createNetworkSessionController(
         body: JSON.stringify({ username, password }),
       });
 
+      if (revision !== authRevision) return;
+
       setSession(session);
       try {
         await loadStateSnapshot();
@@ -185,15 +190,19 @@ export function createNetworkSessionController(
       connectSocket();
       deps.appendEvent(`Logged in as ${session.username}`);
     } catch (error) {
+      if (revision !== authRevision) return;
       deps.setStatus(`Login failed: ${(error as Error).message}`);
     }
   }
 
   async function restoreSession(): Promise<void> {
+    const revision = authRevision;
     try {
       const me = await apiRequest<SessionInfo>("/api/me", {
         method: "GET",
       });
+
+      if (revision !== authRevision) return;
 
       setSession(me);
       try {
@@ -203,11 +212,13 @@ export function createNetworkSessionController(
       }
       connectSocket();
     } catch {
+      if (revision !== authRevision) return;
       setSession(null);
     }
   }
 
   async function logout(): Promise<void> {
+    authRevision += 1;
     try {
       if (deps.runtime.session) {
         await apiRequest("/api/logout", {

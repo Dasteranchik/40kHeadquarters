@@ -99,6 +99,11 @@ const selectedFleetDetailsEl = document.getElementById("selectedFleetDetails") a
 const pathLine = document.getElementById("pathLine") as HTMLParagraphElement;
 const targetSelect = document.getElementById("targetSelect") as HTMLSelectElement;
 const eventsLog = document.getElementById("eventsLog") as HTMLPreElement;
+const mapViewBtn = document.getElementById("mapViewBtn") as HTMLButtonElement;
+const eventsViewBtn = document.getElementById("eventsViewBtn") as HTMLButtonElement;
+const stageZoneEl = document.querySelector(".stage-zone") as HTMLElement;
+const playerEventsViewEl = document.getElementById("playerEventsView") as HTMLElement;
+const playerEventsListEl = document.getElementById("playerEventsList") as HTMLDivElement;
 const adminSection = document.getElementById("adminSection") as HTMLElement;
 
 const loginUserInput = document.getElementById("loginUser") as HTMLInputElement;
@@ -140,7 +145,6 @@ const planetRawAmountInput = document.getElementById(
 const planetTakeStockBtn = document.getElementById(
   "planetTakeStockBtn",
 ) as HTMLButtonElement;
-const planetProduceBtn = document.getElementById("planetProduceBtn") as HTMLButtonElement;
 const planetProductSelect = document.getElementById("planetProduct") as HTMLSelectElement;
 const planetProductAmountInput = document.getElementById(
   "planetProductAmount",
@@ -400,6 +404,43 @@ interface TransferModeSpec {
   toKind: ResourceEndpointKind;
 }
 
+function renderPlayerEvents(state: GameState | null): void {
+  playerEventsListEl.innerHTML = "";
+  const events = [...(state?.events ?? [])].sort((a, b) => b.id - a.id);
+  if (events.length === 0) {
+    playerEventsListEl.textContent = "No events";
+    return;
+  }
+  for (const event of events) {
+    const item = document.createElement("article");
+    item.className = "player-event";
+    item.dataset.kind = event.kind;
+    const meta = document.createElement("div");
+    meta.className = "player-event-meta";
+    meta.textContent = `#${event.id} · Turn ${event.turnNumber} · ${event.kind}`;
+    const message = document.createElement("div");
+    message.textContent = event.message;
+    item.append(meta, message);
+    playerEventsListEl.append(item);
+  }
+}
+
+function selectMainView(view: "MAP" | "EVENTS"): void {
+  const showMap = view === "MAP";
+  stageZoneEl.classList.toggle("view-hidden", !showMap);
+  playerEventsViewEl.classList.toggle("view-hidden", showMap);
+  mapViewBtn.classList.toggle("is-active", showMap);
+  mapViewBtn.classList.toggle("ghost", !showMap);
+  eventsViewBtn.classList.toggle("is-active", !showMap);
+  eventsViewBtn.classList.toggle("ghost", showMap);
+  if (showMap) {
+    window.requestAnimationFrame(() => {
+      app.renderer.resize(stageEl.clientWidth, stageEl.clientHeight);
+      renderScene();
+    });
+  }
+}
+
 const TRANSFER_MODES: TransferModeSpec[] = [
   {
     value: "FLEET_TO_FLEET",
@@ -409,13 +450,13 @@ const TRANSFER_MODES: TransferModeSpec[] = [
   },
   {
     value: "FLEET_TO_PLANET_STORAGE",
-    label: "Fleet -> Planet Storage",
+    label: "Fleet -> Personal Planet Storage",
     fromKind: "FLEET",
     toKind: "PLANET_STORAGE",
   },
   {
     value: "PLANET_STORAGE_TO_FLEET",
-    label: "Planet Storage -> Fleet",
+    label: "Personal Planet Storage -> Fleet",
     fromKind: "PLANET_STORAGE",
     toKind: "FLEET",
   },
@@ -458,19 +499,6 @@ function storeAmount(store: Fleet["inventory"], key: string): number {
   return Math.max(0, Math.trunc(value));
 }
 
-function fleetInventoryLoad(fleet: Fleet): number {
-  return Object.values(fleet.inventory).reduce((sum, value) => {
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return sum;
-    }
-    return sum + Math.max(0, Math.trunc(value));
-  }, 0);
-}
-
-function fleetFreeCapacity(fleet: Fleet): number {
-  return Math.max(0, Math.trunc(fleet.capacity) - fleetInventoryLoad(fleet));
-}
-
 interface TransferAvailability {
   key: (typeof RESOURCE_KEYS)[number];
   maxAmount: number;
@@ -480,12 +508,30 @@ function fillResourceOptions(availability: TransferAvailability[]): void {
   const keep = transferResourceSelect.value;
   transferResourceSelect.innerHTML = "";
 
-  for (const entry of availability) {
-    const option = document.createElement("option");
-    option.value = entry.key;
-    option.textContent = `${entry.key} (max ${entry.maxAmount})`;
-    transferResourceSelect.appendChild(option);
-  }
+  const appendGroup = (
+    label: string,
+    keys: readonly (typeof RESOURCE_KEYS)[number][],
+  ): void => {
+    const entries = keys
+      .map((key) => availability.find((entry) => entry.key === key))
+      .filter((entry): entry is TransferAvailability => Boolean(entry));
+    if (entries.length === 0) {
+      return;
+    }
+
+    const group = document.createElement("optgroup");
+    group.label = label;
+    for (const entry of entries) {
+      const option = document.createElement("option");
+      option.value = entry.key;
+      option.textContent = `${entry.key} (max ${entry.maxAmount})`;
+      group.appendChild(option);
+    }
+    transferResourceSelect.appendChild(group);
+  };
+
+  appendGroup("Raw Resources", RAW_RESOURCE_KEYS);
+  appendGroup("Products", PRODUCT_RESOURCE_KEYS);
 
   if (availability.some((entry) => entry.key === keep)) {
     transferResourceSelect.value = keep;
@@ -496,33 +542,33 @@ function fillTargetFleetOptions(
   state: GameState,
   selectedFleet: Fleet,
   activePlayer: string | null,
+  includeSelectedFleet: boolean,
 ): void {
   const previous = transferTargetFleetSelect.value;
   transferTargetFleetSelect.innerHTML = "";
 
   const fleets = fleetsAtCoord(state, selectedFleet.position)
-    .filter((fleet) => fleet.id !== selectedFleet.id)
+    .filter((fleet) => includeSelectedFleet || fleet.id !== selectedFleet.id)
     .filter((fleet) => (activePlayer ? fleet.ownerPlayerId === activePlayer : false))
     .sort((a, b) => a.id - b.id);
 
   for (const fleet of fleets) {
     const option = document.createElement("option");
     option.value = fleet.id;
-    option.textContent = `${fleet.id} (${fleet.ownerPlayerId})`;
+    option.textContent = `Fleet ${fleet.id} (${fleet.ownerPlayerId})`;
     transferTargetFleetSelect.appendChild(option);
   }
 
-  if (fleets.some((fleet) => fleet.id === previous)) {
+  if (fleets.some((fleet) => String(fleet.id) === previous)) {
     transferTargetFleetSelect.value = previous;
   }
 }
 
 interface TransferContext {
   mode: TransferModeSpec;
-  fromId: string;
+  fromId: number;
   fromStore: Fleet["inventory"];
-  toId: string;
-  toFleet: Fleet | null;
+  toId: number;
 }
 
 function resolveTransferContext(
@@ -540,7 +586,7 @@ function resolveTransferContext(
   const fromStore =
     mode.fromKind === "FLEET"
       ? selectedFleet.inventory
-      : planet!.productStorage;
+      : (planet!.productStorageByPlayerId[String(selectedFleet.ownerPlayerId)] ?? {});
 
   if (mode.toKind === "FLEET") {
     const toFleetId = transferTargetFleetSelect.value;
@@ -558,7 +604,6 @@ function resolveTransferContext(
       fromId,
       fromStore,
       toId: toFleet.id,
-      toFleet,
     };
   }
 
@@ -567,17 +612,11 @@ function resolveTransferContext(
     fromId,
     fromStore,
     toId: planet!.id,
-    toFleet: null,
   };
 }
 
 function buildTransferAvailability(context: TransferContext): TransferAvailability[] {
   const keys = RESOURCE_KEYS;
-  const freeCapacity = context.toFleet ? fleetFreeCapacity(context.toFleet) : Number.POSITIVE_INFINITY;
-
-  if (freeCapacity <= 0) {
-    return [];
-  }
 
   const availability: TransferAvailability[] = [];
   for (const key of keys) {
@@ -586,7 +625,7 @@ function buildTransferAvailability(context: TransferContext): TransferAvailabili
       continue;
     }
 
-    const maxAmount = Math.min(available, freeCapacity);
+    const maxAmount = available;
     if (maxAmount <= 0) {
       continue;
     }
@@ -626,7 +665,12 @@ function refreshTransferControls(
   const planet = selectedFleetPlanet(state, selectedFleet);
 
   if (needsTargetFleet) {
-    fillTargetFleetOptions(state, selectedFleet, activePlayer);
+    fillTargetFleetOptions(
+      state,
+      selectedFleet,
+      activePlayer,
+      mode.fromKind === "PLANET_STORAGE",
+    );
     transferTargetFleetSelect.disabled = transferTargetFleetSelect.options.length === 0;
   } else {
     transferTargetFleetSelect.innerHTML = "";
@@ -723,8 +767,9 @@ function submitTransfer(): void {
 
   if (sent) {
     appendEvent(
-      `Transfer requested: ${context.mode.label}, ${amount} ${transferResourceSelect.value}`,
+      `Transfer sent: ${context.mode.label}, ${amount} ${transferResourceSelect.value}`,
     );
+    setStatus("Transferring resources...");
   }
 }
 
@@ -829,19 +874,16 @@ function clampAmountInput(
   return clampedAmount;
 }
 
-function buildRawStockAvailability(
-  planet: Planet,
-  selectedFleet: Fleet,
-): PlanetResourceAvailability[] {
-  const freeCapacity = fleetFreeCapacity(selectedFleet);
-  if (freeCapacity <= 0) {
+function buildRawStockAvailability(planet: Planet): PlanetResourceAvailability[] {
+  const titheCapacity = Math.max(0, Math.floor(planet.titheTarget - planet.tithePaid));
+  if (titheCapacity <= 0) {
     return [];
   }
 
   return RAW_RESOURCE_KEYS
     .map((key) => ({
       key,
-      maxAmount: Math.min(storeAmount(planet.rawStock, key), freeCapacity),
+      maxAmount: Math.min(storeAmount(planet.rawStock, key), titheCapacity),
     }))
     .filter((entry) => entry.maxAmount > 0);
 }
@@ -887,17 +929,22 @@ function activePlayerHasFaction(
   return Boolean(player && player.alignment === "IMPERIAL" && state.factions[player.factionId]?.code === factionCode);
 }
 
-function buildPlanetDetails(planet: Planet): string {
+function buildPlanetDetails(planet: Planet, playerId: number | string | null): string {
+  const productStorage = playerId
+    ? (planet.productStorageByPlayerId[String(playerId)] ?? {})
+    : {};
   return [
     `ID: ${planet.id}`,
+    `Name: ${planet.name}`,
     `World Type: ${planet.worldType}`,
     `Tags: ${planet.worldTags.length > 0 ? planet.worldTags.join(", ") : "-"}`,
     `Population: ${planet.population}`,
     `Morale: ${planet.morale}`,
-    `Tithe: ${planet.titheLevel} ${planet.tithePaid}/${planet.titheTarget}`,
-    `Production: ${planet.resourceProduction}`,
-    `Raw Stock: ${formatStore(planet.rawStock)}`,
-    `Product Storage: ${formatStore(planet.productStorage)}`,
+    `Tithe: ${planet.titheLevel}; max ${planet.maxTitheLevel} (cap ${planet.titheTarget}); delivered ${planet.tithePaid}`,
+    `Generated resources: ${Object.keys(planet.resourceGeneration).join(", ") || "-"}`,
+    `Actual production per turn: ${planet.resourceProduction}`,
+    `Raw Stock: ${formatStore(planet.rawStock, 2)}`,
+    `Your Product Storage: ${formatStore(productStorage, 2)}`,
     `Info: ${formatStore(planet.infoFragments)}`,
   ].join("\n");
 }
@@ -925,7 +972,7 @@ function submitPlanetAction(
   };
 
   if (sendMessage({ type: "submitAction", action })) {
-    appendEvent(`${kind} submitted for ${context.planet.id}`);
+    appendEvent(`${kind} sent for ${context.planet.id}`);
   }
 }
 
@@ -939,13 +986,14 @@ function refreshPlanetActionControls(
   const planet = state && selectedFleet ? selectedFleetPlanet(state, selectedFleet) : null;
   const canUsePlanet = Boolean(state && selectedFleet && playerId && planet && state.phase === "PLANNING");
 
-  selectedPlanetLine.textContent = planet ? `Planet: ${planet.id}` : "Planet: none";
-  selectedPlanetDetailsEl.textContent = planet ? buildPlanetDetails(planet) : "-";
+  selectedPlanetLine.textContent = planet
+    ? `Planet: ${planet.name} (#${planet.id})`
+    : "Planet: none";
+  selectedPlanetDetailsEl.textContent = planet ? buildPlanetDetails(planet, playerId) : "-";
 
   planetRawResourceSelect.disabled = true;
   planetRawAmountInput.disabled = true;
   planetTakeStockBtn.disabled = true;
-  planetProduceBtn.disabled = true;
   planetProductSelect.disabled = true;
   planetProductAmountInput.disabled = true;
   planetCreateProductBtn.disabled = true;
@@ -962,19 +1010,16 @@ function refreshPlanetActionControls(
   }
 
   const player = state.players[playerId];
-  const rawAvailability = buildRawStockAvailability(planet, selectedFleet);
+  const rawAvailability = buildRawStockAvailability(planet);
   fillPlanetResourceOptions(planetRawResourceSelect, rawAvailability);
   const selectedRaw = selectedOptionAvailability(planetRawResourceSelect, rawAvailability);
   if (selectedRaw) {
     clampAmountInput(planetRawAmountInput, selectedRaw.maxAmount);
     planetRawResourceSelect.disabled = false;
     planetRawAmountInput.disabled = false;
-    planetTakeStockBtn.disabled = false;
+    planetTakeStockBtn.disabled = !player?.canTakePlanetResources;
   }
   planetTakeStockBtn.textContent = player?.alignment === "IMPERIAL" ? "Take Stock" : "Raid Stock";
-
-  planetProduceBtn.disabled =
-    planet.resourceProduction <= 0 || planet.tithePaid >= planet.titheTarget;
 
   const productAvailability = buildProductAvailability(state, planet, playerId);
   fillPlanetResourceOptions(planetProductSelect, productAvailability);
@@ -999,11 +1044,7 @@ function refreshPlanetActionControls(
     playerId,
     "inquisition",
   );
-  planetSetTitheBtn.disabled = !activePlayerHasFaction(
-    state,
-    playerId,
-    "administratum",
-  );
+  planetSetTitheBtn.disabled = true;
   planetTitheLevelSelect.value = planet.titheLevel;
 }
 
@@ -1013,7 +1054,7 @@ function submitTakeOrRaidStock(): void {
     return;
   }
 
-  const availability = buildRawStockAvailability(context.planet, context.selectedFleet);
+  const availability = buildRawStockAvailability(context.planet);
   const selectedRaw = selectedOptionAvailability(planetRawResourceSelect, availability);
   if (!selectedRaw) {
     appendEvent("No raw stock available for selected fleet");
@@ -1127,6 +1168,7 @@ function refreshArmyTransportControls(state: GameState | null, selected: Fleet |
 }
 
 function refreshHud(): void {
+  renderPlayerEvents(runtime.gameState);
   updateAuthView(hudElements, runtime.session);
 
   const state = runtime.gameState;
@@ -1240,6 +1282,10 @@ const networkSession = createNetworkSessionController({
   reconcilePendingFleetStances: (state) => {
     reconcilePendingFleetStances(runtime, state);
   },
+  resizeAndRenderScene: () => {
+    app.renderer.resize(stageEl.clientWidth, stageEl.clientHeight);
+    renderScene();
+  },
 });
 
 const adminActions = createAdminActions({
@@ -1269,6 +1315,61 @@ const orderActions = createOrderActions({
   refreshHud,
   renderScene,
 });
+
+function applyRouteClick(
+  state: GameState,
+  selected: Fleet,
+  clicked: HexCoord,
+): void {
+  hexContextMenu.hide();
+  const tile = getTile(state, clicked);
+  if (!tile) {
+    return;
+  }
+
+  const selectedPathIndex = runtime.plannedPath.findIndex(
+    (step) => step.q === clicked.q && step.r === clicked.r,
+  );
+
+  if (selectedPathIndex >= 0) {
+    runtime.plannedPath = runtime.plannedPath.slice(0, selectedPathIndex + 1);
+    appendEvent(
+      `Rolled route back to ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
+    );
+    refreshHud();
+    renderScene();
+    if (runtime.plannedPath.length > 0) {
+      orderActions.submitMove();
+    } else {
+      orderActions.clearPath();
+    }
+    return;
+  }
+
+  if (tile.terrainType === "OBSTACLE") {
+    appendEvent(`Cannot add obstacle ${coordKey(clicked)} to route`);
+    return;
+  }
+
+  const routeStart = runtime.plannedPath[runtime.plannedPath.length - 1]
+    ?? selected.position;
+  if (!areNeighbors(routeStart, clicked)) {
+    appendEvent("Route must be built one adjacent hex at a time");
+    return;
+  }
+  if (runtime.plannedPath.length >= selected.actionPoints) {
+    appendEvent("No action points remaining");
+    return;
+  }
+
+  runtime.plannedPath = [...runtime.plannedPath, { ...clicked }];
+  appendEvent(
+    `Added waypoint ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
+  );
+  refreshHud();
+  renderScene();
+  orderActions.submitMove();
+}
 
 function handleCanvasPrimaryClick(
   clientX: number,
@@ -1316,50 +1417,36 @@ function handleCanvasPrimaryClick(
   }
 
   if (selected && selected.domain === "SPACE" && state.phase === "PLANNING") {
-    hexContextMenu.hide();
-
-    const selectedPathIndex = runtime.plannedPath.findIndex(
-      (step) => step.q === clicked.q && step.r === clicked.r,
-    );
-
-    if (selectedPathIndex >= 0) {
-      runtime.plannedPath = runtime.plannedPath.slice(0, selectedPathIndex + 1);
-      appendEvent(
-        `Rolled route back to ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
-      );
-      refreshHud();
-      renderScene();
-      if (runtime.plannedPath.length > 0) {
-        orderActions.submitMove();
-      } else {
-        orderActions.clearPath();
-      }
-      return;
-    }
-
-    if (tile.terrainType === "OBSTACLE") {
-      appendEvent(`Cannot add obstacle ${coordKey(clicked)} to route`);
-      return;
-    }
-
-    const routeStart = runtime.plannedPath[runtime.plannedPath.length - 1]
+    const routeEnd = runtime.plannedPath[runtime.plannedPath.length - 1]
       ?? selected.position;
-    if (!areNeighbors(routeStart, clicked)) {
-      appendEvent("Route must be built one adjacent hex at a time");
-      return;
-    }
-    if (runtime.plannedPath.length >= selected.actionPoints) {
-      appendEvent("No action points remaining");
-      return;
-    }
-    runtime.plannedPath = [...runtime.plannedPath, { ...clicked }];
-    appendEvent(
-      `Added waypoint ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
+    const hasAnotherControllableFleet = ownFleetsHere.some(
+      (fleet) => fleet.id !== selected.id && fleet.domain === "SPACE",
     );
-    refreshHud();
-    renderScene();
-    orderActions.submitMove();
-    return;
+    if (hasAnotherControllableFleet && areNeighbors(routeEnd, clicked)) {
+      hexContextMenu.open(state, clicked, clientX, clientY, {
+        onPlotRoute: () => {
+          const currentState = runtime.gameState;
+          const currentSelected = currentState
+            ? getSelectedFleet(runtime, currentState)
+            : null;
+          if (
+            currentState
+            && currentSelected
+            && currentSelected.id === selected.id
+            && currentSelected.domain === "SPACE"
+            && currentState.phase === "PLANNING"
+          ) {
+            applyRouteClick(currentState, currentSelected, clicked);
+          }
+        },
+      });
+      return;
+    }
+
+    if (!hasAnotherControllableFleet) {
+      applyRouteClick(state, selected, clicked);
+      return;
+    }
   }
 
   const shouldOpenContextMenu =
@@ -1545,6 +1632,18 @@ bindMainEvents(
   },
 );
 
+for (const input of [loginUserInput, loginPassInput]) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.repeat) return;
+    event.preventDefault();
+    void networkSession.login();
+  });
+}
+
+mapViewBtn.addEventListener("click", () => selectMainView("MAP"));
+eventsViewBtn.addEventListener("click", () => selectMainView("EVENTS"));
+selectMainView("MAP");
+
 transferModeSelect.addEventListener("change", () => {
   refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
 });
@@ -1590,9 +1689,6 @@ planetRawAmountInput.addEventListener("input", () => {
 });
 planetTakeStockBtn.addEventListener("click", () => {
   submitTakeOrRaidStock();
-});
-planetProduceBtn.addEventListener("click", () => {
-  submitPlanetAction("PRODUCE_RESOURCE");
 });
 planetProductSelect.addEventListener("change", () => {
   refreshPlanetActionControls(

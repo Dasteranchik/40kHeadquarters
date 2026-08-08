@@ -1,4 +1,5 @@
 ﻿import {
+  calculateTitheProgress,
   computePopulationProduction,
   isProductResourceKey,
   isRawResourceKey,
@@ -19,6 +20,30 @@ import {
   PlanetReport,
   ResourceStore,
 } from "../types";
+import { getPlayerProductStorage } from "./planetStorage";
+
+export type ImmediatePlanetActionKind =
+  | "TAKE_STOCK"
+  | "RAID_STOCK"
+  | "TAKE_FROM_STORAGE"
+  | "DEPOSIT_TO_STORAGE"
+  | "CREATE_PRODUCT";
+
+export interface ImmediatePlanetActionResult {
+  ok: boolean;
+  message: string;
+  report: PlanetReport;
+}
+
+export function isImmediatePlanetActionKind(
+  kind: PlanetAction["payload"]["kind"],
+): kind is ImmediatePlanetActionKind {
+  return kind === "TAKE_STOCK"
+    || kind === "RAID_STOCK"
+    || kind === "TAKE_FROM_STORAGE"
+    || kind === "DEPOSIT_TO_STORAGE"
+    || kind === "CREATE_PRODUCT";
+}
 
 const MAX_MORALE = 100;
 const ECCLESIARCHY_FACTION_ID = "ecclesiarchy";
@@ -38,7 +63,8 @@ function fleetSortById(a: Fleet, b: Fleet): number {
 }
 
 function getStoreAmount(store: ResourceStore, resourceKey: ResourceKey): number {
-  return Math.max(0, Math.trunc(store[resourceKey] ?? 0));
+  const value = store[resourceKey];
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
 function addToStore(store: ResourceStore, resourceKey: ResourceKey, amount: number): void {
@@ -46,7 +72,7 @@ function addToStore(store: ResourceStore, resourceKey: ResourceKey, amount: numb
     return;
   }
 
-  store[resourceKey] = getStoreAmount(store, resourceKey) + amount;
+  store[resourceKey] = Math.round((getStoreAmount(store, resourceKey) + amount) * 100) / 100;
 }
 
 function takeFromStore(
@@ -55,7 +81,7 @@ function takeFromStore(
   requested: number,
 ): number {
   const available = getStoreAmount(store, resourceKey);
-  const moved = Math.min(Math.max(0, Math.trunc(requested)), available);
+  const moved = Math.min(Math.max(0, Math.trunc(requested)), Math.floor(available));
   if (moved <= 0) {
     return 0;
   }
@@ -64,24 +90,10 @@ function takeFromStore(
   if (left <= 0) {
     delete store[resourceKey];
   } else {
-    store[resourceKey] = left;
+    store[resourceKey] = Math.round(left * 100) / 100;
   }
 
   return moved;
-}
-
-function inventoryLoad(fleet: Fleet): number {
-  return Object.values(fleet.inventory).reduce((sum, value) => {
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return sum;
-    }
-
-    return sum + Math.max(0, Math.trunc(value));
-  }, 0);
-}
-
-function fleetFreeCapacity(fleet: Fleet): number {
-  return Math.max(0, Math.trunc(fleet.capacity) - inventoryLoad(fleet));
 }
 
 function addToFleetInventory(
@@ -89,8 +101,7 @@ function addToFleetInventory(
   resourceKey: ResourceKey,
   requested: number,
 ): number {
-  const free = fleetFreeCapacity(fleet);
-  const moved = Math.min(Math.max(0, Math.trunc(requested)), free);
+  const moved = Math.max(0, Math.trunc(requested));
   if (moved <= 0) {
     return 0;
   }
@@ -212,31 +223,42 @@ function applyPendingTitheChanges(state: GameState, report: PlanetReport): void 
 function generateForPlanet(
   planet: Planet,
   report: PlanetReport,
-  kind: "TURN_GENERATION" | "MANUAL_GENERATION",
-  actionId?: string,
 ): void {
-  const perResourceRate = computePopulationProduction(planet.population);
-  const outputs = RAW_OUTPUTS_BY_WORLD_TYPE[planet.worldType] ?? [];
-  planet.resourceProduction = perResourceRate * outputs.length;
-
-  if (outputs.length === 0 || perResourceRate <= 0) {
-    return;
+  const generated: string[] = [];
+  const populationProduction = computePopulationProduction(planet.population);
+  planet.resourceProduction = 0;
+  for (const [resourceKey, enabled] of Object.entries(planet.resourceGeneration)) {
+    if (!isResourceKey(resourceKey)) continue;
+    if (!enabled || enabled <= 0) continue;
+    const amount = populationProduction;
+    if (amount <= 0) continue;
+    addToStore(planet.rawStock, resourceKey, amount);
+    planet.resourceProduction = Math.round((planet.resourceProduction + amount) * 100) / 100;
+    generated.push(`${amount} ${resourceKey}`);
   }
 
-  if (planet.tithePaid >= planet.titheTarget) {
-    return;
-  }
-
-  for (const resourceKey of outputs) {
-    addToStore(planet.rawStock, resourceKey, perResourceRate);
-  }
+  if (generated.length === 0) return;
 
   event(report, {
-    actionId,
     planetId: planet.id,
-    kind,
-    details: `generated ${perResourceRate} x ${outputs.join(",")}`,
+    kind: "TURN_GENERATION",
+    details: `generated ${generated.join(", ")}`,
   });
+}
+
+function recordTitheContribution(state: GameState, planet: Planet, resourceKey: ResourceKey, amount: number): void {
+  addToStore(planet.titheContributions, resourceKey, amount);
+  const progress = calculateTitheProgress(
+    planet.maxTitheLevel,
+    planet.titheContributions,
+  );
+  planet.titheLevel = progress.currentLevel;
+  planet.tithePaid = progress.paid;
+  planet.titheTarget = progress.target;
+}
+
+function remainingTitheCapacity(planet: Planet): number {
+  return Math.max(0, Math.floor(planet.titheTarget - planet.tithePaid));
 }
 
 function applyTurnGeneration(state: GameState, report: PlanetReport): void {
@@ -246,7 +268,7 @@ function applyTurnGeneration(state: GameState, report: PlanetReport): void {
       continue;
     }
 
-    generateForPlanet(planet, report, "TURN_GENERATION");
+    generateForPlanet(planet, report);
   }
 }
 
@@ -299,6 +321,10 @@ function applyTakeStock(
     reject(report, action, "take stock is only for imperial players");
     return;
   }
+  if (!state.players[action.playerId]?.canTakePlanetResources) {
+    reject(report, action, "player is not allowed to take planet resources");
+    return;
+  }
 
   const fleet = requireActionFleet(state, action, planet, report);
   if (!fleet) {
@@ -311,9 +337,12 @@ function applyTakeStock(
     return;
   }
 
-  const requested = parseAmount(action.payload.amount);
+  const requested = Math.min(
+    parseAmount(action.payload.amount),
+    remainingTitheCapacity(planet),
+  );
   if (requested <= 0) {
-    reject(report, action, "amount must be positive");
+    reject(report, action, "planet tithe cap has been reached");
     return;
   }
 
@@ -334,7 +363,7 @@ function applyTakeStock(
     addToStore(planet.rawStock, resourceKey, taken - moved);
   }
 
-  planet.tithePaid += moved;
+  recordTitheContribution(state, planet, resourceKey, moved);
 
   event(report, {
     actionId: action.id,
@@ -352,6 +381,10 @@ function applyRaidStock(
 ): void {
   if (isImperialPlayer(state, action.playerId)) {
     reject(report, action, "raid stock is only for non-imperial players");
+    return;
+  }
+  if (!state.players[action.playerId]?.canTakePlanetResources) {
+    reject(report, action, "player is not allowed to take planet resources");
     return;
   }
 
@@ -374,9 +407,12 @@ function applyRaidStock(
     return;
   }
 
-  const requested = parseAmount(action.payload.amount);
+  const requested = Math.min(
+    parseAmount(action.payload.amount),
+    remainingTitheCapacity(planet),
+  );
   if (requested <= 0) {
-    reject(report, action, "amount must be positive");
+    reject(report, action, "planet tithe cap has been reached");
     return;
   }
 
@@ -397,7 +433,7 @@ function applyRaidStock(
     addToStore(planet.rawStock, resourceKey, taken - moved);
   }
 
-  planet.tithePaid += moved;
+  recordTitheContribution(state, planet, resourceKey, moved);
 
   event(report, {
     actionId: action.id,
@@ -430,7 +466,8 @@ function applyTakeFromStorage(
     return;
   }
 
-  const taken = takeFromStore(planet.productStorage, resourceKey, requested);
+  const productStorage = getPlayerProductStorage(planet, action.playerId);
+  const taken = takeFromStore(productStorage, resourceKey, requested);
   if (taken <= 0) {
     reject(report, action, "planet product storage is empty for this resource");
     return;
@@ -438,13 +475,13 @@ function applyTakeFromStorage(
 
   const moved = addToFleetInventory(fleet, resourceKey, taken);
   if (moved <= 0) {
-    addToStore(planet.productStorage, resourceKey, taken);
+    addToStore(productStorage, resourceKey, taken);
     reject(report, action, "fleet has no free capacity");
     return;
   }
 
   if (moved < taken) {
-    addToStore(planet.productStorage, resourceKey, taken - moved);
+    addToStore(productStorage, resourceKey, taken - moved);
   }
 
   event(report, {
@@ -484,7 +521,7 @@ function applyDepositToStorage(
     return;
   }
 
-  addToStore(planet.productStorage, resourceKey, moved);
+  addToStore(getPlayerProductStorage(planet, action.playerId), resourceKey, moved);
 
   event(report, {
     actionId: action.id,
@@ -545,7 +582,7 @@ function applyCreateProduct(
   }
 
   const converted = Math.min(requested, totalAvailable);
-  addToStore(planet.productStorage, productKey, converted);
+  addToStore(getPlayerProductStorage(planet, action.playerId), productKey, converted);
 
   event(report, {
     actionId: action.id,
@@ -553,6 +590,47 @@ function applyCreateProduct(
     kind: "CREATE_PRODUCT",
     details: `converted ${converted} ${recipe.input} into ${productKey}`,
   });
+}
+
+export function applyImmediatePlanetAction(
+  state: GameState,
+  action: PlanetAction,
+): ImmediatePlanetActionResult {
+  const report: PlanetReport = { events: [] };
+  const planet = state.planets[action.payload.planetId];
+  if (!planet) {
+    reject(report, action, "planet not found");
+  } else if (!state.players[action.playerId]) {
+    reject(report, action, "player not found");
+  } else {
+    switch (action.payload.kind) {
+      case "TAKE_STOCK":
+        applyTakeStock(state, action, planet, report);
+        break;
+      case "RAID_STOCK":
+        applyRaidStock(state, action, planet, report);
+        break;
+      case "TAKE_FROM_STORAGE":
+        applyTakeFromStorage(state, action, planet, report);
+        break;
+      case "DEPOSIT_TO_STORAGE":
+        applyDepositToStorage(state, action, planet, report);
+        break;
+      case "CREATE_PRODUCT":
+        applyCreateProduct(state, action, planet, report);
+        break;
+      default:
+        reject(report, action, `${action.payload.kind} is not an immediate economy action`);
+    }
+  }
+
+  const rejected = report.events.find((entry) => entry.kind === "REJECTED");
+  const lastEvent = report.events[report.events.length - 1];
+  return {
+    ok: !rejected && Boolean(lastEvent),
+    message: rejected?.details ?? lastEvent?.details ?? "Economy action had no effect",
+    report,
+  };
 }
 
 function applyRaiseMorale(
@@ -654,89 +732,12 @@ function titheMoralePenalty(deltaCategories: number): number {
 }
 
 function applyScheduleTithe(
-  state: GameState,
+  _state: GameState,
   action: PlanetAction,
-  planet: Planet,
+  _planet: Planet,
   report: PlanetReport,
 ): void {
-  if (!isImperialPlayer(state, action.playerId)) {
-    reject(report, action, "set tithe is only for imperial players");
-    return;
-  }
-
-  if (!playerHasFaction(state, action.playerId, ADMINISTRATUM_FACTION_ID)) {
-    reject(report, action, "set tithe requires Administratum faction");
-    return;
-  }
-
-  const fleets = playerFleetsOnPlanet(state, planet, action.playerId);
-  if (fleets.length === 0) {
-    reject(report, action, "player must have a fleet in planet hex");
-    return;
-  }
-
-  const nextTitheLevel = action.payload.titheLevel;
-  if (!isTitheLevel(nextTitheLevel)) {
-    reject(report, action, "titheLevel is invalid");
-    return;
-  }
-
-  const pending = state.pendingTitheChanges.find(
-    (entry) => entry.planetId === planet.id && entry.applyOnTurn === state.turnNumber + 1,
-  );
-
-  const baseLevel = pending?.titheLevel ?? planet.titheLevel;
-  const deltaCategories = Math.max(
-    0,
-    titheCategoryRank(baseLevel) - titheCategoryRank(nextTitheLevel),
-  );
-  const moralePenalty = titheMoralePenalty(deltaCategories);
-  if (moralePenalty > 0) {
-    planet.morale = Math.max(0, planet.morale - moralePenalty);
-  }
-
-  if (pending) {
-    pending.titheLevel = nextTitheLevel;
-    pending.requestedByPlayerId = action.playerId;
-  } else {
-    state.pendingTitheChanges.push({
-      planetId: planet.id,
-      titheLevel: nextTitheLevel,
-      requestedByPlayerId: action.playerId,
-      applyOnTurn: state.turnNumber + 1,
-    });
-  }
-
-  event(report, {
-    actionId: action.id,
-    planetId: planet.id,
-    kind: "SCHEDULE_TITHE",
-    details: `tithe scheduled ${baseLevel} -> ${nextTitheLevel} for turn ${
-      state.turnNumber + 1
-    }, morale ${planet.morale}`,
-  });
-}
-
-function applyManualProduction(
-  state: GameState,
-  action: PlanetAction,
-  planet: Planet,
-  report: PlanetReport,
-  usedPlanets: Set<number>,
-): void {
-  const fleets = playerFleetsOnPlanet(state, planet, action.playerId);
-  if (fleets.length === 0) {
-    reject(report, action, "player must have a fleet in planet hex");
-    return;
-  }
-
-  if (usedPlanets.has(planet.id)) {
-    reject(report, action, "manual production already used on this planet this turn");
-    return;
-  }
-
-  usedPlanets.add(planet.id);
-  generateForPlanet(planet, report, "MANUAL_GENERATION", action.id);
+  reject(report, action, "tithe levels are configured by the administrator");
 }
 
 function executePlanetAction(
@@ -744,7 +745,6 @@ function executePlanetAction(
   action: PlanetAction,
   report: PlanetReport,
   moraleUsedByPlayer: Set<number>,
-  manualProductionUsedByPlanet: Set<number>,
 ): void {
   const planet = state.planets[action.payload.planetId];
   if (!planet) {
@@ -790,16 +790,6 @@ function executePlanetAction(
       applyScheduleTithe(state, action, planet, report);
       return;
 
-    case "PRODUCE_RESOURCE":
-      applyManualProduction(
-        state,
-        action,
-        planet,
-        report,
-        manualProductionUsedByPlanet,
-      );
-      return;
-
     default:
       reject(report, action, `unsupported action kind ${action.payload.kind}`);
   }
@@ -818,15 +808,12 @@ export function applyPlanetSystems(
   applyTurnGeneration(state, report);
 
   const moraleUsedByPlayer = new Set<number>();
-  const manualProductionUsedByPlanet = new Set<number>();
-
   for (const action of orderedPlanetActions(actions)) {
     executePlanetAction(
       state,
       action,
       report,
       moraleUsedByPlayer,
-      manualProductionUsedByPlanet,
     );
   }
 

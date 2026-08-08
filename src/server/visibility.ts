@@ -1,7 +1,7 @@
 import { PlanningSnapshot } from "../api/ws";
 import { collectVisibleTileKeysByPlayerId } from "../systems/fogOfWarSystem";
 import { validateActions } from "../systems/actionValidator";
-import { Action, Fleet, GameState, HexCoord, TurnResolution } from "../types";
+import { Action, Fleet, GameState, HexCoord, Planet, TurnResolution } from "../types";
 import { areMutualAllies } from "../utils/relations";
 import { coordKey } from "../hex";
 import { Session } from "./contracts";
@@ -53,6 +53,16 @@ function canSessionSeeFleet(
   return spottingTiles.has(coordKey(fleet.position));
 }
 
+function planetForPlayer(planet: Planet, playerId: number): Planet {
+  const ownStorage = planet.productStorageByPlayerId[String(playerId)];
+  return {
+    ...planet,
+    productStorageByPlayerId: ownStorage
+      ? { [String(playerId)]: { ...ownStorage } }
+      : {},
+  };
+}
+
 function filterVisibilityForSession(
   session: Session,
   resolution: TurnResolution,
@@ -72,7 +82,12 @@ function filterVisibilityForSession(
   }
 
   return {
-    [viewerId]: visibleState,
+    [viewerId]: {
+      ...visibleState,
+      visiblePlanets: visibleState.visiblePlanets.map((planet) =>
+        planetForPlayer(planet, viewerId),
+      ),
+    },
   };
 }
 
@@ -103,7 +118,20 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
       });
   return {
     ...state,
+    planets: session.role === "admin" || !session.playerId
+      ? state.planets
+      : Object.fromEntries(
+          Object.entries(state.planets).map(([planetId, planet]) => [
+            planetId,
+            planetForPlayer(planet, session.playerId!),
+          ]),
+        ),
     fleets: filterFleetsForSession(session, state, state.fleets),
+    events: session.role === "admin"
+      ? state.events
+      : state.events.filter((event) =>
+          Boolean(session.playerId && event.playerIds.includes(session.playerId)),
+        ),
     pendingArmyTransportRequests,
   };
 }

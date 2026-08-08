@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from "http";
 
-import { isPlanetTag, isPlanetWorldType, isTitheLevel, titheValue } from "../../planetDomain";
+import { calculateTitheProgress, isPlanetTag, isPlanetWorldType, isTitheLevel, titheValue } from "../../planetDomain";
 import { Planet } from "../../types";
 import { isFiniteNumber, isValidId } from "../../utils/validation";
 import { AddPlanetRequest, UpdatePlanetRequest } from "../contracts";
@@ -9,6 +9,7 @@ import { AdminHandlerDeps, requireAdminPlanning } from "./deps";
 import {
   getTileAt,
   parseIntelFragments,
+  parsePlayerProductStorages,
   parseResourceStore,
   setPlanetResourceProduction,
 } from "./helpers";
@@ -33,6 +34,8 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     const body = await readJsonBody<AddPlanetRequest>(req);
     if (
       !body ||
+      typeof body.name !== "string" ||
+      !body.name.trim() ||
       !isFiniteNumber(body.q) ||
       !isFiniteNumber(body.r)
     ) {
@@ -74,18 +77,31 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       writeJson(res, 400, { error: "titheLevel is invalid" });
       return;
     }
+    if (body.maxTitheLevel !== undefined && !isTitheLevel(body.maxTitheLevel)) {
+      writeJson(res, 400, { error: "maxTitheLevel is invalid" });
+      return;
+    }
 
     const parsedRawStock =
-      body.rawStock === undefined ? {} : parseResourceStore(body.rawStock);
+      body.rawStock === undefined ? {} : parseResourceStore(body.rawStock, true);
     if (parsedRawStock === null) {
       writeJson(res, 400, { error: "rawStock must be an object<ResourceKey, number>" });
       return;
     }
 
-    const parsedProductStorage =
-      body.productStorage === undefined ? {} : parseResourceStore(body.productStorage);
-    if (parsedProductStorage === null) {
-      writeJson(res, 400, { error: "productStorage must be an object<ResourceKey, number>" });
+    const parsedProductStorages = body.productStorageByPlayerId === undefined
+      ? {}
+      : parsePlayerProductStorages(body.productStorageByPlayerId, deps.state);
+    if (parsedProductStorages === null) {
+      writeJson(res, 400, { error: "productStorageByPlayerId must contain valid player resource stores" });
+      return;
+    }
+    const parsedGeneration = body.resourceGeneration === undefined
+      ? {} : parseResourceStore(body.resourceGeneration);
+    const parsedContributions = body.titheContributions === undefined
+      ? {} : parseResourceStore(body.titheContributions);
+    if (parsedGeneration === null || parsedContributions === null) {
+      writeJson(res, 400, { error: "generation and tithe contributions must be resource stores" });
       return;
     }
 
@@ -117,22 +133,34 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     const visionRange = Math.max(0, Math.trunc(body.visionRange ?? 1));
     const planet: Planet = {
       id: deps.state.nextIds.planet++,
+      name: body.name.trim(),
       position: coord,
       worldType: body.worldType ?? "AGRI_WORLD",
       worldTags: body.worldTags ? [...new Set(body.worldTags)] : [],
       population: Math.max(0, Math.trunc(body.population ?? 60)),
       morale: Math.max(0, Math.trunc(body.morale ?? 5)),
       titheLevel,
+      maxTitheLevel: body.maxTitheLevel ?? titheLevel,
       titheTarget: titheValue(titheLevel),
       tithePaid: Math.max(0, Math.trunc(body.tithePaid ?? 0)),
+      titheContributions: parsedContributions,
+      resourceGeneration: parsedGeneration,
       resourceProduction: 0,
       influenceValue: Math.max(0, Math.trunc(body.influenceValue ?? 1)),
       visionRange,
       overviewRange: Math.max(0, Math.trunc(body.overviewRange ?? visionRange)),
       rawStock: parsedRawStock,
-      productStorage: parsedProductStorage,
+      productStorageByPlayerId: parsedProductStorages,
       infoFragments: parsedInfoFragments,
     };
+
+    const initialTitheProgress = calculateTitheProgress(
+      planet.maxTitheLevel,
+      planet.titheContributions,
+    );
+    planet.titheLevel = initialTitheProgress.currentLevel;
+    planet.tithePaid = initialTitheProgress.paid;
+    planet.titheTarget = initialTitheProgress.target;
 
     setPlanetResourceProduction(planet);
 
@@ -203,6 +231,11 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       return;
     }
 
+    if (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) {
+      writeJson(res, 400, { error: "name must be a non-empty string" });
+      return;
+    }
+
     if (body.q !== undefined && !isFiniteNumber(body.q)) {
       writeJson(res, 400, { error: "q must be a number" });
       return;
@@ -246,18 +279,31 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       writeJson(res, 400, { error: "titheLevel is invalid" });
       return;
     }
+    if (body.maxTitheLevel !== undefined && !isTitheLevel(body.maxTitheLevel)) {
+      writeJson(res, 400, { error: "maxTitheLevel is invalid" });
+      return;
+    }
 
     const parsedRawStock =
-      body.rawStock === undefined ? undefined : parseResourceStore(body.rawStock);
+      body.rawStock === undefined ? undefined : parseResourceStore(body.rawStock, true);
     if (parsedRawStock === null) {
       writeJson(res, 400, { error: "rawStock must be an object<ResourceKey, number>" });
       return;
     }
 
-    const parsedProductStorage =
-      body.productStorage === undefined ? undefined : parseResourceStore(body.productStorage);
-    if (parsedProductStorage === null) {
-      writeJson(res, 400, { error: "productStorage must be an object<ResourceKey, number>" });
+    const parsedProductStorages = body.productStorageByPlayerId === undefined
+      ? undefined
+      : parsePlayerProductStorages(body.productStorageByPlayerId, deps.state);
+    if (parsedProductStorages === null) {
+      writeJson(res, 400, { error: "productStorageByPlayerId must contain valid player resource stores" });
+      return;
+    }
+    const parsedGeneration = body.resourceGeneration === undefined
+      ? undefined : parseResourceStore(body.resourceGeneration);
+    const parsedContributions = body.titheContributions === undefined
+      ? undefined : parseResourceStore(body.titheContributions);
+    if (parsedGeneration === null || parsedContributions === null) {
+      writeJson(res, 400, { error: "generation and tithe contributions must be resource stores" });
       return;
     }
 
@@ -307,6 +353,10 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       planet.worldType = body.worldType;
     }
 
+    if (body.name !== undefined) {
+      planet.name = body.name.trim();
+    }
+
     if (body.worldTags !== undefined) {
       planet.worldTags = [...new Set(body.worldTags)];
     }
@@ -322,6 +372,9 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     if (body.titheLevel !== undefined) {
       planet.titheLevel = body.titheLevel;
       planet.titheTarget = titheValue(body.titheLevel);
+    }
+    if (body.maxTitheLevel !== undefined) {
+      planet.maxTitheLevel = body.maxTitheLevel;
     }
 
     if (body.tithePaid !== undefined) {
@@ -344,13 +397,23 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       planet.rawStock = parsedRawStock;
     }
 
-    if (parsedProductStorage !== undefined) {
-      planet.productStorage = parsedProductStorage;
+    if (parsedProductStorages !== undefined) {
+      planet.productStorageByPlayerId = parsedProductStorages;
     }
+    if (parsedGeneration !== undefined) planet.resourceGeneration = parsedGeneration;
+    if (parsedContributions !== undefined) planet.titheContributions = parsedContributions;
 
     if (parsedInfoFragments !== undefined) {
       planet.infoFragments = parsedInfoFragments;
     }
+
+    const titheProgress = calculateTitheProgress(
+      planet.maxTitheLevel,
+      planet.titheContributions,
+    );
+    planet.titheLevel = titheProgress.currentLevel;
+    planet.tithePaid = titheProgress.paid;
+    planet.titheTarget = titheProgress.target;
 
     setPlanetResourceProduction(planet);
 

@@ -12,6 +12,7 @@ import {
   IntelFragmentMap,
   PlayerAlignment,
   ResourceStore,
+  PlayerProductStorages,
 } from "../types";
 
 export type Role = "admin" | "player";
@@ -44,6 +45,7 @@ export interface LoginRequest {
 export interface AddPlayerRequest {
   name: string;
   color?: string;
+  canTakePlanetResources?: boolean;
   username?: string;
   password?: string;
   alignment?: PlayerAlignment;
@@ -51,6 +53,7 @@ export interface AddPlayerRequest {
 }
 
 export interface AddPlanetRequest {
+  name: string;
   q: number;
   r: number;
   worldType?: PlanetWorldType;
@@ -58,12 +61,15 @@ export interface AddPlanetRequest {
   population?: number;
   morale?: number;
   titheLevel?: TitheLevel;
+  maxTitheLevel?: TitheLevel;
   tithePaid?: number;
+  titheContributions?: ResourceStore;
+  resourceGeneration?: ResourceStore;
   influenceValue?: number;
   visionRange?: number;
   overviewRange?: number;
   rawStock?: ResourceStore;
-  productStorage?: ResourceStore;
+  productStorageByPlayerId?: PlayerProductStorages;
   infoFragments?: IntelFragmentMap;
 }
 
@@ -103,6 +109,7 @@ export interface AddFactionRequest {
 export interface UpdatePlayerRequest {
   name?: string;
   color?: string;
+  canTakePlanetResources?: boolean;
   resources?: number;
   username?: string;
   password?: string;
@@ -111,6 +118,7 @@ export interface UpdatePlayerRequest {
 }
 
 export interface UpdatePlanetRequest {
+  name?: string;
   q?: number;
   r?: number;
   worldType?: PlanetWorldType;
@@ -118,14 +126,18 @@ export interface UpdatePlanetRequest {
   population?: number;
   morale?: number;
   titheLevel?: TitheLevel;
+  maxTitheLevel?: TitheLevel;
   tithePaid?: number;
+  titheContributions?: ResourceStore;
+  resourceGeneration?: ResourceStore;
   influenceValue?: number;
   visionRange?: number;
   overviewRange?: number;
   rawStock?: ResourceStore;
-  productStorage?: ResourceStore;
+  productStorageByPlayerId?: PlayerProductStorages;
   infoFragments?: IntelFragmentMap;
 }
+
 
 export interface UpdateFleetRequest {
   ownerPlayerId?: number;

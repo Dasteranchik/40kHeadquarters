@@ -112,6 +112,74 @@ h3 {
   flex: 1 1 160px;
 }
 
+.resource-list-field {
+  flex-basis: 100% !important;
+}
+
+.resource-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 6px;
+}
+
+.resource-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px;
+  align-items: center;
+  gap: 6px;
+}
+
+.resource-editor-row label,
+.resource-editor-row input {
+  margin: 0;
+}
+
+.player-product-storages {
+  display: grid;
+  gap: 8px;
+}
+
+.player-product-storage {
+  padding: 8px;
+  border: 1px solid #2f4a67;
+  border-radius: 8px;
+  background: #0f1c2f;
+}
+
+.chip-selector {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+  min-height: 42px;
+  padding: 7px;
+  border: 1px solid #335073;
+  border-radius: 8px;
+  background: #101a28;
+}
+
+.chip-selector .chip-toggle {
+  width: auto;
+  margin: 0;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #1a2a3e;
+  color: #b8cbe2;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.chip-selector .chip-toggle:hover {
+  border-color: #5a85b6;
+}
+
+.chip-selector .chip-toggle.is-selected {
+  border-color: #5fd3ff;
+  background: #17445b;
+  color: #e8f9ff;
+  box-shadow: inset 0 0 0 1px #5fd3ff55;
+}
+
 label {
   display: block;
   margin: 4px 0;

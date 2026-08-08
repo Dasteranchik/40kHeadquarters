@@ -32,7 +32,7 @@ export interface HudElements {
   warsListEl: HTMLUListElement;
 }
 
-export function formatStore(store: Record<string, number>): string {
+export function formatStore(store: Record<string, number>, fractionDigits = 0): string {
   const entries = Object.entries(store).filter(([, value]) => Number(value) > 0);
   if (entries.length === 0) {
     return "-";
@@ -40,7 +40,7 @@ export function formatStore(store: Record<string, number>): string {
 
   return entries
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}:${Math.trunc(value)}`)
+    .map(([key, value]) => `${key}:${Number(value).toFixed(fractionDigits)}`)
     .join(", ");
 }
 
@@ -188,7 +188,7 @@ export function renderAdminLists(
   for (const planet of Object.values(state.planets)) {
     elements.adminPlanetList.appendChild(
       createEntityItem(
-        `${planet.id} [${planet.position.q},${planet.position.r}] +${planet.resourceProduction} vr:${planet.visionRange}`,
+        `${planet.name} (#${planet.id}) [${planet.position.q},${planet.position.r}] +${planet.resourceProduction} vr:${planet.visionRange}`,
         () => {
           onDeletePath(`/api/admin/planets/${encodeURIComponent(planet.id)}`);
         },
