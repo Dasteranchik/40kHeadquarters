@@ -1,6 +1,7 @@
 ﻿import {
   computePopulationProduction,
   calculateTitheProgress,
+  DEFAULT_PRODUCT_CONVERSION_RATES,
   INFO_CATEGORIES,
   isInfoCategory,
   isPlanetTag,
@@ -9,9 +10,13 @@
   isTitheLevel,
   PlanetTag,
   PlanetWorldType,
+  PRODUCT_RECIPES,
+  PRODUCT_RESOURCE_KEYS,
   RAW_OUTPUTS_BY_WORLD_TYPE,
+  roundConversionRate,
   titheValue,
 } from "../planetDomain";
+import type { ProductConversionRates } from "../planetDomain";
 import {
   Faction,
   Fleet,
@@ -72,6 +77,35 @@ function normalizeResourceStore(value: unknown, allowFraction = false): Resource
   }
 
   return result;
+}
+
+function normalizeProductConversionRates(
+  value: unknown,
+  legacyValue: unknown,
+): ProductConversionRates {
+  const source = value && typeof value === "object"
+    ? value as Partial<Record<string, unknown>>
+    : {};
+  const legacySource = legacyValue && typeof legacyValue === "object"
+    ? legacyValue as Partial<Record<string, unknown>>
+    : {};
+
+  return Object.fromEntries(
+    PRODUCT_RESOURCE_KEYS.map((key) => {
+      const directRate = source[key];
+      const legacyRate = legacySource[PRODUCT_RECIPES[key].input];
+      const rate = directRate ?? legacyRate;
+      const roundedRate = typeof rate === "number" && Number.isFinite(rate)
+        ? roundConversionRate(rate)
+        : 0;
+      return [
+        key,
+        roundedRate > 0
+          ? roundedRate
+          : DEFAULT_PRODUCT_CONVERSION_RATES[key],
+      ];
+    }),
+  ) as ProductConversionRates;
 }
 
 function normalizePlayerProductStorages(value: unknown): PlayerProductStorages {
@@ -517,6 +551,14 @@ export function normalizeGameState(state: GameState): GameState {
   }
 
   state.factions = normalizedFactions;
+  const stateWithLegacyRates = state as Partial<GameState> & {
+    resourceConversionRates?: unknown;
+  };
+  state.productConversionRates = normalizeProductConversionRates(
+    stateWithLegacyRates.productConversionRates,
+    stateWithLegacyRates.resourceConversionRates,
+  );
+  delete stateWithLegacyRates.resourceConversionRates;
   state.players = normalizedPlayers;
   state.planets = normalizedPlanets;
   state.fleets = normalizedFleets;

@@ -6,6 +6,7 @@ import {
   PlanetWorldType,
   TitheLevel,
 } from "../planetDomain";
+import type { ProductConversionRates } from "../planetDomain";
 import {
   FleetDomain,
   FleetStance,
@@ -169,4 +170,8 @@ export interface RelationRequest {
 
 export interface PlanetInformantRequest {
   category: InfoCategory;
+}
+
+export interface UpdateProductConversionRatesRequest {
+  rates: ProductConversionRates;
 }

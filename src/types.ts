@@ -3,6 +3,7 @@
   PlanetTag,
   PlanetWorldType,
   ProductResourceKey,
+  ProductConversionRates,
   ResourceKey,
   TitheLevel,
 } from "./planetDomain";
@@ -125,6 +126,7 @@ export interface GameState {
   gameId: string;
   turnNumber: number;
   phase: GamePhase;
+  productConversionRates: ProductConversionRates;
   map: MapState;
   players: Record<string, Player>;
   fleets: Record<string, Fleet>;

@@ -43,6 +43,11 @@ export interface ApiRouteHandlers {
   handleListRelations: (req: IncomingMessage, res: ServerResponse) => void;
   handleAddRelation: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleDeleteRelation: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  handleGetProductConversionRates: (req: IncomingMessage, res: ServerResponse) => void;
+  handleUpdateProductConversionRates: (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ) => Promise<void>;
 }
 
 export async function handleApiRequest(
@@ -139,6 +144,16 @@ export async function handleApiRequest(
 
   if (path === "/api/admin/relations" && method === "DELETE") {
     await handlers.handleDeleteRelation(req, res);
+    return;
+  }
+
+  if (path === "/api/admin/product-conversion-rates" && method === "GET") {
+    handlers.handleGetProductConversionRates(req, res);
+    return;
+  }
+
+  if (path === "/api/admin/product-conversion-rates" && method === "PUT") {
+    await handlers.handleUpdateProductConversionRates(req, res);
     return;
   }
 

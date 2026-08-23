@@ -3,10 +3,14 @@
 import {
   PLANET_TAGS,
   PLANET_WORLD_TYPES,
+  DEFAULT_PRODUCT_CONVERSION_RATES,
   PRODUCT_RESOURCE_KEYS,
+  PRODUCT_RECIPES,
   RAW_RESOURCE_KEYS,
+  roundConversionRate,
   TITHE_LEVEL_ORDER,
 } from "../../src/planetDomain";
+import type { ProductConversionRates } from "../../src/planetDomain";
 import { defaultPlayerColor } from "../../src/utils/playerColor";
 import type {
   Faction,
@@ -45,6 +49,7 @@ interface AdminState {
   fleets: Fleet[];
   alliances: RelationPair[];
   wars: RelationPair[];
+  productConversionRates: ProductConversionRates;
 }
 
 const params = new URLSearchParams(window.location.search);
@@ -65,6 +70,9 @@ const planetsPanel = document.getElementById("planetsPanel") as HTMLElement;
 const fleetsPanel = document.getElementById("fleetsPanel") as HTMLElement;
 const armiesPanel = document.getElementById("armiesPanel") as HTMLElement;
 const relationsPanel = document.getElementById("relationsPanel") as HTMLElement;
+const resourceConversionPanel = document.getElementById("resourceConversionPanel") as HTMLElement;
+const resourceConversionRates = document.getElementById("resourceConversionRates") as HTMLDivElement;
+const saveResourceConversionBtn = document.getElementById("saveResourceConversionBtn") as HTMLButtonElement;
 
 const addPlayerId = document.getElementById("addPlayerId") as HTMLInputElement;
 const addPlayerName = document.getElementById("addPlayerName") as HTMLInputElement;
@@ -149,10 +157,19 @@ const runtime: AdminState = {
   fleets: [],
   alliances: [],
   wars: [],
+  productConversionRates: { ...DEFAULT_PRODUCT_CONVERSION_RATES },
 };
 
 function setPanelsVisible(visible: boolean): void {
-  for (const panel of [adminPanel, factionsPanel, planetsPanel, fleetsPanel, armiesPanel, relationsPanel]) {
+  for (const panel of [
+    adminPanel,
+    factionsPanel,
+    planetsPanel,
+    fleetsPanel,
+    armiesPanel,
+    relationsPanel,
+    resourceConversionPanel,
+  ]) {
     panel.classList.toggle("hidden", !visible);
   }
 }
@@ -204,6 +221,7 @@ function setSession(session: SessionInfo | null): void {
     runtime.fleets = [];
     runtime.alliances = [];
     runtime.wars = [];
+    runtime.productConversionRates = { ...DEFAULT_PRODUCT_CONVERSION_RATES };
     renderAll();
   }
 }
@@ -573,12 +591,22 @@ async function loadAllData(): Promise<void> {
     return;
   }
 
-  const [playersResp, factionsResp, planetsResp, fleetsResp, relationsResp] = await Promise.all([
+  const [
+    playersResp,
+    factionsResp,
+    planetsResp,
+    fleetsResp,
+    relationsResp,
+    conversionResp,
+  ] = await Promise.all([
     apiRequest<{ players: AdminPlayer[] }>("/api/admin/players", { method: "GET" }),
     apiRequest<{ factions: Faction[] }>("/api/admin/factions", { method: "GET" }),
     apiRequest<{ planets: Planet[] }>("/api/admin/planets", { method: "GET" }),
     apiRequest<{ fleets: Fleet[] }>("/api/admin/fleets", { method: "GET" }),
     apiRequest<{ alliances: RelationPair[]; wars: RelationPair[] }>("/api/admin/relations", {
+      method: "GET",
+    }),
+    apiRequest<{ rates: ProductConversionRates }>("/api/admin/product-conversion-rates", {
       method: "GET",
     }),
   ]);
@@ -591,6 +619,7 @@ async function loadAllData(): Promise<void> {
   runtime.fleets = fleetsResp.fleets;
   runtime.alliances = relationsResp.alliances;
   runtime.wars = relationsResp.wars;
+  runtime.productConversionRates = conversionResp.rates;
 
   renderAll();
 }
@@ -1080,6 +1109,58 @@ function renderFleets(): void {
   renderFleetList("GROUND", armiesList, armiesSearch.value);
 }
 
+function renderResourceConversionRates(): void {
+  resourceConversionRates.replaceChildren();
+  for (const productKey of PRODUCT_RESOURCE_KEYS) {
+    const row = document.createElement("div");
+    row.className = "resource-editor-row";
+    const recipe = PRODUCT_RECIPES[productKey];
+    const label = document.createElement("label");
+    label.textContent = `${productKey} ← ${recipe.input}`;
+    const input = createNumberInput(runtime.productConversionRates[productKey]);
+    input.value = runtime.productConversionRates[productKey].toFixed(2);
+    input.min = "0.01";
+    input.step = "0.01";
+    input.dataset.conversionProductKey = productKey;
+    row.append(label, input);
+    resourceConversionRates.append(row);
+  }
+}
+
+async function saveResourceConversionRates(): Promise<void> {
+  const rates: ProductConversionRates = { ...DEFAULT_PRODUCT_CONVERSION_RATES };
+  for (const input of resourceConversionRates.querySelectorAll<HTMLInputElement>(
+    "input[data-conversion-product-key]",
+  )) {
+    const productKey = input.dataset.conversionProductKey;
+    const rate = Number(input.value);
+    if (!productKey || !PRODUCT_RESOURCE_KEYS.includes(productKey as (typeof PRODUCT_RESOURCE_KEYS)[number])) {
+      continue;
+    }
+    if (!Number.isFinite(rate) || rate <= 0) {
+      appendEvent(`Conversion rate for ${productKey} must be positive`);
+      return;
+    }
+    const roundedRate = roundConversionRate(rate);
+    if (roundedRate <= 0) {
+      appendEvent(`Conversion rate for ${productKey} is too small after rounding`);
+      return;
+    }
+    rates[productKey as (typeof PRODUCT_RESOURCE_KEYS)[number]] = roundedRate;
+  }
+
+  try {
+    await apiRequest("/api/admin/product-conversion-rates", {
+      method: "PUT",
+      body: JSON.stringify({ rates }),
+    });
+    appendEvent("Resource conversion rates updated");
+    await loadAllData();
+  } catch (error) {
+    appendEvent(`Conversion rate update failed: ${(error as Error).message}`);
+  }
+}
+
 function renderAll(): void {
   syncAddPlayerFactionSelect();
   syncPlayerIdSelects();
@@ -1089,6 +1170,7 @@ function renderAll(): void {
   renderPlanets();
   renderFleets();
   renderRelationsLists();
+  renderResourceConversionRates();
 }
 
 async function addPlayer(): Promise<void> {
@@ -1357,6 +1439,10 @@ addRelationBtn.addEventListener("click", () => {
 
 removeRelationBtn.addEventListener("click", () => {
   void mutateRelation(true);
+});
+
+saveResourceConversionBtn.addEventListener("click", () => {
+  void saveResourceConversionRates();
 });
 
 playersSearch.addEventListener("input", () => {

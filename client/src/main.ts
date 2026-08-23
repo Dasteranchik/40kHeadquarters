@@ -911,10 +911,11 @@ function buildProductAvailability(
         (sum, fleet) => sum + storeAmount(fleet.inventory, recipe.input),
         0,
       );
+      const conversionRate = state.productConversionRates[productKey];
 
       return {
         key: productKey,
-        maxAmount: available,
+        maxAmount: Math.floor(available * conversionRate + 1e-9),
       };
     })
     .filter((entry): entry is PlanetResourceAvailability => Boolean(entry && entry.maxAmount > 0));

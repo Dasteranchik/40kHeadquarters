@@ -1,5 +1,6 @@
 ﻿import {
   computePopulationProduction,
+  DEFAULT_PRODUCT_CONVERSION_RATES,
   RAW_OUTPUTS_BY_WORLD_TYPE,
   titheValue,
 } from "../planetDomain";
@@ -155,6 +156,7 @@ export function createInitialGameState(): GameState {
     gameId: "live-1",
     turnNumber: 1,
     phase: "PLANNING",
+    productConversionRates: { ...DEFAULT_PRODUCT_CONVERSION_RATES },
     map: buildMap(18, 12),
     factions: createDefaultFactions(),
     players: {

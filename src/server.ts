@@ -7,6 +7,7 @@ import { AdminHandlerDeps } from "./server/admin/deps";
 import { createPlanetAdminHandlers } from "./server/admin/planets";
 import { createPlayerAdminHandlers } from "./server/admin/players";
 import { createRelationAdminHandlers } from "./server/admin/relations";
+import { createProductConversionAdminHandlers } from "./server/admin/productConversion";
 import { Account, ClientContext, Session } from "./server/contracts";
 import { normalizeGameState } from "./server/normalization";
 import { createPublicApiHandlers } from "./server/publicApi";
@@ -129,6 +130,7 @@ const planetAdmin = createPlanetAdminHandlers(adminDeps);
 const fleetAdmin = createFleetAdminHandlers(adminDeps);
 const factionAdmin = createFactionAdminHandlers(adminDeps);
 const relationAdmin = createRelationAdminHandlers(adminDeps);
+const productConversionAdmin = createProductConversionAdminHandlers(adminDeps);
 
 const publicApi = createPublicApiHandlers({
   accounts,
@@ -143,6 +145,7 @@ const apiHandlers = {
   ...planetAdmin,
   ...fleetAdmin,
   ...relationAdmin,
+  ...productConversionAdmin,
 };
 
 const httpServer = createServer((req, res) => {

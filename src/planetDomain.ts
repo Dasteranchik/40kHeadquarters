@@ -59,6 +59,21 @@ export const PRODUCT_RESOURCE_KEYS = [
 
 export type ProductResourceKey = (typeof PRODUCT_RESOURCE_KEYS)[number];
 
+export type ProductConversionRates = Record<ProductResourceKey, number>;
+
+export const DEFAULT_PRODUCT_CONVERSION_RATES: ProductConversionRates = {
+  PROVISIONS: 1,
+  PARTS: 1,
+  FUEL: 1,
+  SHIPS: 1,
+  WORKERS: 1,
+  REGIMENTS: 1,
+};
+
+export function roundConversionRate(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 export const RESOURCE_KEYS = [...RAW_RESOURCE_KEYS, ...PRODUCT_RESOURCE_KEYS] as const;
 
 export type ResourceKey = (typeof RESOURCE_KEYS)[number];

@@ -96,6 +96,28 @@ function takeFromStore(
   return moved;
 }
 
+function takeFractionalFromStore(
+  store: ResourceStore,
+  resourceKey: ResourceKey,
+  requested: number,
+): number {
+  const available = getStoreAmount(store, resourceKey);
+  const normalizedRequest = Math.max(0, Math.round(requested * 100) / 100);
+  const moved = Math.min(normalizedRequest, available);
+  if (moved <= 0) {
+    return 0;
+  }
+
+  const left = Math.round((available - moved) * 100) / 100;
+  if (left <= 0) {
+    delete store[resourceKey];
+  } else {
+    store[resourceKey] = left;
+  }
+
+  return Math.round(moved * 100) / 100;
+}
+
 function addToFleetInventory(
   fleet: Fleet,
   resourceKey: ResourceKey,
@@ -566,29 +588,35 @@ function applyCreateProduct(
     totalAvailable += getStoreAmount(fleet.inventory, recipe.input);
   }
 
-  let toConvert = Math.min(requested, totalAvailable);
-  if (toConvert <= 0) {
+  const conversionRate = state.productConversionRates[productKey];
+  const converted = Math.min(
+    requested,
+    Math.floor(totalAvailable * conversionRate + 1e-9),
+  );
+  if (converted <= 0) {
     reject(report, action, `not enough ${recipe.input} in fleets inventory`);
     return;
   }
 
+  const inputRequired = Math.ceil((converted / conversionRate) * 100 - 1e-9) / 100;
+  let inputRemaining = inputRequired;
+
   for (const fleet of fleets) {
-    if (toConvert <= 0) {
+    if (inputRemaining <= 0) {
       break;
     }
 
-    const removed = removeFromFleetInventory(fleet, recipe.input, toConvert);
-    toConvert -= removed;
+    const removed = takeFractionalFromStore(fleet.inventory, recipe.input, inputRemaining);
+    inputRemaining = Math.round((inputRemaining - removed) * 100) / 100;
   }
 
-  const converted = Math.min(requested, totalAvailable);
   addToStore(getPlayerProductStorage(planet, action.playerId), productKey, converted);
 
   event(report, {
     actionId: action.id,
     planetId: planet.id,
     kind: "CREATE_PRODUCT",
-    details: `converted ${converted} ${recipe.input} into ${productKey}`,
+    details: `converted ${inputRequired} ${recipe.input} into ${converted} ${productKey} (rate ${conversionRate})`,
   });
 }
 
