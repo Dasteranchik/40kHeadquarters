@@ -1,4 +1,5 @@
 import type { Fleet, GameState, HexCoord, Planet, Tile } from "../../../src/types";
+import { getObjectsAtHex, type WorldObject } from "../../../src/worldObjectDomain";
 
 type Nullable<T> = T | null;
 
@@ -61,8 +62,8 @@ export function createHexContextMenuController(
     }
 
     const fleets = sortFleetsForMenu(deps.fleetsAtCoord(state, coord), playerId);
-    const planet = tile.planetId ? state.planets[tile.planetId] : null;
-    if (fleets.length === 0 && !planet) {
+    const objects = getObjectsAtHex(state, coord);
+    if (objects.length === 0) {
       hide();
       return;
     }
@@ -70,8 +71,10 @@ export function createHexContextMenuController(
     deps.elements.titleEl.textContent = `Hex ${coord.q},${coord.r}`;
     deps.elements.bodyEl.innerHTML = "";
 
-    if (planet) {
-      deps.elements.bodyEl.appendChild(createPlanetNote(planet));
+    for (const object of objects) {
+      if (object.kind !== "FLEET") {
+        deps.elements.bodyEl.appendChild(createWorldObjectNote(object));
+      }
     }
 
     if (options.onPlotRoute) {
@@ -151,6 +154,30 @@ function sortFleetsForMenu(fleets: Fleet[], playerId: string): Fleet[] {
 
     return a.id - b.id;
   });
+}
+
+function createWorldObjectNote(object: Exclude<WorldObject, { kind: "FLEET" }>): HTMLParagraphElement {
+  if (object.kind === "PLANET") {
+    return createPlanetNote(object.value);
+  }
+  const note = document.createElement("p");
+  note.className = "hex-context-note";
+  switch (object.kind) {
+    case "STATION":
+      note.textContent = "Station " + object.value.name + " (#" + object.id + ")";
+      break;
+    case "SHIPWRECK":
+      note.textContent = "Shipwreck #" + object.id;
+      break;
+    case "ANOMALY":
+      note.textContent = "Anomaly #" + object.id;
+      break;
+    default: {
+      const exhaustive: never = object;
+      note.textContent = String(exhaustive);
+    }
+  }
+  return note;
 }
 
 function createPlanetNote(planet: Planet): HTMLParagraphElement {

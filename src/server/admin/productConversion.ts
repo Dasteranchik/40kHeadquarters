@@ -77,7 +77,12 @@ export function createProductConversionAdminHandlers(
       return;
     }
 
+    const before = structuredClone(deps.state.productConversionRates);
     deps.state.productConversionRates = rates;
+    deps.auditAdminMutation(req, {
+      operation: "UPDATE_PRODUCT_CONVERSION", entityType: "CONFIG",
+      entityId: "product-conversion-rates", before, after: rates,
+    });
     deps.persistDatabase();
     deps.broadcastState();
     writeJson(res, 200, { rates });

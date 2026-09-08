@@ -243,13 +243,31 @@ function drawPlanets(
 ): void {
   clearLayer(layers.planetLayer);
 
+  const markerSlots = new Map<string, number>();
+  const nextMarker = (position: HexCoord): { x: number; y: number } => {
+    const center = toPixel(position);
+    const key = coordKey(position);
+    const slot = markerSlots.get(key) ?? 0;
+    markerSlots.set(key, slot + 1);
+    const offsets = [
+      { x: 0, y: 0 },
+      { x: 11, y: 0 },
+      { x: -11, y: 0 },
+      { x: 0, y: 11 },
+      { x: 0, y: -11 },
+    ];
+    const offset = offsets[slot % offsets.length] ?? { x: 0, y: 0 };
+    return { x: center.x + offset.x, y: center.y + offset.y };
+  };
+
   for (const planet of Object.values(state.planets)) {
     const center = toPixel(planet.position);
+    const marker = nextMarker(planet.position);
 
     const circle = new Graphics();
     circle.lineStyle(2, 0xc8f1ff, 0.9);
     circle.beginFill(0x5a8ef5, 0.85);
-    circle.drawCircle(center.x, center.y, 8);
+    circle.drawCircle(marker.x, marker.y, 8);
     circle.endFill();
     layers.planetLayer.addChild(circle);
 
@@ -263,6 +281,84 @@ function drawPlanets(
       textResolution,
     );
     const labelPosition = allocateTileLabelPosition(labelSlots, planet.position, center);
+    label.x = labelPosition.x;
+    label.y = labelPosition.y;
+    layers.planetLayer.addChild(label);
+  }
+
+  for (const station of Object.values(state.stations)) {
+    const center = toPixel(station.position);
+    const marker = nextMarker(station.position);
+    const body = new Graphics();
+    body.lineStyle(2, 0xe7d88f, 0.95);
+    body.beginFill(0x8b6f32, 0.9);
+    body.drawRect(marker.x - 6, marker.y - 6, 12, 12);
+    body.endFill();
+    layers.planetLayer.addChild(body);
+    const label = createMapText(
+      "Station " + station.name + " (#" + station.id + ")",
+      {
+        fontFamily: "Chakra Petch",
+        fontSize: 11,
+        fill: 0xffedaa,
+      },
+      textResolution,
+    );
+    const labelPosition = allocateTileLabelPosition(labelSlots, station.position, center);
+    label.x = labelPosition.x;
+    label.y = labelPosition.y;
+    layers.planetLayer.addChild(label);
+  }
+
+  for (const shipwreck of Object.values(state.shipwrecks)) {
+    const center = toPixel(shipwreck.position);
+    const marker = nextMarker(shipwreck.position);
+    const body = new Graphics();
+    body.lineStyle(3, 0xbcc3cc, 0.95);
+    body.moveTo(marker.x - 6, marker.y - 6);
+    body.lineTo(marker.x + 6, marker.y + 6);
+    body.moveTo(marker.x + 6, marker.y - 6);
+    body.lineTo(marker.x - 6, marker.y + 6);
+    layers.planetLayer.addChild(body);
+    const label = createMapText(
+      "Shipwreck #" + shipwreck.id,
+      {
+        fontFamily: "Chakra Petch",
+        fontSize: 11,
+        fill: 0xd9dee5,
+      },
+      textResolution,
+    );
+    const labelPosition = allocateTileLabelPosition(labelSlots, shipwreck.position, center);
+    label.x = labelPosition.x;
+    label.y = labelPosition.y;
+    layers.planetLayer.addChild(label);
+  }
+
+  for (const anomaly of Object.values(state.anomalies)) {
+    const center = toPixel(anomaly.position);
+    const marker = nextMarker(anomaly.position);
+    const body = new Graphics();
+    body.lineStyle(2, 0xe3a7ff, 0.95);
+    body.beginFill(0x732b91, 0.75);
+    body.drawPolygon([
+      marker.x, marker.y - 7,
+      marker.x + 7, marker.y,
+      marker.x, marker.y + 7,
+      marker.x - 7, marker.y,
+    ]);
+    body.endFill();
+    layers.planetLayer.addChild(body);
+    const label = createMapText(
+      "Anomaly #" + anomaly.id,
+      {
+        fontFamily: "Chakra Petch",
+        fontSize: 11,
+        fill: 0xf0c8ff,
+      },
+      textResolution,
+    );
+    const labelPosition = allocateTileLabelPosition(labelSlots, anomaly.position, center);
     label.x = labelPosition.x;
     label.y = labelPosition.y;
     layers.planetLayer.addChild(label);
@@ -311,6 +407,9 @@ function drawFleets(
         },
         textResolution,
       );
+      if (fleet.confidence === "ESTIMATED") {
+        tag.text = "≈ " + tag.text;
+      }
       const labelPosition = allocateTileLabelPosition(labelSlots, coord, center);
       tag.x = labelPosition.x;
       tag.y = labelPosition.y;
@@ -462,14 +561,6 @@ function drawUiMarkers(
 
 function computeVisibleTiles(state: GameState, playerId: string): Set<string> {
   const visible = new Set<string>();
-
-  for (const planet of Object.values(state.planets)) {
-    for (const tile of state.map.tiles) {
-      if (hexDistance(planet.position, tile) <= planet.overviewRange) {
-        visible.add(coordKey(tile));
-      }
-    }
-  }
 
   const fleets = Object.values(state.fleets).filter(
     (fleet) => fleet.ownerPlayerId === playerId,

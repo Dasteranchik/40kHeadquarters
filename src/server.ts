@@ -8,6 +8,7 @@ import { createPlanetAdminHandlers } from "./server/admin/planets";
 import { createPlayerAdminHandlers } from "./server/admin/players";
 import { createRelationAdminHandlers } from "./server/admin/relations";
 import { createProductConversionAdminHandlers } from "./server/admin/productConversion";
+import { createWorldObjectAdminHandlers } from "./server/admin/worldObjects";
 import { Account, ClientContext, Session } from "./server/contracts";
 import { normalizeGameState } from "./server/normalization";
 import { createPublicApiHandlers } from "./server/publicApi";
@@ -17,8 +18,12 @@ import { createInitialDocumentSnapshot } from "./server/seed";
 import { createSessionManager } from "./server/sessions";
 import { parseClientMessage, send, writeJson } from "./server/transport";
 import { buildPlanningForSession, buildStateForSession } from "./server/visibility";
-import { DbAccount, DbSession, DocumentDb } from "./storage/documentDb";
+import { DbAccount, DbSession, DocumentDb, type TurnSnapshot, type TurnSnapshotPoint } from "./storage/documentDb";
 import { Action } from "./types";
+import { createTurnTimerController, type TurnTimerController } from "./turn/turnTimer";
+import { detectObjectsForFleetAtCurrentHex } from "./systems/detectionSystem";
+import { appendAudit } from "./systems/auditSystem";
+import { captureTurnSnapshotEntry, restorePlanningTurnSnapshot } from "./turn/turnSnapshot";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24;
@@ -27,10 +32,28 @@ const db = new DocumentDb(createInitialDocumentSnapshot());
 const persisted = db.getSnapshot();
 
 const state = normalizeGameState(persisted.gameState);
+const configuredTurnDurationMs = Number(process.env.TURN_DURATION_MS);
+if (Number.isFinite(configuredTurnDurationMs) && configuredTurnDurationMs > 0) {
+  state.turnTimer.durationMs = Math.trunc(configuredTurnDurationMs);
+}
+for (const fleet of Object.values(state.fleets)) {
+  detectObjectsForFleetAtCurrentHex(state, fleet.id);
+}
 const pendingActions = new Map<string, Action>();
 const pendingAllianceProposals = new Set<string>();
 const readyPlayers = new Set<number>();
 const clients = new Map<WebSocket, ClientContext>();
+const turnSnapshots: TurnSnapshot[] = [...(persisted.turnSnapshots ?? [])].slice(-100);
+
+function captureTurnSnapshot(point: TurnSnapshotPoint, turnNumber: number): void {
+  captureTurnSnapshotEntry(turnSnapshots, state, point, turnNumber);
+}
+
+if (!turnSnapshots.some((snapshot) =>
+  snapshot.turnNumber === state.turnNumber && snapshot.point === "START"
+)) {
+  captureTurnSnapshot("START", state.turnNumber);
+}
 
 const accounts = new Map<string, Account>();
 for (const account of Object.values(persisted.accounts)) {
@@ -63,6 +86,7 @@ function persistDatabase(): void {
     gameState: state,
     accounts: storedAccounts,
     sessions: sessionManager?.getSessions() ?? persisted.sessions ?? {},
+    turnSnapshots,
   });
 }
 
@@ -96,6 +120,7 @@ function ensurePlanningPhase(res: ServerResponse): boolean {
   return true;
 }
 
+let turnTimer: TurnTimerController | null = null;
 const realtime = createRealtimeController({
   state,
   pendingActions,
@@ -103,7 +128,52 @@ const realtime = createRealtimeController({
   readyPlayers,
   clients,
   persistDatabase,
+  cancelTurnTimer: () => turnTimer?.cancel(),
+  startNewPlanningTimer: () => {
+    turnTimer?.startNewPlanning();
+    captureTurnSnapshot("START", state.turnNumber);
+    persistDatabase();
+  },
+  captureTurnSnapshot,
 });
+
+turnTimer = createTurnTimerController({
+  state,
+  onElapsed: () => {
+    realtime.finishCurrentTurn("TIMER");
+  },
+  persist: persistDatabase,
+});
+turnTimer.restore();
+
+function listTurnSnapshots(): TurnSnapshot[] {
+  return turnSnapshots.map((snapshot) => ({
+    ...snapshot,
+    gameState: structuredClone(snapshot.gameState),
+  }));
+}
+
+function rollbackTurnSnapshot(snapshotId: string, account: string): boolean {
+  const snapshot = turnSnapshots.find((entry) => entry.id === snapshotId);
+  if (!snapshot || snapshot.gameState.phase !== "PLANNING") return false;
+  turnTimer?.cancel();
+  if (!restorePlanningTurnSnapshot(state, snapshot)) return false;
+  pendingActions.clear();
+  pendingAllianceProposals.clear();
+  readyPlayers.clear();
+  appendAudit(state, {
+    actor: { kind: "ADMIN", account },
+    operation: "ROLLBACK_TURN_SNAPSHOT",
+    entityType: "TURN_SNAPSHOT",
+    entityId: snapshotId,
+    after: { turnNumber: state.turnNumber, point: snapshot.point },
+  });
+  turnTimer?.startNewPlanning();
+  captureTurnSnapshot("START", state.turnNumber);
+  persistDatabase();
+  realtime.broadcastState();
+  return true;
+}
 
 function broadcastState(): void {
   realtime.broadcastState();
@@ -111,6 +181,17 @@ function broadcastState(): void {
 
 function removeSessionsForPlayer(playerId: number): void {
   sessionManager.removeSessionsForPlayer(playerId);
+}
+
+function auditAdminMutation(
+  req: IncomingMessage,
+  input: Omit<Parameters<typeof appendAudit>[1], "actor">,
+): void {
+  const session = sessionManager.getSessionFromRequest(req);
+  appendAudit(state, {
+    ...input,
+    actor: { kind: "ADMIN", account: session?.username ?? "unknown-admin" },
+  });
 }
 
 const adminDeps: AdminHandlerDeps = {
@@ -124,6 +205,9 @@ const adminDeps: AdminHandlerDeps = {
   persistDatabase,
   broadcastState,
   removeSessionsForPlayer,
+  listTurnSnapshots,
+  rollbackTurnSnapshot,
+  auditAdminMutation,
 };
 const playerAdmin = createPlayerAdminHandlers(adminDeps);
 const planetAdmin = createPlanetAdminHandlers(adminDeps);
@@ -131,6 +215,7 @@ const fleetAdmin = createFleetAdminHandlers(adminDeps);
 const factionAdmin = createFactionAdminHandlers(adminDeps);
 const relationAdmin = createRelationAdminHandlers(adminDeps);
 const productConversionAdmin = createProductConversionAdminHandlers(adminDeps);
+const worldObjectAdmin = createWorldObjectAdminHandlers(adminDeps);
 
 const publicApi = createPublicApiHandlers({
   accounts,
@@ -146,6 +231,20 @@ const apiHandlers = {
   ...fleetAdmin,
   ...relationAdmin,
   ...productConversionAdmin,
+  ...worldObjectAdmin,
+  handleAdminEndTurn: (req: IncomingMessage, res: ServerResponse): void => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const completed = realtime.finishCurrentTurn("ADMIN_OVERRIDE", {
+      kind: "ADMIN",
+      account: session.username,
+    });
+    if (!completed) {
+      writeJson(res, 409, { error: "Turn is not in PLANNING or resolution is already running" });
+      return;
+    }
+    writeJson(res, 200, { ok: true, turnNumber: state.turnNumber });
+  },
 };
 
 const httpServer = createServer((req, res) => {

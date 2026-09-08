@@ -48,6 +48,29 @@ export interface ApiRouteHandlers {
     req: IncomingMessage,
     res: ServerResponse,
   ) => Promise<void>;
+  handleListStations: (req: IncomingMessage, res: ServerResponse) => void;
+  handleAddStation: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  handleUpdateStation: (req: IncomingMessage, res: ServerResponse, id: string) => Promise<void>;
+  handleDeleteStation: (req: IncomingMessage, res: ServerResponse, id: string) => void;
+  handleListShipwrecks: (req: IncomingMessage, res: ServerResponse) => void;
+  handleListAnomalies: (req: IncomingMessage, res: ServerResponse) => void;
+  handleAddAnomaly: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  handleUpdateShop: (
+    req: IncomingMessage,
+    res: ServerResponse,
+    kind: string,
+    id: string,
+  ) => Promise<void>;
+  handleAddItem: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  handleDeleteArtifact: (req: IncomingMessage, res: ServerResponse, id: string) => void;
+  handleListAudit: (req: IncomingMessage, res: ServerResponse) => void;
+  handleListTurnSnapshots: (req: IncomingMessage, res: ServerResponse) => void;
+  handleRollbackTurnSnapshot: (
+    req: IncomingMessage,
+    res: ServerResponse,
+    snapshotId: string,
+  ) => void;
+  handleAdminEndTurn: (req: IncomingMessage, res: ServerResponse) => void;
 }
 
 export async function handleApiRequest(
@@ -114,6 +137,34 @@ export async function handleApiRequest(
   if (path === "/api/admin/planets" && method === "POST") {
     await handlers.handleAddPlanet(req, res);
     return;
+  }
+
+  if (path === "/api/admin/stations" && method === "GET") {
+    handlers.handleListStations(req, res); return;
+  }
+  if (path === "/api/admin/stations" && method === "POST") {
+    await handlers.handleAddStation(req, res); return;
+  }
+  if (path === "/api/admin/shipwrecks" && method === "GET") {
+    handlers.handleListShipwrecks(req, res); return;
+  }
+  if (path === "/api/admin/anomalies" && method === "GET") {
+    handlers.handleListAnomalies(req, res); return;
+  }
+  if (path === "/api/admin/anomalies" && method === "POST") {
+    await handlers.handleAddAnomaly(req, res); return;
+  }
+  if (path === "/api/admin/items" && method === "POST") {
+    await handlers.handleAddItem(req, res); return;
+  }
+  if (path === "/api/admin/audit" && method === "GET") {
+    handlers.handleListAudit(req, res); return;
+  }
+  if (path === "/api/admin/turn-snapshots" && method === "GET") {
+    handlers.handleListTurnSnapshots(req, res); return;
+  }
+  if (path === "/api/admin/end-turn" && method === "POST") {
+    handlers.handleAdminEndTurn(req, res); return;
   }
 
 
@@ -199,6 +250,26 @@ export async function handleApiRequest(
   if (fleetMatch && method === "PUT") {
     await handlers.handleUpdateFleet(req, res, decodeURIComponent(fleetMatch[1]));
     return;
+  }
+
+  const stationMatch = path.match(/^\/api\/admin\/stations\/([^/]+)$/);
+  if (stationMatch && method === "DELETE") {
+    handlers.handleDeleteStation(req, res, decodeURIComponent(stationMatch[1])); return;
+  }
+  if (stationMatch && method === "PUT") {
+    await handlers.handleUpdateStation(req, res, decodeURIComponent(stationMatch[1])); return;
+  }
+  const shopMatch = path.match(/^\/api\/admin\/shops\/(PLANET|STATION)\/([^/]+)$/);
+  if (shopMatch && method === "PUT") {
+    await handlers.handleUpdateShop(req, res, shopMatch[1], decodeURIComponent(shopMatch[2])); return;
+  }
+  const artifactMatch = path.match(/^\/api\/admin\/artifacts\/([^/]+)$/);
+  if (artifactMatch && method === "DELETE") {
+    handlers.handleDeleteArtifact(req, res, decodeURIComponent(artifactMatch[1])); return;
+  }
+  const rollbackMatch = path.match(/^\/api\/admin\/turn-snapshots\/([^/]+)\/rollback$/);
+  if (rollbackMatch && method === "POST") {
+    handlers.handleRollbackTurnSnapshot(req, res, decodeURIComponent(rollbackMatch[1])); return;
   }
 
   writeJson(res, 404, { error: "Not found" });

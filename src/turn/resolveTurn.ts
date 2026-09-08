@@ -12,6 +12,9 @@ import { resolveCombat } from "../systems/combatSystem";
 import { applyEconomy } from "../systems/economySystem";
 import { recalcVisibility } from "../systems/fogOfWarSystem";
 import { applyPlanetSystems } from "../systems/planetSystem";
+import { detectObjectsForFleetAtCurrentHex } from "../systems/detectionSystem";
+import type { DetectionResult } from "../detectionDomain";
+import { applyStationGeneration } from "../systems/stationSystem";
 
 const DEFAULT_ACTION_POINTS = 3;
 
@@ -39,6 +42,7 @@ function mergeCombatReports(reports: CombatReport[]): CombatReport {
   return {
     damageEvents: reports.flatMap((report) => report.damageEvents),
     destroyedFleetIds: reports.flatMap((report) => report.destroyedFleetIds),
+    createdShipwreckIds: reports.flatMap((report) => report.createdShipwreckIds),
   };
 }
 
@@ -54,12 +58,17 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
   const diplomacy = applyDiplomacy(state, validated.diplomacyActions);
 
   const planet = applyPlanetSystems(state, validated.planetActions);
+  applyStationGeneration(state);
 
   // Fleets already sharing a hex fight before any planned movement. Destroyed
   // fleets are consequently unable to execute their movement orders.
   const combatStart = resolveCombat(state);
 
-  const movement = executeMovement(state, validated.moveActions);
+  const detection: DetectionResult[] = [];
+  const movement = executeMovement(state, validated.moveActions, (fleetId) => {
+    const result = detectObjectsForFleetAtCurrentHex(state, fleetId);
+    if (result) detection.push(result);
+  });
 
   // Movement can bring hostile fleets together, causing a second clash.
   const combatEnd = resolveCombat(state);
@@ -81,6 +90,7 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
     combat,
     economy,
     planet,
+    detection,
     visibility,
   };
 }

@@ -1,14 +1,16 @@
 import { PlanningSnapshot } from "../api/ws";
 import { collectVisibleTileKeysByPlayerId } from "../systems/fogOfWarSystem";
+import { estimateDetectedStat } from "../systems/fogOfWarSystem";
 import { validateActions } from "../systems/actionValidator";
 import { Action, Fleet, GameState, HexCoord, Planet, TurnResolution } from "../types";
-import { areMutualAllies } from "../utils/relations";
 import { coordKey } from "../hex";
 import { Session } from "./contracts";
+import { createEmptyItemInventory } from "../itemDomain";
+import type { Station } from "../worldObjectDomain";
 
 function canSessionSeeFleetOwner(
   session: Session,
-  state: GameState,
+  _state: GameState,
   ownerPlayerId: number,
 ): boolean {
   if (session.role === "admin") {
@@ -24,7 +26,7 @@ function canSessionSeeFleetOwner(
     return true;
   }
 
-  return areMutualAllies(state.players, viewerId, ownerPlayerId);
+  return false;
 }
 
 function collectSpottingTilesForSession(session: Session, state: GameState): Set<string> {
@@ -44,22 +46,37 @@ function canSessionSeeFleet(
   session: Session,
   state: GameState,
   fleet: Fleet,
-  spottingTiles: Set<string>,
+  _spottingTiles: Set<string>,
 ): boolean {
   if (canSessionSeeFleetOwner(session, state, fleet.ownerPlayerId)) {
     return true;
   }
 
-  return spottingTiles.has(coordKey(fleet.position));
+  const viewerId = session.playerId;
+  return Boolean(viewerId && state.detection.recordsByPlayerId[String(viewerId)]?.[`FLEET:${fleet.id}`]);
 }
 
 function planetForPlayer(planet: Planet, playerId: number): Planet {
   const ownStorage = planet.productStorageByPlayerId[String(playerId)];
+  const ownItems = planet.itemStorageByPlayerId[String(playerId)];
   return {
     ...planet,
     productStorageByPlayerId: ownStorage
       ? { [String(playerId)]: { ...ownStorage } }
       : {},
+    itemStorageByPlayerId: ownItems
+      ? { [String(playerId)]: { ...ownItems } }
+      : {},
+  };
+}
+
+function stationForPlayer(station: Station, playerId: number): Station {
+  const ownStorage = station.productStorageByPlayerId[String(playerId)];
+  const ownItems = station.itemStorageByPlayerId[String(playerId)];
+  return {
+    ...station,
+    productStorageByPlayerId: ownStorage ? { [String(playerId)]: { ...ownStorage } } : {},
+    itemStorageByPlayerId: ownItems ? { [String(playerId)]: { ...ownItems } } : {},
   };
 }
 
@@ -87,6 +104,9 @@ function filterVisibilityForSession(
       visiblePlanets: visibleState.visiblePlanets.map((planet) =>
         planetForPlayer(planet, viewerId),
       ),
+      visibleStations: visibleState.visibleStations.map((station) =>
+        stationForPlayer(station, viewerId),
+      ),
     },
   };
 }
@@ -101,7 +121,35 @@ export function filterFleetsForSession(
 
   for (const [fleetId, fleet] of Object.entries(fleets)) {
     if (canSessionSeeFleet(session, state, fleet, spottingTiles)) {
-      result[fleetId] = fleet;
+      if (session.role === "admin" || fleet.ownerPlayerId === session.playerId) {
+        result[fleetId] = { ...fleet, confidence: "EXACT" };
+        continue;
+      }
+      const viewerId = session.playerId;
+      if (!viewerId) continue;
+      const confidence = state.detection.recordsByPlayerId[String(viewerId)]?.[
+        `FLEET:${fleet.id}`
+      ]?.confidence ?? "ESTIMATED";
+      const exact = confidence === "EXACT";
+      result[fleetId] = {
+        ...fleet,
+        combatPower: exact ? fleet.combatPower : estimateDetectedStat(
+          fleet.combatPower, 0.3, `${viewerId}:${fleet.id}:combat:${state.turnNumber}`,
+        ),
+        health: exact ? fleet.health : estimateDetectedStat(
+          fleet.health, 0.3, `${viewerId}:${fleet.id}:health:${state.turnNumber}`,
+        ),
+        influence: exact ? fleet.influence : estimateDetectedStat(
+          fleet.influence, 0.3, `${viewerId}:${fleet.id}:influence:${state.turnNumber}`,
+        ),
+        actionPoints: 0,
+        visionRange: 0,
+        shareVisionWithAllies: false,
+        capacity: 0,
+        inventory: {},
+        itemInventory: createEmptyItemInventory(),
+        confidence,
+      };
     }
   }
 
@@ -116,24 +164,77 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
         const fleet = state.fleets[request.fleetId];
         return Boolean(session.playerId && (army?.ownerPlayerId === session.playerId || fleet?.ownerPlayerId === session.playerId));
       });
+  if (session.role === "admin") {
+    return { ...state, pendingArmyTransportRequests };
+  }
+  const playerId = session.playerId;
+  const detections = playerId
+    ? state.detection.recordsByPlayerId[String(playerId)] ?? {}
+    : {};
+  const visiblePlanets = Object.fromEntries(
+    Object.entries(state.planets)
+      .filter(([, planet]) => Boolean(detections[`PLANET:${planet.id}`]))
+      .map(([planetId, planet]) => [planetId, planetForPlayer(planet, playerId!)]),
+  );
+  const visibleStations = Object.fromEntries(
+    Object.entries(state.stations)
+      .filter(([, station]) => Boolean(detections[`STATION:${station.id}`]))
+      .map(([stationId, station]) => [stationId, stationForPlayer(station, playerId!)]),
+  );
+  const visibleShipwrecks = Object.fromEntries(
+    Object.entries(state.shipwrecks).filter(([, shipwreck]) =>
+      Boolean(detections[`SHIPWRECK:${shipwreck.id}`]),
+    ),
+  );
+  const visibleAnomalies = Object.fromEntries(
+    Object.entries(state.anomalies)
+      .filter(([, anomaly]) => Boolean(detections[`ANOMALY:${anomaly.id}`]))
+      .map(([id, anomaly]) => [id, { ...anomaly, informationRef: "" }]),
+  );
+  const visibleArtifactIds = new Set<string>();
+  for (const fleet of Object.values(state.fleets)) {
+    if (fleet.ownerPlayerId === playerId) fleet.itemInventory.artifactIds.forEach((id) => visibleArtifactIds.add(id));
+  }
+  for (const planet of Object.values(visiblePlanets)) {
+    planet.shop.items.artifactIds.forEach((id) => visibleArtifactIds.add(id));
+    Object.values(planet.itemStorageByPlayerId).forEach((items) =>
+      items.artifactIds.forEach((id) => visibleArtifactIds.add(id)),
+    );
+  }
+  for (const station of Object.values(visibleStations)) {
+    station.shop.items.artifactIds.forEach((id) => visibleArtifactIds.add(id));
+    Object.values(station.itemStorageByPlayerId).forEach((items) =>
+      items.artifactIds.forEach((id) => visibleArtifactIds.add(id)),
+    );
+  }
+  for (const shipwreck of Object.values(visibleShipwrecks)) {
+    shipwreck.inventory.artifactIds.forEach((id) => visibleArtifactIds.add(id));
+  }
+  const { audit: _audit, processedCommands: _processedCommands, ...safeState } = state;
   return {
-    ...state,
-    planets: session.role === "admin" || !session.playerId
-      ? state.planets
-      : Object.fromEntries(
-          Object.entries(state.planets).map(([planetId, planet]) => [
-            planetId,
-            planetForPlayer(planet, session.playerId!),
-          ]),
-        ),
+    ...safeState,
+    map: {
+      ...state.map,
+      tiles: state.map.tiles.map((tile) => {
+        if (tile.planetId === undefined || visiblePlanets[String(tile.planetId)]) return tile;
+        const { planetId: _planetId, ...safeTile } = tile;
+        return safeTile;
+      }),
+    },
+    planets: visiblePlanets,
+    stations: visibleStations,
+    shipwrecks: visibleShipwrecks,
+    anomalies: visibleAnomalies,
+    artifacts: Object.fromEntries(
+      Object.entries(state.artifacts).filter(([artifactId]) => visibleArtifactIds.has(artifactId)),
+    ),
     fleets: filterFleetsForSession(session, state, state.fleets),
-    events: session.role === "admin"
-      ? state.events
-      : state.events.filter((event) =>
-          Boolean(session.playerId && event.playerIds.includes(session.playerId)),
-        ),
+    events: state.events.filter((event) =>
+      Boolean(playerId && event.playerIds.includes(playerId)),
+    ),
+    detection: { recordsByPlayerId: playerId ? { [String(playerId)]: detections } : {} },
     pendingArmyTransportRequests,
-  };
+  } as GameState;
 }
 
 function buildPlanningSnapshot(state: GameState, actions: Iterable<Action>): PlanningSnapshot {
@@ -245,7 +346,11 @@ export function buildResolutionForSession(
       destroyedFleetIds: resolution.combat.destroyedFleetIds.filter((fleetId) =>
         canSeeFleetId(fleetId),
       ),
+      createdShipwreckIds: resolution.combat.createdShipwreckIds.filter((shipwreckId) =>
+        Boolean(viewerId && state.detection.recordsByPlayerId[String(viewerId)]?.[`SHIPWRECK:${shipwreckId}`]),
+      ),
     },
+    detection: resolution.detection.filter((entry) => entry.playerId === viewerId),
     visibility: filterVisibilityForSession(session, resolution),
   };
 }

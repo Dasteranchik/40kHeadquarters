@@ -48,6 +48,8 @@ export function buildSelectedFleetDetails(fleet: Fleet, stance: FleetStance): st
   const isPendingStance = stance !== fleet.stance;
   return [
     `ID: ${fleet.id}`,
+    `Confidence: ${fleet.confidence ?? "EXACT"}`,
+    `Tags: ${fleet.tags.length > 0 ? fleet.tags.join(", ") : "-"}`,
     `Owner: ${fleet.ownerPlayerId}`,
     `Position: q=${fleet.position.q}, r=${fleet.position.r}`,
     `AP: ${fleet.actionPoints}`,
@@ -60,6 +62,8 @@ export function buildSelectedFleetDetails(fleet: Fleet, stance: FleetStance): st
     `Unit: ${fleet.domain === "GROUND" ? "ARMY" : "FLEET"}`,
     ...(fleet.carrierFleetId ? [`Carrier: ${fleet.carrierFleetId}`] : []),
     `Inventory: ${formatStore(fleet.inventory)}`,
+    `Artifacts: ${fleet.itemInventory.artifactIds.join(", ") || "-"}`,
+    `Knowledge: ${fleet.itemInventory.knowledge.join(", ") || "-"}`,
     `Stance: ${stance}`,
     `Stance Pending: ${isPendingStance ? "yes" : "no"}`,
   ].join("\n");

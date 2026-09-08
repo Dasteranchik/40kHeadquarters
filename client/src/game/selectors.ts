@@ -55,18 +55,18 @@ export function getSelectedFleet(
 export function getSelectedPlanet(
   state: GameState,
   selectedFleet: Nullable<Fleet>,
-  getTile: (state: GameState, coord: HexCoord) => { planetId?: string } | null,
+  _getTile: (state: GameState, coord: HexCoord) => { planetId?: string } | null,
 ): Nullable<Planet> {
   if (!selectedFleet) {
     return null;
   }
 
-  const tile = getTile(state, selectedFleet.position);
-  if (!tile?.planetId) {
-    return null;
-  }
-
-  return state.planets[tile.planetId] ?? null;
+  return Object.values(state.planets)
+    .filter((planet) =>
+      planet.position.q === selectedFleet.position.q
+      && planet.position.r === selectedFleet.position.r
+    )
+    .sort((a, b) => a.id - b.id)[0] ?? null;
 }
 
 export function effectiveFleetStance(

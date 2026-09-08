@@ -18,6 +18,36 @@
 } from "../planetDomain";
 import type { ProductConversionRates } from "../planetDomain";
 import {
+  createEmptyItemInventory,
+  isKnowledgeCode,
+  type ArtifactInstance,
+  type InventoryLocation,
+  type ItemInventory,
+  type JsonValue,
+  type PlayerItemInventories,
+} from "../itemDomain";
+import {
+  createEmptyShop,
+  type DisappearingItemRef,
+  type Shop,
+} from "../shopDomain";
+import { DEFAULT_TURN_DURATION_MS, type TurnTimerState } from "../turnTimerDomain";
+import { isUnitTag, type UnitTag } from "../unitDomain";
+import {
+  isStationCapability,
+  type Anomaly,
+  type Shipwreck,
+  type Station,
+  type StationCapability,
+} from "../worldObjectDomain";
+import {
+  detectionObjectKey,
+  type DetectionRecord,
+  type DetectionState,
+} from "../detectionDomain";
+import type { AuditEntry } from "../auditDomain";
+import type { ProcessedCommand } from "../commandDomain";
+import {
   Faction,
   Fleet,
   GameState,
@@ -77,6 +107,77 @@ function normalizeResourceStore(value: unknown, allowFraction = false): Resource
   }
 
   return result;
+}
+
+function normalizeItemInventory(value: unknown): ItemInventory {
+  if (!value || typeof value !== "object") {
+    return createEmptyItemInventory();
+  }
+  const candidate = value as Partial<ItemInventory>;
+  const artifactIds = Array.isArray(candidate.artifactIds)
+    ? candidate.artifactIds.filter((entry): entry is string =>
+        typeof entry === "string" && entry.length > 0,
+      )
+    : [];
+  const knowledge = Array.isArray(candidate.knowledge)
+    ? candidate.knowledge.filter(isKnowledgeCode)
+    : [];
+  return {
+    artifactIds: [...new Set(artifactIds)],
+    knowledge: [...new Set(knowledge)],
+  };
+}
+
+function normalizePlayerItemInventories(value: unknown): PlayerItemInventories {
+  if (!value || typeof value !== "object") return {};
+  const result: PlayerItemInventories = {};
+  for (const [playerId, inventory] of Object.entries(value as Record<string, unknown>)) {
+    if (!Number.isInteger(Number(playerId)) || Number(playerId) <= 0) continue;
+    result[playerId] = normalizeItemInventory(inventory);
+  }
+  return result;
+}
+
+function normalizeDisappearingItems(value: unknown): DisappearingItemRef[] {
+  if (!Array.isArray(value)) return [];
+  const result: DisappearingItemRef[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as { kind?: unknown; code?: unknown };
+    if (candidate.kind === "RESOURCE" && isResourceKey(candidate.code)) {
+      result.push({ kind: "RESOURCE", code: candidate.code });
+    } else if (
+      candidate.kind === "ARTIFACT_DEFINITION"
+      && typeof candidate.code === "string"
+      && candidate.code.length > 0
+    ) {
+      result.push({ kind: "ARTIFACT_DEFINITION", code: candidate.code });
+    } else if (candidate.kind === "KNOWLEDGE" && isKnowledgeCode(candidate.code)) {
+      result.push({ kind: "KNOWLEDGE", code: candidate.code });
+    }
+  }
+  const seen = new Set<string>();
+  return result.filter((entry) => {
+    const key = `${entry.kind}:${entry.code}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeShop(value: unknown): Shop {
+  if (!value || typeof value !== "object") return createEmptyShop();
+  const candidate = value as Partial<Shop>;
+  return {
+    resources: normalizeResourceStore(candidate.resources, true),
+    items: normalizeItemInventory(candidate.items),
+    disappearingItems: normalizeDisappearingItems(candidate.disappearingItems),
+  };
+}
+
+function normalizeUnitTags(value: unknown): UnitTag[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(isUnitTag))];
 }
 
 function normalizeProductConversionRates(
@@ -387,6 +488,8 @@ function normalizePlanet(id: string, value: unknown, legacyProductOwnerId?: numb
     overviewRange: intOrDefault(planet.overviewRange, intOrDefault(planet.visionRange, 1, 0), 0),
     rawStock: normalizeResourceStore(planet.rawStock, true),
     productStorageByPlayerId,
+    itemStorageByPlayerId: normalizePlayerItemInventories(planet.itemStorageByPlayerId),
+    shop: normalizeShop(planet.shop),
     infoFragments: normalizeIntelMap(planet.infoFragments),
   };
 }
@@ -408,6 +511,8 @@ function normalizeFleet(id: string, value: unknown): Fleet {
     stance: fleet.stance === "DEFENSE" ? "DEFENSE" : "ATTACK",
     domain: fleet.domain === "GROUND" ? "GROUND" : "SPACE",
     inventory: normalizeResourceStore(fleet.inventory),
+    itemInventory: normalizeItemInventory(fleet.itemInventory),
+    tags: normalizeUnitTags(fleet.tags),
     ...(typeof fleet.carrierFleetId === "string" && fleet.carrierFleetId
       ? { carrierFleetId: fleet.carrierFleetId }
       : {}),
@@ -493,18 +598,242 @@ function normalizePendingInformants(value: unknown): PendingPlanetInformantActio
   return result;
 }
 
+function normalizeStation(id: string, value: unknown): Station {
+  const station = (value ?? {}) as Partial<Station>;
+  const capabilities = Array.isArray(station.capabilities)
+    ? [...new Set(station.capabilities.filter(isStationCapability))]
+    : [];
+  return {
+    id: Number(id),
+    name: typeof station.name === "string" && station.name.trim()
+      ? station.name.trim()
+      : `Station ${id}`,
+    position: normalizePosition(station.position),
+    capabilities,
+    tags: capabilities.includes("TAGS") ? normalizeUnitTags(station.tags) : [],
+    resourceGeneration: normalizeResourceStore(station.resourceGeneration, true),
+    rawStock: normalizeResourceStore(station.rawStock, true),
+    productStorageByPlayerId: normalizePlayerProductStorages(
+      station.productStorageByPlayerId,
+    ),
+    itemStorageByPlayerId: normalizePlayerItemInventories(station.itemStorageByPlayerId),
+    shop: normalizeShop(station.shop),
+    infoFragments: normalizeIntelMap(station.infoFragments),
+    overviewRange: intOrDefault(station.overviewRange, 0, 0),
+    fleetCombatPower: intOrDefault(station.fleetCombatPower, 0, 0),
+    armyCombatPower: intOrDefault(station.armyCombatPower, 0, 0),
+  };
+}
+
+function normalizeStations(value: unknown): Record<string, Station> {
+  if (!value || typeof value !== "object") return {};
+  const result: Record<string, Station> = {};
+  for (const [id, station] of Object.entries(value as Record<string, unknown>)) {
+    if (!Number.isInteger(Number(id)) || Number(id) <= 0) continue;
+    result[id] = normalizeStation(id, station);
+  }
+  return result;
+}
+
+function normalizeShipwrecks(value: unknown): Record<string, Shipwreck> {
+  if (!value || typeof value !== "object") return {};
+  const result: Record<string, Shipwreck> = {};
+  for (const [id, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!Number.isInteger(Number(id)) || Number(id) <= 0 || !raw || typeof raw !== "object") {
+      continue;
+    }
+    const candidate = raw as Partial<Shipwreck>;
+    result[id] = {
+      id: Number(id),
+      position: normalizePosition(candidate.position),
+      inventory: normalizeItemInventory(candidate.inventory),
+      createdOnTurn: intOrDefault(candidate.createdOnTurn, 1, 1),
+      sourceUnitIds: Array.isArray(candidate.sourceUnitIds)
+        ? [...new Set(candidate.sourceUnitIds.filter((entry): entry is number =>
+            Number.isInteger(entry) && entry > 0,
+          ))]
+        : [],
+    };
+  }
+  return result;
+}
+
+function normalizeAnomalies(value: unknown): Record<string, Anomaly> {
+  if (!value || typeof value !== "object") return {};
+  const result: Record<string, Anomaly> = {};
+  for (const [id, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!Number.isInteger(Number(id)) || Number(id) <= 0 || !raw || typeof raw !== "object") {
+      continue;
+    }
+    const candidate = raw as Partial<Anomaly>;
+    result[id] = {
+      id: Number(id),
+      position: normalizePosition(candidate.position),
+      tags: normalizeUnitTags(candidate.tags),
+      informationRef: typeof candidate.informationRef === "string"
+        ? candidate.informationRef
+        : "",
+    };
+  }
+  return result;
+}
+
+function normalizeInventoryLocation(value: unknown): InventoryLocation | null {
+  if (!value || typeof value !== "object") return null;
+  const location = value as Record<string, unknown>;
+  switch (location.kind) {
+    case "FLEET":
+      return Number.isInteger(location.fleetId) && Number(location.fleetId) > 0
+        ? { kind: "FLEET", fleetId: Number(location.fleetId) }
+        : null;
+    case "PLANET_STORAGE":
+      return Number.isInteger(location.planetId) && Number.isInteger(location.playerId)
+        ? { kind: "PLANET_STORAGE", planetId: Number(location.planetId), playerId: Number(location.playerId) }
+        : null;
+    case "PLANET_SHOP":
+      return Number.isInteger(location.planetId)
+        ? { kind: "PLANET_SHOP", planetId: Number(location.planetId) }
+        : null;
+    case "STATION_STORAGE":
+      return Number.isInteger(location.stationId) && Number.isInteger(location.playerId)
+        ? { kind: "STATION_STORAGE", stationId: Number(location.stationId), playerId: Number(location.playerId) }
+        : null;
+    case "STATION_SHOP":
+      return Number.isInteger(location.stationId)
+        ? { kind: "STATION_SHOP", stationId: Number(location.stationId) }
+        : null;
+    case "SHIPWRECK":
+      return Number.isInteger(location.shipwreckId)
+        ? { kind: "SHIPWRECK", shipwreckId: Number(location.shipwreckId) }
+        : null;
+    default:
+      return null;
+  }
+}
+
+function normalizeJsonRecord(value: unknown): Record<string, JsonValue> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  try {
+    return JSON.parse(JSON.stringify(value)) as Record<string, JsonValue>;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeArtifacts(value: unknown): Record<string, ArtifactInstance> {
+  if (!value || typeof value !== "object") return {};
+  const result: Record<string, ArtifactInstance> = {};
+  for (const [id, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!id || !raw || typeof raw !== "object") continue;
+    const candidate = raw as Partial<ArtifactInstance>;
+    const owner = normalizeInventoryLocation(candidate.owner);
+    if (!owner) continue;
+    const passiveEffect = candidate.passiveEffect
+      && typeof candidate.passiveEffect.effectCode === "string"
+      ? {
+          effectCode: candidate.passiveEffect.effectCode,
+          params: normalizeJsonRecord(candidate.passiveEffect.params),
+        }
+      : undefined;
+    const useEffect = candidate.useEffect
+      && typeof candidate.useEffect.effectCode === "string"
+      ? {
+          effectCode: candidate.useEffect.effectCode,
+          params: normalizeJsonRecord(candidate.useEffect.params),
+        }
+      : undefined;
+    result[id] = {
+      id,
+      definitionCode: typeof candidate.definitionCode === "string" && candidate.definitionCode
+        ? candidate.definitionCode
+        : id,
+      name: typeof candidate.name === "string" && candidate.name ? candidate.name : id,
+      owner,
+      configuration: normalizeJsonRecord(candidate.configuration),
+      ...(passiveEffect ? { passiveEffect } : {}),
+      ...(useEffect ? { useEffect } : {}),
+      ...(Number.isInteger(candidate.cooldownTurns) && Number(candidate.cooldownTurns) >= 0
+        ? { cooldownTurns: Number(candidate.cooldownTurns) }
+        : {}),
+      ...(Number.isInteger(candidate.cooldownUntilTurn) && Number(candidate.cooldownUntilTurn) >= 0
+        ? { cooldownUntilTurn: Number(candidate.cooldownUntilTurn) }
+        : {}),
+      consumable: candidate.consumable === true,
+    };
+  }
+  return result;
+}
+
+function normalizeDetectionState(value: unknown): DetectionState {
+  const result: DetectionState = { recordsByPlayerId: {} };
+  if (!value || typeof value !== "object") return result;
+  const source = (value as Partial<DetectionState>).recordsByPlayerId;
+  if (!source || typeof source !== "object") return result;
+  const validKinds = new Set(["PLANET", "FLEET", "STATION", "SHIPWRECK", "ANOMALY"]);
+  for (const [playerId, rawRecords] of Object.entries(source)) {
+    if (!Number.isInteger(Number(playerId)) || !rawRecords || typeof rawRecords !== "object") continue;
+    const records: Record<string, DetectionRecord> = {};
+    for (const raw of Object.values(rawRecords as Record<string, unknown>)) {
+      if (!raw || typeof raw !== "object") continue;
+      const candidate = raw as Partial<DetectionRecord>;
+      if (
+        !validKinds.has(String(candidate.objectKind))
+        || !Number.isInteger(candidate.objectId)
+        || !Number.isInteger(candidate.detectedByUnitId)
+      ) continue;
+      const record: DetectionRecord = {
+        playerId: Number(playerId),
+        detectedByUnitId: Number(candidate.detectedByUnitId),
+        objectKind: candidate.objectKind as DetectionRecord["objectKind"],
+        objectId: Number(candidate.objectId),
+        detectedAtTurn: intOrDefault(candidate.detectedAtTurn, 1, 1),
+        confidence: candidate.confidence === "EXACT" ? "EXACT" : "ESTIMATED",
+      };
+      records[detectionObjectKey(record.objectKind, record.objectId)] = record;
+    }
+    result.recordsByPlayerId[playerId] = records;
+  }
+  return result;
+}
+
+function normalizeAudit(value: unknown): AuditEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is AuditEntry => Boolean(
+    entry && typeof entry === "object" && Number.isInteger((entry as AuditEntry).id),
+  )).slice(-5000);
+}
+
+function normalizeProcessedCommands(value: unknown): ProcessedCommand[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is ProcessedCommand => Boolean(
+    entry
+    && typeof entry === "object"
+    && typeof (entry as ProcessedCommand).key === "string"
+    && Number.isFinite((entry as ProcessedCommand).processedAt),
+  )).slice(-1000);
+}
+
+function normalizeTurnTimer(value: unknown, now = Date.now()): TurnTimerState {
+  const candidate = value && typeof value === "object"
+    ? value as Partial<TurnTimerState>
+    : {};
+  const durationMs = intOrDefault(candidate.durationMs, DEFAULT_TURN_DURATION_MS, 1);
+  const turnStartedAt = intOrDefault(candidate.turnStartedAt, now, 0);
+  const fallbackEnd = turnStartedAt + durationMs;
+  const turnEndsAt = intOrDefault(candidate.turnEndsAt, fallbackEnd, 0);
+  return { durationMs, turnStartedAt, turnEndsAt };
+}
+
 function syncPlanetTileLinks(state: GameState): void {
   for (const tile of state.map.tiles) {
-    if (tile.planetId && !state.planets[tile.planetId]) {
-      delete tile.planetId;
-    }
+    delete tile.planetId;
   }
 
-  for (const planet of Object.values(state.planets)) {
+  for (const planet of Object.values(state.planets).sort((a, b) => a.id - b.id)) {
     const tile = state.map.tiles.find(
       (entry) => entry.q === planet.position.q && entry.r === planet.position.r,
     );
-    if (tile) {
+    if (tile && tile.planetId === undefined) {
       tile.planetId = planet.id;
     }
   }
@@ -514,6 +843,64 @@ function pruneRelations(state: GameState): void {
   for (const player of Object.values(state.players)) {
     player.alliances = player.alliances.filter((otherId) => Boolean(state.players[otherId]));
     player.wars = player.wars.filter((otherId) => Boolean(state.players[otherId]));
+  }
+}
+
+function resolveItemInventory(
+  state: GameState,
+  location: InventoryLocation,
+): ItemInventory | null {
+  switch (location.kind) {
+    case "FLEET":
+      return state.fleets[location.fleetId]?.itemInventory ?? null;
+    case "PLANET_STORAGE": {
+      const planet = state.planets[location.planetId];
+      if (!planet || !state.players[location.playerId]) return null;
+      return planet.itemStorageByPlayerId[String(location.playerId)] ??=
+        createEmptyItemInventory();
+    }
+    case "PLANET_SHOP":
+      return state.planets[location.planetId]?.shop.items ?? null;
+    case "STATION_STORAGE": {
+      const station = state.stations[location.stationId];
+      if (!station || !station.capabilities.includes("PLAYER_STORAGE") || !state.players[location.playerId]) {
+        return null;
+      }
+      return station.itemStorageByPlayerId[String(location.playerId)] ??=
+        createEmptyItemInventory();
+    }
+    case "STATION_SHOP": {
+      const station = state.stations[location.stationId];
+      return station?.capabilities.includes("SHOP") ? station.shop.items : null;
+    }
+    case "SHIPWRECK":
+      return state.shipwrecks[location.shipwreckId]?.inventory ?? null;
+    default: {
+      const exhaustive: never = location;
+      return exhaustive;
+    }
+  }
+}
+
+function reconcileArtifactOwnership(state: GameState): void {
+  const inventories: ItemInventory[] = [];
+  for (const fleet of Object.values(state.fleets)) inventories.push(fleet.itemInventory);
+  for (const planet of Object.values(state.planets)) {
+    inventories.push(planet.shop.items, ...Object.values(planet.itemStorageByPlayerId));
+  }
+  for (const station of Object.values(state.stations)) {
+    inventories.push(station.shop.items, ...Object.values(station.itemStorageByPlayerId));
+  }
+  for (const shipwreck of Object.values(state.shipwrecks)) inventories.push(shipwreck.inventory);
+  for (const inventory of inventories) inventory.artifactIds = [];
+
+  for (const [artifactId, artifact] of Object.entries(state.artifacts)) {
+    const inventory = resolveItemInventory(state, artifact.owner);
+    if (!inventory) {
+      delete state.artifacts[artifactId];
+      continue;
+    }
+    inventory.artifactIds.push(artifactId);
   }
 }
 
@@ -562,12 +949,38 @@ export function normalizeGameState(state: GameState): GameState {
   state.players = normalizedPlayers;
   state.planets = normalizedPlanets;
   state.fleets = normalizedFleets;
+  const partialState = state as Partial<GameState>;
+  state.stations = normalizeStations(partialState.stations);
+  state.shipwrecks = normalizeShipwrecks(partialState.shipwrecks);
+  state.anomalies = normalizeAnomalies(partialState.anomalies);
+  state.artifacts = normalizeArtifacts(partialState.artifacts);
+  state.audit = normalizeAudit(partialState.audit);
+  state.detection = normalizeDetectionState(partialState.detection);
+  state.processedCommands = normalizeProcessedCommands(partialState.processedCommands);
+  state.turnTimer = normalizeTurnTimer(partialState.turnTimer);
   state.nextIds = {
     player: intOrDefault(state.nextIds?.player, 1, 1),
     faction: Math.max(intOrDefault(state.nextIds?.faction, 1, 1), ...Object.values(state.factions).map((entry) => entry.id + 1)),
     planet: intOrDefault(state.nextIds?.planet, 1, 1),
     unit: intOrDefault(state.nextIds?.unit, 1, 1),
     event: intOrDefault(state.nextIds?.event, 1, 1),
+    station: Math.max(
+      intOrDefault(state.nextIds?.station, 1, 1),
+      ...Object.values(state.stations).map((entry) => entry.id + 1),
+    ),
+    shipwreck: Math.max(
+      intOrDefault(state.nextIds?.shipwreck, 1, 1),
+      ...Object.values(state.shipwrecks).map((entry) => entry.id + 1),
+    ),
+    anomaly: Math.max(
+      intOrDefault(state.nextIds?.anomaly, 1, 1),
+      ...Object.values(state.anomalies).map((entry) => entry.id + 1),
+    ),
+    artifact: intOrDefault(state.nextIds?.artifact, 1, 1),
+    audit: Math.max(
+      intOrDefault(state.nextIds?.audit, 1, 1),
+      ...state.audit.map((entry) => entry.id + 1),
+    ),
   };
   state.events = Array.isArray((state as Partial<GameState>).events)
     ? (state as Partial<GameState>).events!.filter((event) =>
@@ -585,6 +998,7 @@ export function normalizeGameState(state: GameState): GameState {
     state.nextIds.event,
     ...state.events.map((event) => event.id + 1),
   );
+  reconcileArtifactOwnership(state);
   for (const planet of Object.values(state.planets)) {
     const progress = calculateTitheProgress(
       planet.maxTitheLevel,

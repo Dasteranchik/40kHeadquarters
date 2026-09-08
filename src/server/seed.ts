@@ -5,6 +5,9 @@
   titheValue,
 } from "../planetDomain";
 import { DocumentSnapshot } from "../storage/documentDb";
+import { createEmptyItemInventory } from "../itemDomain";
+import { createEmptyShop } from "../shopDomain";
+import { DEFAULT_TURN_DURATION_MS } from "../turnTimerDomain";
 import {
   Faction,
   Fleet,
@@ -121,6 +124,8 @@ function createPlanet(
     overviewRange: 1,
     rawStock: {},
     productStorageByPlayerId: {},
+    itemStorageByPlayerId: {},
+    shop: createEmptyShop(),
     infoFragments,
   };
 }
@@ -148,10 +153,13 @@ function createFleet(
     stance: "ATTACK",
     domain,
     inventory: {},
+    itemInventory: createEmptyItemInventory(),
+    tags: [],
   };
 }
 
 export function createInitialGameState(): GameState {
+  const now = Date.now();
   return {
     gameId: "live-1",
     turnNumber: 1,
@@ -234,11 +242,34 @@ export function createInitialGameState(): GameState {
       5: createFleet(5, 3, 8, 10, 13, 4, "SPACE"),
       6: createFleet(6, 3, 9, 10, 8, 6, "SPACE"),
     },
+    stations: {},
+    shipwrecks: {},
+    anomalies: {},
+    artifacts: {},
     pendingTitheChanges: [],
     pendingInformantActions: [],
     pendingArmyTransportRequests: [],
     events: [],
-    nextIds: { player: 4, faction: 14, planet: 6, unit: 7, event: 1 },
+    audit: [],
+    detection: { recordsByPlayerId: {} },
+    processedCommands: [],
+    turnTimer: {
+      durationMs: DEFAULT_TURN_DURATION_MS,
+      turnStartedAt: now,
+      turnEndsAt: now + DEFAULT_TURN_DURATION_MS,
+    },
+    nextIds: {
+      player: 4,
+      faction: 14,
+      planet: 6,
+      unit: 7,
+      event: 1,
+      station: 1,
+      shipwreck: 1,
+      anomaly: 1,
+      artifact: 1,
+      audit: 1,
+    },
   };
 }
 
@@ -271,5 +302,6 @@ export function createInitialDocumentSnapshot(): DocumentSnapshot {
     gameState,
     accounts: createInitialAccounts(gameState),
     sessions: {},
+    turnSnapshots: [],
   };
 }

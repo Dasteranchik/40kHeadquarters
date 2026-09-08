@@ -45,10 +45,42 @@ npm run dev:game
 
 Хранится:
 
-- `gameState` (карта, игроки, флоты, планеты, ход/фаза)
+- `gameState` (карта, игроки, Юниты, Планеты, Станции, Кораблекрушения,
+  Аномалии, Магазины, обнаружение, таймер, idempotency и Audit)
 - `accounts` (логины/пароли/роли)
+- `sessions` (серверные сессии)
+- `turnSnapshots` (ограниченная история START/END снимков ходов для rollback)
 
-Загрузка выполняется при старте сервера, сохранение — после админских CRUD-операций и после `resolveTurn()`.
+Старый `data/db.json` автоматически нормализуется: новые коллекции, теги,
+инвентари, Магазины, таймер, detection/audit/processed commands получают
+безопасные значения по умолчанию. Ручное удаление snapshot не требуется.
+
+Сервер остаётся источником истины для симуляции и fog-of-war. Фазы идут только
+в порядке `PLANNING -> RESOLUTION -> UPDATE -> PLANNING`. PLANNING по умолчанию
+завершается через 60 минут; длительность задаётся серверной переменной
+`TURN_DURATION_MS`. Сохранённый deadline восстанавливается после перезапуска.
+
+## Игровые сущности и механики
+
+- Один гекс может содержать несколько Планет, Станций, Кораблекрушений,
+  Аномалий, Флотов и Армий; общий серверный запрос выполняет
+  `getObjectsAtHex(state, coord)`.
+- `Tile.planetId` сохранён только как compatibility-field старого snapshot;
+  новые системы работают по координатам коллекций объектов.
+- Юниты и конфигурируемые объекты поддерживают `STEALTH`; Detection хранится
+  отдельно для каждого игрока. Собственные Юниты видны всегда, остальные —
+  только после обнаружения. `EXACT_AUSPEX` переключает оценочные параметры на
+  точные.
+- До выплаты десятины Планета генерирует ресурсы в `rawStock`, после выплаты —
+  в `shop.resources`. RAID берёт добычу из Магазина и не влияет на десятину.
+- Магазин принимает явный состав оплаты Юнита и поддерживает три утверждённых
+  направления обмена. `PRODUCT -> RAW` отклоняется до решения `DEC-016`.
+- Artifact — уникальный экземпляр с атомарным переносом и безопасным registry
+  эффектов; Knowledge копируется без дублей. При уничтожении Юнита эти предметы
+  попадают в Shipwreck, а RAW/PRODUCT уничтожаются.
+- Немедленные WebSocket-команды используют `commandId`; обработанные результаты
+  сохраняются в ограниченной истории. Административные и критичные предметные
+  операции фиксируются в отдельном persisted Audit Log.
 
 ## Авторизация
 
@@ -96,6 +128,26 @@ npm run dev:game
 - `POST /api/admin/relations` (`type: "WAR" | "ALLIANCE"`)
 - `DELETE /api/admin/relations` (`type: "WAR" | "ALLIANCE"`)
 
+### World objects, Shop and reliability
+
+- `GET|POST /api/admin/stations`
+- `PUT|DELETE /api/admin/stations/:id`
+- `GET /api/admin/shipwrecks`
+- `GET|POST /api/admin/anomalies`
+- `PUT /api/admin/shops/:PLANET|STATION/:id`
+- `POST /api/admin/items`
+- `DELETE /api/admin/artifacts/:id`
+- `GET /api/admin/audit`
+- `GET /api/admin/turn-snapshots`
+- `POST /api/admin/turn-snapshots/:id/rollback`
+- `POST /api/admin/end-turn`
+
+Rollback разрешён только администратору, только из текущей фазы PLANNING и
+только к снимку, который сам находится в PLANNING. После восстановления pending
+команды очищаются, создаётся новый deadline и состояние рассылается клиентам.
+Persisted Audit и история обработанных `commandId` при этом не откатываются:
+это сохраняет журнал действий и блокирует поздний повтор старой команды.
+
 ## Скрипты
 
 - `npm run dev` - demo без браузера
@@ -103,6 +155,7 @@ npm run dev:game
 - `npm run dev:client` - браузерный клиент
 - `npm run dev:game` - сервер + клиент
 - `npm run check` - TypeScript check
+- `npm test` - тесты на встроенном `node:test` через `tsx`
 - `npm run build:core` - сборка server/core в `dist/`
 - `npm run build:client` - сборка клиента в `dist/client`
 - `npm run build` - полная сборка

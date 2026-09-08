@@ -1,5 +1,7 @@
 import type { ResourceKey } from "../planetDomain";
-import { Action, GameState, HexCoord, TurnResolution } from "../types";
+import type { InventoryLocation, KnowledgeCode } from "../itemDomain";
+import type { ShopTradePayload } from "../shopDomain";
+import type { Action, GameState, HexCoord, TurnResolution } from "../types";
 
 export interface SubmitActionMessage {
   type: "submitAction";
@@ -17,10 +19,12 @@ export interface PlayerReadyMessage {
 
 export interface EndTurnMessage {
   type: "endTurn";
+  commandId: string;
 }
 
 export interface SetFleetAllyVisionMessage {
   type: "setFleetAllyVision";
+  commandId: string;
   fleetId: number;
   enabled: boolean;
 }
@@ -41,24 +45,49 @@ export interface ResourceTransferPayload {
 
 export interface ResourceTransferMessage {
   type: "resourceTransfer";
+  commandId: string;
   payload: ResourceTransferPayload;
 }
 
 export interface RequestArmyEmbarkMessage {
   type: "requestArmyEmbark";
+  commandId: string;
   armyId: number;
   fleetId: number;
 }
 
 export interface RespondArmyEmbarkMessage {
   type: "respondArmyEmbark";
+  commandId: string;
   requestId: string;
   accept: boolean;
 }
 
 export interface DisembarkArmyMessage {
   type: "disembarkArmy";
+  commandId: string;
   armyId: number;
+}
+
+export interface ShopTradeMessage {
+  type: "shopTrade";
+  payload: ShopTradePayload;
+}
+
+export interface ItemTransferMessage {
+  type: "itemTransfer";
+  commandId: string;
+  item:
+    | { kind: "ARTIFACT"; artifactId: string }
+    | { kind: "KNOWLEDGE"; knowledge: KnowledgeCode };
+  source: InventoryLocation;
+  target: InventoryLocation;
+}
+
+export interface ArtifactUseMessage {
+  type: "artifactUse";
+  commandId: string;
+  artifactId: string;
 }
 
 export type ClientMessage =
@@ -70,7 +99,10 @@ export type ClientMessage =
   | ResourceTransferMessage
   | RequestArmyEmbarkMessage
   | RespondArmyEmbarkMessage
-  | DisembarkArmyMessage;
+  | DisembarkArmyMessage
+  | ShopTradeMessage
+  | ItemTransferMessage
+  | ArtifactUseMessage;
 
 export interface PlannedMovePreview {
   fleetId: number;
@@ -98,6 +130,8 @@ export interface OperationResultMessage {
   type: "operationResult";
   ok: boolean;
   message: string;
+  commandId?: string;
+  duplicate?: boolean;
 }
 
 export type ServerMessage =

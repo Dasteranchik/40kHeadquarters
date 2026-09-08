@@ -155,6 +155,8 @@ function transferIntoFleet(
   key: ResourceKey,
   requested: number,
 ): number {
+  // TODO(DEC-005): capacity units/consumption for resource cargo are not
+  // defined. Preserve the existing resource-transfer behavior until decided.
   const moved = Math.max(0, Math.trunc(requested));
   if (moved <= 0) {
     return 0;

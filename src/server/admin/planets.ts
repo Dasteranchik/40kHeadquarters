@@ -2,6 +2,7 @@ import { IncomingMessage, ServerResponse } from "http";
 
 import { calculateTitheProgress, isPlanetTag, isPlanetWorldType, isTitheLevel, titheValue } from "../../planetDomain";
 import { Planet } from "../../types";
+import { createEmptyShop } from "../../shopDomain";
 import { isFiniteNumber, isValidId } from "../../utils/validation";
 import { AddPlanetRequest, UpdatePlanetRequest } from "../contracts";
 import { readJsonBody, writeJson } from "../transport";
@@ -23,6 +24,19 @@ export interface PlanetAdminHandlers {
     res: ServerResponse,
     planetId: string,
   ) => Promise<void>;
+}
+
+function syncLegacyPlanetIdAt(
+  deps: AdminHandlerDeps,
+  position: Planet["position"],
+): void {
+  const tile = getTileAt(deps.state, position);
+  if (!tile) return;
+  const first = Object.values(deps.state.planets)
+    .filter((planet) => planet.position.q === position.q && planet.position.r === position.r)
+    .sort((a, b) => a.id - b.id)[0];
+  if (first) tile.planetId = first.id;
+  else delete tile.planetId;
 }
 
 export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHandlers {
@@ -119,11 +133,6 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       return;
     }
 
-    if (tile.planetId) {
-      writeJson(res, 409, { error: "Tile already has a planet" });
-      return;
-    }
-
     if (tile.terrainType === "OBSTACLE") {
       writeJson(res, 400, { error: "Cannot place planet on obstacle tile" });
       return;
@@ -151,6 +160,8 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       overviewRange: Math.max(0, Math.trunc(body.overviewRange ?? visionRange)),
       rawStock: parsedRawStock,
       productStorageByPlayerId: parsedProductStorages,
+      itemStorageByPlayerId: {},
+      shop: createEmptyShop(),
       infoFragments: parsedInfoFragments,
     };
 
@@ -165,7 +176,11 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     setPlanetResourceProduction(planet);
 
     deps.state.planets[planet.id] = planet;
-    tile.planetId = planet.id;
+    syncLegacyPlanetIdAt(deps, planet.position);
+
+    deps.auditAdminMutation(req, {
+      operation: "CREATE_PLANET", entityType: "PLANET", entityId: planet.id, after: planet,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();
@@ -182,19 +197,21 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       writeJson(res, 404, { error: "Planet not found" });
       return;
     }
+    const removedPlanet = structuredClone(planet);
 
-    const tile = getTileAt(deps.state, planet.position);
-    if (tile && tile.planetId === planetId) {
-      delete tile.planetId;
-    }
-
+    const previousPosition = { ...planet.position };
     delete deps.state.planets[planetId];
+    syncLegacyPlanetIdAt(deps, previousPosition);
     deps.state.pendingInformantActions = deps.state.pendingInformantActions.filter(
       (entry) => entry.planetId !== planetId,
     );
     deps.state.pendingTitheChanges = deps.state.pendingTitheChanges.filter(
       (entry) => entry.planetId !== planetId,
     );
+
+    deps.auditAdminMutation(req, {
+      operation: "DELETE_PLANET", entityType: "PLANET", entityId: planetId, before: removedPlanet,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();
@@ -224,6 +241,7 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       writeJson(res, 404, { error: "Planet not found" });
       return;
     }
+    const planetBeforeUpdate = structuredClone(planet);
 
     const body = await readJsonBody<UpdatePlanetRequest>(req);
     if (!body) {
@@ -335,18 +353,10 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
         return;
       }
 
-      if (nextTile.planetId && nextTile.planetId !== planetId) {
-        writeJson(res, 409, { error: "Tile already has a planet" });
-        return;
-      }
-
-      const prevTile = getTileAt(deps.state, planet.position);
-      if (prevTile && prevTile.planetId === planetId) {
-        delete prevTile.planetId;
-      }
-
-      nextTile.planetId = planetId;
+      const previousPosition = { ...planet.position };
       planet.position = nextPosition;
+      syncLegacyPlanetIdAt(deps, previousPosition);
+      syncLegacyPlanetIdAt(deps, nextPosition);
     }
 
     if (body.worldType !== undefined) {
@@ -370,6 +380,8 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     }
 
     if (body.titheLevel !== undefined) {
+      // TODO(DEC-002): this preserves generic GM CRUD only. Do not infer the
+      // Administratum gameplay rule or its costs/effects from this field edit.
       planet.titheLevel = body.titheLevel;
       planet.titheTarget = titheValue(body.titheLevel);
     }
@@ -416,6 +428,11 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     planet.titheTarget = titheProgress.target;
 
     setPlanetResourceProduction(planet);
+
+    deps.auditAdminMutation(req, {
+      operation: "UPDATE_PLANET", entityType: "PLANET", entityId: planetId,
+      before: planetBeforeUpdate, after: planet,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();

@@ -15,6 +15,7 @@ import {
   ResourceStore,
   PlayerProductStorages,
 } from "../types";
+import type { UnitTag } from "../unitDomain";
 
 export type Role = "admin" | "player";
 
@@ -87,6 +88,7 @@ export interface AddFleetRequest {
   stance?: FleetStance;
   domain?: FleetDomain;
   inventory?: ResourceStore;
+  tags?: UnitTag[];
 }
 
 export interface AddArmyRequest {
@@ -153,6 +155,7 @@ export interface UpdateFleetRequest {
   stance?: FleetStance;
   domain?: FleetDomain;
   inventory?: ResourceStore;
+  tags?: UnitTag[];
 }
 
 export interface UpdateFactionRequest {

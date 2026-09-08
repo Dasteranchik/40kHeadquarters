@@ -318,6 +318,123 @@
           </div>
         </section>
 
+        <section class="panel hidden admin-extension">
+          <h2>Stations</h2>
+          <p class="hint">Capabilities define which Station systems are active.</p>
+          <div class="grid add-grid">
+            <div>
+              <label for="extStationName">Name</label>
+              <input id="extStationName" />
+            </div>
+            <div>
+              <label for="extStationQ">Q</label>
+              <input id="extStationQ" type="number" />
+            </div>
+            <div>
+              <label for="extStationR">R</label>
+              <input id="extStationR" type="number" />
+            </div>
+            <div>
+              <label for="extStationOverview">Overview</label>
+              <input id="extStationOverview" type="number" min="0" value="0" />
+            </div>
+            <div>
+              <label for="extStationFleetPower">Fleet combat power (stored only)</label>
+              <input id="extStationFleetPower" type="number" min="0" value="0" />
+            </div>
+            <div>
+              <label for="extStationArmyPower">Army combat power (stored only)</label>
+              <input id="extStationArmyPower" type="number" min="0" value="0" />
+            </div>
+            <div>
+              <label for="extStationGeneration">Generation JSON</label>
+              <input id="extStationGeneration" value="{}" />
+            </div>
+            <div>
+              <label for="extStationRawStock">Raw stock JSON</label>
+              <input id="extStationRawStock" value="{}" />
+            </div>
+            <div>
+              <label for="extStationInfo">Info fragments JSON</label>
+              <input id="extStationInfo" value="{}" />
+            </div>
+            <div>
+              <label for="extStationStealth">STEALTH</label>
+              <input id="extStationStealth" type="checkbox" />
+            </div>
+          </div>
+          <label>Capabilities</label>
+          <div id="extStationCapabilities" class="chip-selector"></div>
+          <div class="row">
+            <button id="extSaveStationBtn">Create Station</button>
+            <button id="extCancelStationEditBtn" class="ghost">Cancel Edit</button>
+          </div>
+          <div id="extStationsList" class="list"></div>
+        </section>
+
+        <section class="panel hidden admin-extension">
+          <h2>Shop</h2>
+          <label for="extShopOwner">Planet / Station</label>
+          <select id="extShopOwner"></select>
+          <label for="extShopResources">Resources JSON</label>
+          <input id="extShopResources" value="{}" />
+          <label for="extShopDisappearing">Disappearing items JSON</label>
+          <input id="extShopDisappearing" value="[]" />
+          <label for="extShopKnowledge">Knowledge codes JSON</label>
+          <input id="extShopKnowledge" value="[]" />
+          <button id="extSaveShopBtn">Save Shop</button>
+        </section>
+
+        <section class="panel hidden admin-extension">
+          <h2>Artifact &amp; Knowledge Placement</h2>
+          <label for="extItemTarget">Target inventory JSON</label>
+          <input id="extItemTarget" value='{"kind":"FLEET","fleetId":1}' />
+          <label for="extItemKind">Kind</label>
+          <select id="extItemKind">
+            <option value="KNOWLEDGE">KNOWLEDGE</option>
+            <option value="ARTIFACT">ARTIFACT</option>
+          </select>
+          <label for="extItemCode">Knowledge / definition code</label>
+          <input id="extItemCode" value="EXACT_AUSPEX" />
+          <label for="extItemName">Artifact name</label>
+          <input id="extItemName" />
+          <label for="extItemUseEffect">Artifact useEffect JSON (optional)</label>
+          <input id="extItemUseEffect" value="" placeholder='{"effectCode":"...","params":{}}' />
+          <label for="extItemConsumable">Consumable Artifact</label>
+          <input id="extItemConsumable" type="checkbox" />
+          <button id="extAddItemBtn">Place Item</button>
+          <div id="extArtifactsList" class="list"></div>
+        </section>
+
+        <section class="panel hidden admin-extension">
+          <h2>Anomalies &amp; Shipwrecks</h2>
+          <div class="grid add-grid">
+            <input id="extAnomalyQ" type="number" placeholder="q" />
+            <input id="extAnomalyR" type="number" placeholder="r" />
+            <input id="extAnomalyInfo" placeholder="information/content reference" />
+            <label><input id="extAnomalyStealth" type="checkbox" /> STEALTH</label>
+          </div>
+          <button id="extAddAnomalyBtn">Add Anomaly</button>
+          <h3>Anomalies</h3>
+          <pre id="extAnomaliesList"></pre>
+          <h3>Shipwrecks</h3>
+          <pre id="extShipwrecksList"></pre>
+        </section>
+
+        <section class="panel hidden admin-extension">
+          <h2>Turn Reliability</h2>
+          <p id="extTimerLine">Timer: -</p>
+          <div class="row">
+            <button id="extEndTurnBtn">Force End Turn</button>
+            <button id="extReloadBtn" class="ghost">Reload</button>
+          </div>
+          <h3>Safe Rollback Snapshots</h3>
+          <div id="extSnapshotsList" class="list"></div>
+          <h3>Persisted Audit</h3>
+          <pre id="extAuditList"></pre>
+          <p id="extStatusLine" class="hint"></p>
+        </section>
+
         <section class="panel">
           <h2>Events</h2>
           <pre id="eventsLog"></pre>
@@ -326,5 +443,6 @@
     </div>
 
     <script type="module" src="/src/admin.ts"></script>
+    <script type="module" src="/src/adminExtensions.ts"></script>
   </body>
 </html>

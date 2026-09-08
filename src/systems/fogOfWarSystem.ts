@@ -21,15 +21,11 @@ function hashToUnitInterval(value: string): number {
   return normalized;
 }
 
-function estimateStat(baseValue: number, spread: number, seed: string): number {
+export function estimateDetectedStat(baseValue: number, spread: number, seed: string): number {
   const n = hashToUnitInterval(seed);
   const factor = 1 + (n * 2 - 1) * spread;
   const estimated = Math.round(baseValue * factor);
   return Math.max(0, estimated);
-}
-
-function planetSightRange(planet: Planet): number {
-  return Math.max(0, Math.trunc(planet.overviewRange ?? planet.visionRange));
 }
 
 export function collectVisibleTileKeysForPlayer(
@@ -37,15 +33,6 @@ export function collectVisibleTileKeysForPlayer(
   player: Player,
 ): Set<string> {
   const visible = new Set<string>();
-
-  for (const planet of Object.values(state.planets)) {
-    const range = planetSightRange(planet);
-    for (const tile of state.map.tiles) {
-      if (hexDistance(planet.position, tile) <= range) {
-        visible.add(coordKey(tile));
-      }
-    }
-  }
 
   const fleets = Object.values(state.fleets).filter((fleet) => {
     if (fleet.ownerPlayerId === player.id) {
@@ -90,12 +77,13 @@ function mergeExploration(player: Player, visible: Set<string>): HexCoord[] {
   return [...explored].map(parseCoordKey);
 }
 
-function visibleFleetForPlayer(
+export function visibleFleetForPlayer(
   viewerId: number,
   fleet: Fleet,
   turnNumber: number,
+  confidence: "EXACT" | "ESTIMATED" = "ESTIMATED",
 ): VisibleFleet {
-  if (fleet.ownerPlayerId === viewerId) {
+  if (fleet.ownerPlayerId === viewerId || confidence === "EXACT") {
     return {
       id: fleet.id,
       ownerPlayerId: fleet.ownerPlayerId,
@@ -111,17 +99,17 @@ function visibleFleetForPlayer(
     id: fleet.id,
     ownerPlayerId: fleet.ownerPlayerId,
     position: fleet.position,
-    combatPower: estimateStat(
+    combatPower: estimateDetectedStat(
       fleet.combatPower,
       0.3,
       `${viewerId}:${fleet.id}:combat:${turnNumber}`,
     ),
-    health: estimateStat(
+    health: estimateDetectedStat(
       fleet.health,
       0.3,
       `${viewerId}:${fleet.id}:health:${turnNumber}`,
     ),
-    influence: estimateStat(
+    influence: estimateDetectedStat(
       fleet.influence,
       0.3,
       `${viewerId}:${fleet.id}:influence:${turnNumber}`,
@@ -131,11 +119,12 @@ function visibleFleetForPlayer(
 }
 
 function collectVisiblePlanets(
-  visibleTileKeys: Set<string>,
+  state: GameState,
+  playerId: number,
   planets: Record<string, Planet>,
 ): Planet[] {
   return Object.values(planets).filter((planet) =>
-    visibleTileKeys.has(coordKey(planet.position)),
+    Boolean(state.detection.recordsByPlayerId[String(playerId)]?.[`PLANET:${planet.id}`]),
   );
 }
 
@@ -149,16 +138,33 @@ export function recalcVisibility(
     const visibleTileKeys = collectVisibleTileKeysForPlayer(state, player);
     player.exploredTiles = mergeExploration(player, visibleTileKeys);
 
+    const playerDetections = state.detection.recordsByPlayerId[String(player.id)] ?? {};
     const fleets = allFleets
-      .filter((fleet) => visibleTileKeys.has(coordKey(fleet.position)))
-      .map((fleet) => visibleFleetForPlayer(player.id, fleet, state.turnNumber));
+      .filter((fleet) =>
+        fleet.ownerPlayerId === player.id || Boolean(playerDetections[`FLEET:${fleet.id}`]),
+      )
+      .map((fleet) => visibleFleetForPlayer(
+        player.id,
+        fleet,
+        state.turnNumber,
+        playerDetections[`FLEET:${fleet.id}`]?.confidence,
+      ));
 
     result[player.id] = {
       playerId: player.id,
       visibleTiles: [...visibleTileKeys].map(parseCoordKey),
       exploredTiles: player.exploredTiles,
       fleets,
-      visiblePlanets: collectVisiblePlanets(visibleTileKeys, state.planets),
+      visiblePlanets: collectVisiblePlanets(state, player.id, state.planets),
+      visibleStations: Object.values(state.stations).filter((station) =>
+        Boolean(playerDetections[`STATION:${station.id}`]),
+      ),
+      visibleShipwrecks: Object.values(state.shipwrecks).filter((shipwreck) =>
+        Boolean(playerDetections[`SHIPWRECK:${shipwreck.id}`]),
+      ),
+      visibleAnomalies: Object.values(state.anomalies).filter((anomaly) =>
+        Boolean(playerDetections[`ANOMALY:${anomaly.id}`]),
+      ),
     };
   }
 

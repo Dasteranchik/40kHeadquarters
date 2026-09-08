@@ -24,6 +24,17 @@ export interface DocumentSnapshot {
   gameState: GameState;
   accounts: Record<string, DbAccount>;
   sessions?: Record<string, DbSession>;
+  turnSnapshots?: TurnSnapshot[];
+}
+
+export type TurnSnapshotPoint = "START" | "END";
+
+export interface TurnSnapshot {
+  id: string;
+  turnNumber: number;
+  point: TurnSnapshotPoint;
+  timestamp: number;
+  gameState: GameState;
 }
 
 const DEFAULT_DB_PATH = path.resolve(process.cwd(), "data", "db.json");

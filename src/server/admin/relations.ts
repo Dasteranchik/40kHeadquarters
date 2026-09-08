@@ -71,6 +71,11 @@ export function createRelationAdminHandlers(deps: AdminHandlerDeps): RelationAdm
       body.playerBId,
     );
 
+    deps.auditAdminMutation(req, {
+      operation: "UPSERT_RELATION", entityType: "RELATION",
+      entityId: `${body.playerAId}:${body.playerBId}`, after: body,
+    });
+
     deps.persistDatabase();
     deps.broadcastState();
     writeJson(res, 200, buildRelationsPayload(deps.state));
@@ -108,6 +113,11 @@ export function createRelationAdminHandlers(deps: AdminHandlerDeps): RelationAdm
       body.playerAId,
       body.playerBId,
     );
+
+    deps.auditAdminMutation(req, {
+      operation: "DELETE_RELATION", entityType: "RELATION",
+      entityId: `${body.playerAId}:${body.playerBId}`, before: body,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();

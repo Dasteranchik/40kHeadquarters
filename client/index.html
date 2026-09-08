@@ -16,6 +16,7 @@
           <span>User <strong id="userValue">-</strong></span>
           <span>Turn <strong id="turnNumber">-</strong></span>
           <span>Phase <strong id="phaseValue">-</strong></span>
+          <span>Ends <strong id="turnCountdown">-</strong></span>
           <span>Resources <strong id="resourceValue">-</strong></span>
         </div>
       </header>
@@ -93,6 +94,37 @@
               </div>
             </div>
             <button id="transferSubmitBtn">Transfer</button>
+          </section>
+
+          <section>
+            <h2>Shop &amp; Items</h2>
+            <p class="hint">A selected fleet can trade with a detected Shop in its hex.</p>
+            <label for="shopOwner">Shop</label>
+            <select id="shopOwner"></select>
+            <div class="grid2">
+              <div>
+                <label for="shopReceiveResource">Receive</label>
+                <select id="shopReceiveResource"></select>
+              </div>
+              <div>
+                <label for="shopReceiveAmount">Amount</label>
+                <input id="shopReceiveAmount" type="number" min="1" step="1" value="1" />
+              </div>
+            </div>
+            <label for="shopPayment">Payment composition (JSON)</label>
+            <input id="shopPayment" value='{"ORE":2}' />
+            <button id="shopTradeBtn">Trade</button>
+            <label for="fleetArtifact">Fleet Artifact</label>
+            <div class="actions-row">
+              <select id="fleetArtifact"></select>
+              <button id="artifactUseBtn" class="ghost">Use Artifact</button>
+            </div>
+            <p class="hint">Artifact and Knowledge inventories are also shown in Unit Orders.</p>
+          </section>
+
+          <section>
+            <h2>Detected Objects</h2>
+            <pre id="detectedObjects" class="fleet-details">-</pre>
           </section>
 
           <section>

@@ -7,6 +7,7 @@ function orderedMoves(actions: MoveFleetAction[]): MoveFleetAction[] {
 export function executeMovement(
   state: GameState,
   actions: MoveFleetAction[],
+  onFleetEnteredHex?: (fleetId: number) => void,
 ): MovementReport {
   const executed: MovementExecution[] = [];
 
@@ -20,13 +21,16 @@ export function executeMovement(
     const pathLength = action.payload.path.length;
 
     if (pathLength > 0) {
-      fleet.position = action.payload.path[pathLength - 1];
-      fleet.actionPoints = Math.max(0, fleet.actionPoints - pathLength);
-      for (const army of Object.values(state.fleets)) {
-        if (army.domain === "GROUND" && army.carrierFleetId === fleet.id) {
-          army.position = { ...fleet.position };
+      for (const step of action.payload.path) {
+        fleet.position = { ...step };
+        for (const army of Object.values(state.fleets)) {
+          if (army.domain === "GROUND" && army.carrierFleetId === fleet.id) {
+            army.position = { ...fleet.position };
+          }
         }
+        onFleetEnteredHex?.(fleet.id);
       }
+      fleet.actionPoints = Math.max(0, fleet.actionPoints - pathLength);
     }
 
     executed.push({

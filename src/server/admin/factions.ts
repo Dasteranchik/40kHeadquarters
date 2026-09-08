@@ -60,6 +60,10 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
 
     deps.state.factions[faction.id] = faction;
 
+    deps.auditAdminMutation(req, {
+      operation: "CREATE_FACTION", entityType: "FACTION", entityId: faction.id, after: faction,
+    });
+
     deps.persistDatabase();
     deps.broadcastState();
     writeJson(res, 201, { faction });
@@ -79,6 +83,7 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
       writeJson(res, 404, { error: "Faction not found" });
       return;
     }
+    const factionBeforeUpdate = structuredClone(faction);
 
     const body = await readJsonBody<UpdateFactionRequest>(req);
     if (!body) {
@@ -103,6 +108,11 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
     if (body.description !== undefined) {
       faction.description = body.description.trim().length > 0 ? body.description.trim() : undefined;
     }
+
+    deps.auditAdminMutation(req, {
+      operation: "UPDATE_FACTION", entityType: "FACTION", entityId: factionId,
+      before: factionBeforeUpdate, after: faction,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();
@@ -132,7 +142,11 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
       return;
     }
 
+    const removedFaction = structuredClone(deps.state.factions[factionId]);
     delete deps.state.factions[factionId];
+    deps.auditAdminMutation(req, {
+      operation: "DELETE_FACTION", entityType: "FACTION", entityId: factionId, before: removedFaction,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();

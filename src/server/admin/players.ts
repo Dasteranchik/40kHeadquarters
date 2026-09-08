@@ -114,6 +114,10 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       playerId: player.id,
     });
 
+    deps.auditAdminMutation(req, {
+      operation: "CREATE_PLAYER", entityType: "PLAYER", entityId: player.id, after: player,
+    });
+
     deps.persistDatabase();
     deps.broadcastState();
     writeJson(res, 201, { player, login: { username } });
@@ -130,6 +134,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       writeJson(res, 404, { error: "Player not found" });
       return;
     }
+    const removedPlayer = structuredClone(player);
 
     delete deps.state.players[playerId];
 
@@ -164,6 +169,10 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     deps.state.pendingTitheChanges = deps.state.pendingTitheChanges.filter(
       (entry) => entry.requestedByPlayerId !== playerId,
     );
+
+    deps.auditAdminMutation(req, {
+      operation: "DELETE_PLAYER", entityType: "PLAYER", entityId: playerId, before: removedPlayer,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();
@@ -209,6 +218,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       writeJson(res, 404, { error: "Player not found" });
       return;
     }
+    const playerBeforeUpdate = structuredClone(player);
 
     const body = await readJsonBody<UpdatePlayerRequest>(req);
     if (!body) {
@@ -336,6 +346,11 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     });
 
     const login = findPlayerAccount(deps.accounts, playerId)?.[1] ?? null;
+
+    deps.auditAdminMutation(req, {
+      operation: "UPDATE_PLAYER", entityType: "PLAYER", entityId: playerId,
+      before: playerBeforeUpdate, after: player,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();

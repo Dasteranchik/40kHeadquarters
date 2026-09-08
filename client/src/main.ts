@@ -15,7 +15,10 @@ import {
   RAW_RESOURCE_KEYS,
   RESOURCE_KEYS,
   TITHE_LEVEL_ORDER,
+  type ResourceKey,
 } from "../../src/planetDomain";
+import type { Shop, ShopOwnerRef } from "../../src/shopDomain";
+import { getObjectsAtHex } from "../../src/worldObjectDomain";
 import {
   clearMapLayers,
   fleetsAtCoord,
@@ -68,6 +71,7 @@ import type {
   Planet,
   PlanetAction,
   PlanetActionKind,
+  ResourceStore,
 } from "../../src/types";
 
 type Nullable<T> = T | null;
@@ -91,6 +95,7 @@ const statusLine = document.getElementById("statusLine") as HTMLParagraphElement
 const userValueEl = document.getElementById("userValue") as HTMLElement;
 const turnNumberEl = document.getElementById("turnNumber") as HTMLElement;
 const phaseValueEl = document.getElementById("phaseValue") as HTMLElement;
+const turnCountdownEl = document.getElementById("turnCountdown") as HTMLElement;
 const resourceValueEl = document.getElementById("resourceValue") as HTMLElement;
 const playerInfoEl = document.getElementById("playerInfo") as HTMLParagraphElement;
 const authStateEl = document.getElementById("authState") as HTMLParagraphElement;
@@ -132,6 +137,14 @@ const transferResourceSelect = document.getElementById(
 ) as HTMLSelectElement;
 const transferAmountInput = document.getElementById("transferAmount") as HTMLInputElement;
 const transferSubmitBtn = document.getElementById("transferSubmitBtn") as HTMLButtonElement;
+const shopOwnerSelect = document.getElementById("shopOwner") as HTMLSelectElement;
+const shopReceiveResourceSelect = document.getElementById("shopReceiveResource") as HTMLSelectElement;
+const shopReceiveAmountInput = document.getElementById("shopReceiveAmount") as HTMLInputElement;
+const shopPaymentInput = document.getElementById("shopPayment") as HTMLInputElement;
+const shopTradeBtn = document.getElementById("shopTradeBtn") as HTMLButtonElement;
+const fleetArtifactSelect = document.getElementById("fleetArtifact") as HTMLSelectElement;
+const artifactUseBtn = document.getElementById("artifactUseBtn") as HTMLButtonElement;
+const detectedObjectsEl = document.getElementById("detectedObjects") as HTMLPreElement;
 const selectedPlanetLine = document.getElementById("selectedPlanetLine") as HTMLParagraphElement;
 const selectedPlanetDetailsEl = document.getElementById(
   "selectedPlanetDetails",
@@ -482,12 +495,12 @@ function ensureTransferModeOptions(): void {
 }
 
 function selectedFleetPlanet(state: GameState, fleet: Fleet): Nullable<Planet> {
-  const tile = getTile(state, fleet.position);
-  if (!tile?.planetId) {
-    return null;
-  }
-
-  return state.planets[tile.planetId] ?? null;
+  return Object.values(state.planets)
+    .filter((planet) =>
+      planet.position.q === fleet.position.q
+      && planet.position.r === fleet.position.r
+    )
+    .sort((a, b) => a.id - b.id)[0] ?? null;
 }
 
 function storeAmount(store: Fleet["inventory"], key: string): number {
@@ -751,6 +764,7 @@ function submitTransfer(): void {
 
   const sent = sendMessage({
     type: "resourceTransfer",
+    commandId: nextActionId("resource-transfer"),
     payload: {
       from: {
         kind: context.mode.fromKind,
@@ -770,6 +784,182 @@ function submitTransfer(): void {
       `Transfer sent: ${context.mode.label}, ${amount} ${transferResourceSelect.value}`,
     );
     setStatus("Transferring resources...");
+  }
+}
+
+interface ShopAtFleet {
+  owner: ShopOwnerRef;
+  label: string;
+  shop: Shop;
+}
+
+function shopOwnerKey(owner: ShopOwnerRef): string {
+  return owner.kind + ":" + owner.id;
+}
+
+function shopsAtFleet(state: GameState, fleet: Fleet): ShopAtFleet[] {
+  const result: ShopAtFleet[] = [];
+  for (const planet of Object.values(state.planets)) {
+    if (planet.position.q === fleet.position.q && planet.position.r === fleet.position.r) {
+      result.push({
+        owner: { kind: "PLANET", id: planet.id },
+        label: "Planet " + planet.name + " (#" + planet.id + ")",
+        shop: planet.shop,
+      });
+    }
+  }
+  for (const station of Object.values(state.stations)) {
+    if (
+      station.capabilities.includes("SHOP")
+      && station.position.q === fleet.position.q
+      && station.position.r === fleet.position.r
+    ) {
+      result.push({
+        owner: { kind: "STATION", id: station.id },
+        label: "Station " + station.name + " (#" + station.id + ")",
+        shop: station.shop,
+      });
+    }
+  }
+  return result.sort((a, b) =>
+    a.owner.kind.localeCompare(b.owner.kind) || a.owner.id - b.owner.id
+  );
+}
+
+function selectedShop(state: GameState, fleet: Fleet): ShopAtFleet | null {
+  return shopsAtFleet(state, fleet).find(
+    (entry) => shopOwnerKey(entry.owner) === shopOwnerSelect.value,
+  ) ?? null;
+}
+
+function refreshDetectedObjects(state: GameState | null): void {
+  if (!state) {
+    detectedObjectsEl.textContent = "-";
+    return;
+  }
+  const lines = [
+    ...Object.values(state.planets).map(
+      (planet) => "Planet #" + planet.id + " " + planet.name + " [" + planet.position.q + "," + planet.position.r + "]",
+    ),
+    ...Object.values(state.stations).map(
+      (station) => "Station #" + station.id + " " + station.name + " [" + station.position.q + "," + station.position.r + "]",
+    ),
+    ...Object.values(state.shipwrecks).map(
+      (wreck) => "Shipwreck #" + wreck.id + " [" + wreck.position.q + "," + wreck.position.r + "]",
+    ),
+    ...Object.values(state.anomalies).map(
+      (anomaly) => "Anomaly #" + anomaly.id + " [" + anomaly.position.q + "," + anomaly.position.r + "]",
+    ),
+  ];
+  detectedObjectsEl.textContent = lines.join("\n") || "-";
+}
+
+function refreshShopControls(
+  state: GameState | null,
+  selectedFleet: Fleet | null,
+): void {
+  const currentShop = shopOwnerSelect.value;
+  const currentResource = shopReceiveResourceSelect.value;
+  shopOwnerSelect.innerHTML = "";
+  shopReceiveResourceSelect.innerHTML = "";
+  fleetArtifactSelect.innerHTML = "";
+  shopOwnerSelect.disabled = true;
+  shopReceiveResourceSelect.disabled = true;
+  shopReceiveAmountInput.disabled = true;
+  shopPaymentInput.disabled = true;
+  shopTradeBtn.disabled = true;
+  artifactUseBtn.disabled = true;
+
+  if (!state || !selectedFleet) return;
+
+  for (const artifactId of selectedFleet.itemInventory.artifactIds) {
+    const artifact = state.artifacts[artifactId];
+    const option = document.createElement("option");
+    option.value = artifactId;
+    option.textContent = artifact ? artifact.name + " (" + artifactId + ")" : artifactId;
+    fleetArtifactSelect.append(option);
+  }
+  artifactUseBtn.disabled =
+    state.phase !== "PLANNING" || fleetArtifactSelect.options.length === 0;
+
+  const shops = shopsAtFleet(state, selectedFleet);
+  for (const entry of shops) {
+    const option = document.createElement("option");
+    option.value = shopOwnerKey(entry.owner);
+    option.textContent = entry.label;
+    shopOwnerSelect.append(option);
+  }
+  if (shops.some((entry) => shopOwnerKey(entry.owner) === currentShop)) {
+    shopOwnerSelect.value = currentShop;
+  }
+
+  const selected = selectedShop(state, selectedFleet);
+  if (!selected) return;
+  for (const key of RESOURCE_KEYS) {
+    const available = selected.shop.resources[key] ?? 0;
+    if (available <= 0) continue;
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = key + " (available " + available + ")";
+    shopReceiveResourceSelect.append(option);
+  }
+  if (RESOURCE_KEYS.some((key) => key === currentResource)) {
+    shopReceiveResourceSelect.value = currentResource;
+  }
+  const canTrade =
+    state.phase === "PLANNING" && shopReceiveResourceSelect.options.length > 0;
+  shopOwnerSelect.disabled = state.phase !== "PLANNING";
+  shopReceiveResourceSelect.disabled = !canTrade;
+  shopReceiveAmountInput.disabled = !canTrade;
+  shopPaymentInput.disabled = !canTrade;
+  shopTradeBtn.disabled = !canTrade;
+}
+
+function parseShopPayment(): ResourceStore {
+  const parsed = JSON.parse(shopPaymentInput.value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Payment must be a JSON object");
+  }
+  const payment: ResourceStore = {};
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (
+      !RESOURCE_KEYS.includes(key as ResourceKey)
+      || typeof value !== "number"
+      || !Number.isInteger(value)
+      || value <= 0
+    ) {
+      throw new Error("Payment contains an invalid resource or amount");
+    }
+    payment[key as ResourceKey] = value;
+  }
+  if (Object.keys(payment).length === 0) throw new Error("Payment is empty");
+  return payment;
+}
+
+function submitShopTrade(): void {
+  const state = runtime.gameState;
+  const fleet = state ? getSelectedFleet(runtime, state) : null;
+  if (!state || !fleet || state.phase !== "PLANNING") return;
+  const selected = selectedShop(state, fleet);
+  const amount = Math.trunc(Number(shopReceiveAmountInput.value));
+  if (!selected || !Number.isFinite(amount) || amount <= 0) return;
+  try {
+    const commandId = nextActionId("shop");
+    sendMessage({
+      type: "shopTrade",
+      payload: {
+        commandId,
+        shop: selected.owner,
+        fleetId: fleet.id,
+        receive: {
+          resourceKey: shopReceiveResourceSelect.value as ResourceKey,
+          amount,
+        },
+        payment: parseShopPayment(),
+      },
+    });
+  } catch (error) {
+    appendEvent("Shop trade rejected locally: " + (error as Error).message);
   }
 }
 
@@ -874,7 +1064,15 @@ function clampAmountInput(
   return clampedAmount;
 }
 
-function buildRawStockAvailability(planet: Planet): PlanetResourceAvailability[] {
+function buildRawStockAvailability(
+  planet: Planet,
+  raidFromShop = false,
+): PlanetResourceAvailability[] {
+  if (raidFromShop) {
+    return RAW_RESOURCE_KEYS
+      .map((key) => ({ key, maxAmount: storeAmount(planet.shop.resources, key) }))
+      .filter((entry) => entry.maxAmount > 0);
+  }
   const titheCapacity = Math.max(0, Math.floor(planet.titheTarget - planet.tithePaid));
   if (titheCapacity <= 0) {
     return [];
@@ -1011,7 +1209,8 @@ function refreshPlanetActionControls(
   }
 
   const player = state.players[playerId];
-  const rawAvailability = buildRawStockAvailability(planet);
+  const raidFromShop = player?.alignment === "NON_IMPERIAL";
+  const rawAvailability = buildRawStockAvailability(planet, raidFromShop);
   fillPlanetResourceOptions(planetRawResourceSelect, rawAvailability);
   const selectedRaw = selectedOptionAvailability(planetRawResourceSelect, rawAvailability);
   if (selectedRaw) {
@@ -1055,7 +1254,8 @@ function submitTakeOrRaidStock(): void {
     return;
   }
 
-  const availability = buildRawStockAvailability(context.planet);
+  const player = context.state.players[context.playerId];
+  const availability = buildRawStockAvailability(context.planet, player?.alignment === "NON_IMPERIAL");
   const selectedRaw = selectedOptionAvailability(planetRawResourceSelect, availability);
   if (!selectedRaw) {
     appendEvent("No raw stock available for selected fleet");
@@ -1068,7 +1268,6 @@ function submitTakeOrRaidStock(): void {
     return;
   }
 
-  const player = context.state.players[context.playerId];
   const kind = player?.alignment === "IMPERIAL" ? "TAKE_STOCK" : "RAID_STOCK";
   submitPlanetAction(kind, {
     fleetId: context.selectedFleet.id,
@@ -1147,7 +1346,11 @@ function refreshArmyTransportControls(state: GameState | null, selected: Fleet |
       const button = document.createElement("button");
       button.textContent = "Disembark on planet";
       button.disabled = !canPlan;
-      button.addEventListener("click", () => sendMessage({ type: "disembarkArmy", armyId: army.id }));
+      button.addEventListener("click", () => sendMessage({
+        type: "disembarkArmy",
+        commandId: nextActionId("disembark"),
+        armyId: army.id,
+      }));
       row.append(button);
       armyTransportRequestsEl.append(row);
     }
@@ -1161,11 +1364,33 @@ function refreshArmyTransportControls(state: GameState | null, selected: Fleet |
     for (const [label, accept] of [["Accept", true], ["Decline", false]] as const) {
       const button = document.createElement("button");
       button.textContent = label;
-      button.addEventListener("click", () => sendMessage({ type: "respondArmyEmbark", requestId: request.id, accept }));
+      button.addEventListener("click", () => sendMessage({
+        type: "respondArmyEmbark",
+        commandId: nextActionId("embark-response"),
+        requestId: request.id,
+        accept,
+      }));
       row.append(button);
     }
     armyTransportRequestsEl.append(row);
   }
+}
+
+function refreshTurnCountdown(): void {
+  const timer = runtime.gameState?.turnTimer;
+  if (!timer || runtime.gameState?.phase !== "PLANNING") {
+    turnCountdownEl.textContent = "-";
+    return;
+  }
+  const remainingMs = Math.max(0, timer.turnEndsAt - Date.now());
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  turnCountdownEl.textContent =
+    String(hours).padStart(2, "0") + ":"
+    + String(minutes).padStart(2, "0") + ":"
+    + String(seconds).padStart(2, "0");
 }
 
 function refreshHud(): void {
@@ -1200,6 +1425,9 @@ function refreshHud(): void {
     refreshTransferControls(null, null);
     refreshPlanetActionControls(null, null);
     refreshArmyTransportControls(null, null);
+    refreshShopControls(null, null);
+    refreshDetectedObjects(null);
+    refreshTurnCountdown();
     return;
   }
 
@@ -1263,6 +1491,9 @@ function refreshHud(): void {
   });
   refreshTransferControls(state, selected);
   refreshPlanetActionControls(state, selected);
+  refreshShopControls(state, selected);
+  refreshDetectedObjects(state);
+  refreshTurnCountdown();
 }
 
 const networkSession = createNetworkSessionController({
@@ -1400,8 +1631,7 @@ function handleCanvasPrimaryClick(
   const fleetsHere = fleetsAtCoord(state, clicked);
   const ownFleetsHere = ownFleetsAtCoord(state, clicked);
   const selected = getSelectedFleet(runtime, state);
-  const hasPlanet = Boolean(tile.planetId && state.planets[tile.planetId]);
-  const unitCount = fleetsHere.length + (hasPlanet ? 1 : 0);
+  const unitCount = getObjectsAtHex(state, clicked).length;
 
   if (
     selected &&
@@ -1555,6 +1785,7 @@ bindMainEvents(
 
       sendMessage({
         type: "setFleetAllyVision",
+        commandId: nextActionId("ally-vision"),
         fleetId: selected.id,
         enabled: !selected.shareVisionWithAllies,
       });
@@ -1570,7 +1801,10 @@ bindMainEvents(
       appendEvent("Ready flag sent");
     },
     onEndTurn: () => {
-      sendMessage({ type: "endTurn" });
+      sendMessage({
+        type: "endTurn",
+        commandId: nextActionId("end-turn"),
+      });
       appendEvent("endTurn sent");
     },
     onAdminAddPlayer: () => {
@@ -1663,6 +1897,7 @@ armyEmbarkBtn.addEventListener("click", () => {
   if (!army || army.domain !== "GROUND" || !armyTransportTargetSelect.value) return;
   sendMessage({
     type: "requestArmyEmbark",
+    commandId: nextActionId("embark-request"),
     armyId: army.id,
     fleetId: Number(armyTransportTargetSelect.value),
   });
@@ -1671,7 +1906,21 @@ armyDisembarkBtn.addEventListener("click", () => {
   const state = runtime.gameState;
   const army = state ? getSelectedFleet(runtime, state) : null;
   if (!army || army.domain !== "GROUND") return;
-  sendMessage({ type: "disembarkArmy", armyId: army.id });
+  sendMessage({
+    type: "disembarkArmy",
+    commandId: nextActionId("disembark"),
+    armyId: army.id,
+  });
+});
+shopOwnerSelect.addEventListener("change", refreshHud);
+shopTradeBtn.addEventListener("click", submitShopTrade);
+artifactUseBtn.addEventListener("click", () => {
+  if (!fleetArtifactSelect.value) return;
+  sendMessage({
+    type: "artifactUse",
+    commandId: nextActionId("artifact-use"),
+    artifactId: fleetArtifactSelect.value,
+  });
 });
 transferSubmitBtn.addEventListener("click", () => {
   submitTransfer();
@@ -1724,4 +1973,5 @@ mapCamera.updateMapZoomUi();
 refreshHud();
 setHoveredHexInfo(null);
 renderScene();
+window.setInterval(refreshTurnCountdown, 250);
 void networkSession.restoreSession();

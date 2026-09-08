@@ -1,6 +1,9 @@
 import { IncomingMessage, ServerResponse } from "http";
 
 import { Fleet } from "../../types";
+import { createEmptyItemInventory } from "../../itemDomain";
+import { isUnitTag } from "../../unitDomain";
+import { detectObjectsForFleetAtCurrentHex } from "../../systems/detectionSystem";
 import {
   isFiniteNumber,
   isFleetDomain,
@@ -92,9 +95,14 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       stance: body.stance ?? "ATTACK",
       domain: "GROUND",
       inventory: {},
+      itemInventory: createEmptyItemInventory(),
+      tags: [],
       ...(carrierFleetId === undefined ? {} : { carrierFleetId }),
     };
     deps.state.fleets[army.id] = army;
+    deps.auditAdminMutation(req, {
+      operation: "CREATE_ARMY", entityType: "FLEET", entityId: army.id, after: army,
+    });
     deps.persistDatabase();
     deps.broadcastState();
     writeJson(res, 201, { army });
@@ -138,6 +146,10 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       writeJson(res, 400, { error: "inventory must be an object<ResourceKey, number>" });
       return;
     }
+    if (body.tags !== undefined && (!Array.isArray(body.tags) || body.tags.some((tag) => !isUnitTag(tag)))) {
+      writeJson(res, 400, { error: "tags must contain supported Unit tags" });
+      return;
+    }
 
     const position = { q: Math.trunc(body.q), r: Math.trunc(body.r) };
     const tile = getTileAt(deps.state, position);
@@ -165,9 +177,16 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       stance: body.stance ?? "ATTACK",
       domain: "SPACE",
       inventory: parsedInventory,
+      itemInventory: createEmptyItemInventory(),
+      tags: body.tags ? [...new Set(body.tags)] : [],
     };
 
     deps.state.fleets[fleet.id] = fleet;
+    detectObjectsForFleetAtCurrentHex(deps.state, fleet.id);
+
+    deps.auditAdminMutation(req, {
+      operation: "CREATE_FLEET", entityType: "FLEET", entityId: fleet.id, after: fleet,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();
@@ -179,7 +198,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       return;
     }
 
-    if (!deps.state.fleets[fleetId]) {
+    const removedFleet = deps.state.fleets[fleetId];
+    if (!removedFleet) {
       writeJson(res, 404, { error: "Fleet not found" });
       return;
     }
@@ -195,6 +215,10 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
         deps.pendingActions.delete(actionId);
       }
     }
+
+    deps.auditAdminMutation(req, {
+      operation: "DELETE_FLEET", entityType: "FLEET", entityId: fleetId, before: removedFleet,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();
@@ -224,6 +248,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       writeJson(res, 404, { error: "Fleet not found" });
       return;
     }
+    const fleetBeforeUpdate = structuredClone(fleet);
 
     const body = await readJsonBody<UpdateFleetRequest>(req);
     if (!body) {
@@ -273,6 +298,10 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       body.inventory === undefined ? undefined : parseResourceStore(body.inventory);
     if (parsedInventory === null) {
       writeJson(res, 400, { error: "inventory must be an object<ResourceKey, number>" });
+      return;
+    }
+    if (body.tags !== undefined && (!Array.isArray(body.tags) || body.tags.some((tag) => !isUnitTag(tag)))) {
+      writeJson(res, 400, { error: "tags must contain supported Unit tags" });
       return;
     }
 
@@ -333,6 +362,15 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     if (parsedInventory !== undefined) {
       fleet.inventory = parsedInventory;
     }
+    if (body.tags !== undefined) {
+      fleet.tags = [...new Set(body.tags)];
+    }
+    detectObjectsForFleetAtCurrentHex(deps.state, fleet.id);
+
+    deps.auditAdminMutation(req, {
+      operation: "UPDATE_FLEET", entityType: "FLEET", entityId: fleetId,
+      before: fleetBeforeUpdate, after: fleet,
+    });
 
     deps.persistDatabase();
     deps.broadcastState();

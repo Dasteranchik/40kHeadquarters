@@ -2,6 +2,8 @@ import { IncomingMessage, ServerResponse } from "http";
 
 import { Action, GameState } from "../../types";
 import { Account, Session } from "../contracts";
+import type { TurnSnapshot } from "../../storage/documentDb";
+import type { AppendAuditInput } from "../../systems/auditSystem";
 
 export interface AdminHandlerDeps {
   state: GameState;
@@ -14,6 +16,12 @@ export interface AdminHandlerDeps {
   persistDatabase: () => void;
   broadcastState: () => void;
   removeSessionsForPlayer: (playerId: number) => void;
+  listTurnSnapshots: () => TurnSnapshot[];
+  rollbackTurnSnapshot: (snapshotId: string, account: string) => boolean;
+  auditAdminMutation: (
+    req: IncomingMessage,
+    input: Omit<AppendAuditInput, "actor">,
+  ) => void;
 }
 
 export function requireAdminPlanning(

@@ -248,13 +248,16 @@ function generateForPlanet(
 ): void {
   const generated: string[] = [];
   const populationProduction = computePopulationProduction(planet.population);
+  const generationTarget = planet.tithePaid >= planet.titheTarget
+    ? planet.shop.resources
+    : planet.rawStock;
   planet.resourceProduction = 0;
   for (const [resourceKey, enabled] of Object.entries(planet.resourceGeneration)) {
     if (!isResourceKey(resourceKey)) continue;
     if (!enabled || enabled <= 0) continue;
     const amount = populationProduction;
     if (amount <= 0) continue;
-    addToStore(planet.rawStock, resourceKey, amount);
+    addToStore(generationTarget, resourceKey, amount);
     planet.resourceProduction = Math.round((planet.resourceProduction + amount) * 100) / 100;
     generated.push(`${amount} ${resourceKey}`);
   }
@@ -264,7 +267,7 @@ function generateForPlanet(
   event(report, {
     planetId: planet.id,
     kind: "TURN_GENERATION",
-    details: `generated ${generated.join(", ")}`,
+    details: `generated ${generated.join(", ")} into ${generationTarget === planet.rawStock ? "raw stock" : "Shop"}`,
   });
 }
 
@@ -429,39 +432,34 @@ function applyRaidStock(
     return;
   }
 
-  const requested = Math.min(
-    parseAmount(action.payload.amount),
-    remainingTitheCapacity(planet),
-  );
+  const requested = parseAmount(action.payload.amount);
   if (requested <= 0) {
-    reject(report, action, "planet tithe cap has been reached");
+    reject(report, action, "amount must be positive");
     return;
   }
 
-  const taken = takeFromStore(planet.rawStock, resourceKey, requested);
+  const taken = takeFromStore(planet.shop.resources, resourceKey, requested);
   if (taken <= 0) {
-    reject(report, action, "planet raw stock is empty for this resource");
+    reject(report, action, "planet Shop is empty for this resource");
     return;
   }
 
   const moved = addToFleetInventory(fleet, resourceKey, taken);
   if (moved <= 0) {
-    addToStore(planet.rawStock, resourceKey, taken);
+    addToStore(planet.shop.resources, resourceKey, taken);
     reject(report, action, "fleet has no free capacity");
     return;
   }
 
   if (moved < taken) {
-    addToStore(planet.rawStock, resourceKey, taken - moved);
+    addToStore(planet.shop.resources, resourceKey, taken - moved);
   }
-
-  recordTitheContribution(state, planet, resourceKey, moved);
 
   event(report, {
     actionId: action.id,
     planetId: planet.id,
     kind: "RAID_STOCK",
-    details: `${fleet.id} raided ${moved} ${resourceKey}`,
+    details: `${fleet.id} raided ${moved} ${resourceKey} from Shop`,
   });
 }
 
