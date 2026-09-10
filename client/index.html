@@ -111,8 +111,9 @@
                 <input id="shopReceiveAmount" type="number" min="1" step="1" value="1" />
               </div>
             </div>
-            <label for="shopPayment">Payment composition (JSON)</label>
-            <input id="shopPayment" value='{"ORE":2}' />
+            <label for="shopPaymentList">Payment composition</label>
+            <div id="shopPaymentList" class="shop-payment-list" aria-live="polite"></div>
+            <p class="hint">Select resources from the selected fleet inventory.</p>
             <button id="shopTradeBtn">Trade</button>
             <label for="fleetArtifact">Fleet Artifact</label>
             <div class="actions-row">

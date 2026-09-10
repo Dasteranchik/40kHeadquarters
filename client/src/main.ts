@@ -140,7 +140,8 @@ const transferSubmitBtn = document.getElementById("transferSubmitBtn") as HTMLBu
 const shopOwnerSelect = document.getElementById("shopOwner") as HTMLSelectElement;
 const shopReceiveResourceSelect = document.getElementById("shopReceiveResource") as HTMLSelectElement;
 const shopReceiveAmountInput = document.getElementById("shopReceiveAmount") as HTMLInputElement;
-const shopPaymentInput = document.getElementById("shopPayment") as HTMLInputElement;
+const shopPaymentListEl = document.getElementById("shopPaymentList") as HTMLDivElement;
+let shopPaymentDraftFleetId: string | null = null;
 const shopTradeBtn = document.getElementById("shopTradeBtn") as HTMLButtonElement;
 const fleetArtifactSelect = document.getElementById("fleetArtifact") as HTMLSelectElement;
 const artifactUseBtn = document.getElementById("artifactUseBtn") as HTMLButtonElement;
@@ -367,8 +368,7 @@ function renderScene(): void {
 }
 
 function appendEvent(message: string): void {
-  const next = `[${new Date().toLocaleTimeString()}] ${message}`;
-  eventsLog.textContent = `${next}\n${eventsLog.textContent}`.trim();
+  eventsLog.prepend(document.createTextNode(`[${new Date().toLocaleTimeString()}] ${message}\n`));
 }
 
 function setStatus(message: string): void {
@@ -866,11 +866,15 @@ function refreshShopControls(
   shopOwnerSelect.disabled = true;
   shopReceiveResourceSelect.disabled = true;
   shopReceiveAmountInput.disabled = true;
-  shopPaymentInput.disabled = true;
   shopTradeBtn.disabled = true;
   artifactUseBtn.disabled = true;
 
-  if (!state || !selectedFleet) return;
+  if (!state || !selectedFleet) {
+    shopPaymentDraftFleetId = null;
+    shopPaymentListEl.replaceChildren();
+    shopPaymentListEl.textContent = "No resources available for payment";
+    return;
+  }
 
   for (const artifactId of selectedFleet.itemInventory.artifactIds) {
     const artifact = state.artifacts[artifactId];
@@ -894,7 +898,11 @@ function refreshShopControls(
   }
 
   const selected = selectedShop(state, selectedFleet);
-  if (!selected) return;
+  if (!selected) {
+    shopPaymentDraftFleetId = null;
+    shopPaymentListEl.replaceChildren();
+    return;
+  }
   for (const key of RESOURCE_KEYS) {
     const available = selected.shop.resources[key] ?? 0;
     if (available <= 0) continue;
@@ -911,28 +919,71 @@ function refreshShopControls(
   shopOwnerSelect.disabled = state.phase !== "PLANNING";
   shopReceiveResourceSelect.disabled = !canTrade;
   shopReceiveAmountInput.disabled = !canTrade;
-  shopPaymentInput.disabled = !canTrade;
+  renderShopPaymentOptions(selectedFleet, canTrade);
   shopTradeBtn.disabled = !canTrade;
 }
 
-function parseShopPayment(): ResourceStore {
-  const parsed = JSON.parse(shopPaymentInput.value) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Payment must be a JSON object");
+function renderShopPaymentOptions(fleet: Fleet, enabled: boolean): void {
+  const preserveDraft = shopPaymentDraftFleetId === fleet.id;
+  const previousAmounts = new Map<string, string>();
+  for (const input of shopPaymentListEl.querySelectorAll<HTMLInputElement>(
+    "input[data-resource-key]",
+  )) {
+    const key = input.dataset.resourceKey;
+    if (key && preserveDraft) previousAmounts.set(key, input.value);
   }
+  shopPaymentListEl.replaceChildren();
+  shopPaymentDraftFleetId = fleet.id;
+
+  let hasResources = false;
+  for (const key of RESOURCE_KEYS) {
+    const available = Math.floor(fleet.inventory[key] ?? 0);
+    if (available <= 0) continue;
+    hasResources = true;
+    const row = document.createElement("label");
+    row.className = "shop-payment-row";
+    const name = document.createElement("span");
+    name.textContent = key + ": " + available;
+    const amount = document.createElement("input");
+    amount.type = "number";
+    amount.min = "0";
+    amount.max = String(available);
+    amount.step = "1";
+    amount.dataset.resourceKey = key;
+    amount.disabled = !enabled;
+    const previous = Math.trunc(Number(previousAmounts.get(key) ?? "0"));
+    amount.value = String(
+      Number.isFinite(previous) ? Math.max(0, Math.min(previous, available)) : 0,
+    );
+    row.append(name, amount);
+    shopPaymentListEl.append(row);
+  }
+  if (!hasResources) shopPaymentListEl.textContent = "No resources available for payment";
+}
+
+function selectedShopPayment(): ResourceStore {
   const payment: ResourceStore = {};
-  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+  for (const input of shopPaymentListEl.querySelectorAll<HTMLInputElement>(
+    "input[data-resource-key]",
+  )) {
+    const key = input.dataset.resourceKey;
+    const value = Number(input.value);
     if (
-      !RESOURCE_KEYS.includes(key as ResourceKey)
-      || typeof value !== "number"
+      !key
+      || !RESOURCE_KEYS.includes(key as ResourceKey)
+      || !Number.isFinite(value)
       || !Number.isInteger(value)
-      || value <= 0
+      || value < 0
+      || value > Number(input.max)
     ) {
       throw new Error("Payment contains an invalid resource or amount");
     }
+    if (value === 0) continue;
     payment[key as ResourceKey] = value;
   }
-  if (Object.keys(payment).length === 0) throw new Error("Payment is empty");
+  if (Object.keys(payment).length === 0) {
+    throw new Error("Select at least one payment resource");
+  }
   return payment;
 }
 
@@ -955,7 +1006,7 @@ function submitShopTrade(): void {
           resourceKey: shopReceiveResourceSelect.value as ResourceKey,
           amount,
         },
-        payment: parseShopPayment(),
+        payment: selectedShopPayment(),
       },
     });
   } catch (error) {

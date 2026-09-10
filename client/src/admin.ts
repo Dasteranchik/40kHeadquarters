@@ -179,8 +179,7 @@ function setStatus(message: string): void {
 }
 
 function appendEvent(message: string): void {
-  const line = `[${new Date().toLocaleTimeString()}] ${message}`;
-  eventsLog.textContent = `${line}\n${eventsLog.textContent}`.trim();
+  eventsLog.prepend(document.createTextNode(`[${new Date().toLocaleTimeString()}] ${message}\n`));
 }
 
 function getAuthHeaders(): Record<string, string> {
