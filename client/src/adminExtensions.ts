@@ -24,7 +24,6 @@ function byId<T extends HTMLElement>(id: string): T {
   return element as T;
 }
 
-const authLine = byId<HTMLParagraphElement>("authLine");
 const extensionPanels = Array.from(
   document.querySelectorAll<HTMLElement>(".admin-extension"),
 );
@@ -63,6 +62,10 @@ const anomalyStealth = byId<HTMLInputElement>("extAnomalyStealth");
 const addAnomalyBtn = byId<HTMLButtonElement>("extAddAnomalyBtn");
 const anomaliesList = byId<HTMLPreElement>("extAnomaliesList");
 const shipwrecksList = byId<HTMLPreElement>("extShipwrecksList");
+const shipwreckQ = byId<HTMLInputElement>("extShipwreckQ");
+const shipwreckR = byId<HTMLInputElement>("extShipwreckR");
+const shipwreckSourceUnits = byId<HTMLInputElement>("extShipwreckSourceUnits");
+const addShipwreckBtn = byId<HTMLButtonElement>("extAddShipwreckBtn");
 const timerLine = byId<HTMLParagraphElement>("extTimerLine");
 const endTurnBtn = byId<HTMLButtonElement>("extEndTurnBtn");
 const reloadBtn = byId<HTMLButtonElement>("extReloadBtn");
@@ -311,7 +314,7 @@ function refreshTimer(): void {
 }
 
 async function loadAll(): Promise<void> {
-  if (loading || !authLine.textContent?.startsWith("Logged as")) return;
+  if (loading || document.body.dataset.adminAuthenticated !== "true") return;
   loading = true;
   try {
     const [stateResponse, auditResponse, snapshotResponse] = await Promise.all([
@@ -407,6 +410,28 @@ addAnomalyBtn.addEventListener("click", () => {
     }),
   });
 });
+addShipwreckBtn.addEventListener("click", () => {
+  try {
+    const sourceUnitIds = shipwreckSourceUnits.value
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map(Number);
+    if (sourceUnitIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+      throw new Error("Source unit IDs must be positive integers");
+    }
+    void mutate("/api/admin/shipwrecks", {
+      method: "POST",
+      body: JSON.stringify({
+        q: Math.trunc(Number(shipwreckQ.value)),
+        r: Math.trunc(Number(shipwreckR.value)),
+        sourceUnitIds: [...new Set(sourceUnitIds)],
+      }),
+    });
+  } catch (error) {
+    statusLine.textContent = (error as Error).message;
+  }
+});
 endTurnBtn.addEventListener("click", () => {
   if (!window.confirm("Force canonical turn resolution now?")) return;
   void mutate("/api/admin/end-turn", { method: "POST" });
@@ -414,13 +439,16 @@ endTurnBtn.addEventListener("click", () => {
 reloadBtn.addEventListener("click", () => void loadAll());
 
 function syncVisibility(): void {
-  const visible = Boolean(authLine.textContent?.startsWith("Logged as"));
+  const visible = document.body.dataset.adminAuthenticated === "true";
   for (const panel of extensionPanels) panel.classList.toggle("hidden", !visible);
   if (visible) void loadAll();
 }
 
 renderCapabilityInputs();
 resetStationForm();
-new MutationObserver(syncVisibility).observe(authLine, { childList: true, subtree: true });
+new MutationObserver(syncVisibility).observe(document.body, {
+  attributes: true,
+  attributeFilter: ["data-admin-authenticated"],
+});
 syncVisibility();
 window.setInterval(refreshTimer, 1000);

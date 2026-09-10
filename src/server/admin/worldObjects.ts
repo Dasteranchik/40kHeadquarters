@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "http";
 
 import {
+  createEmptyItemInventory,
   isKnowledgeCode,
   type ArtifactEffect,
   type ArtifactInstance,
@@ -15,6 +16,7 @@ import { isUnitTag } from "../../unitDomain";
 import {
   isStationCapability,
   type Anomaly,
+  type Shipwreck,
   type Station,
 } from "../../worldObjectDomain";
 import type { Session } from "../contracts";
@@ -28,6 +30,7 @@ export interface WorldObjectAdminHandlers {
   handleUpdateStation: (req: IncomingMessage, res: ServerResponse, id: string) => Promise<void>;
   handleDeleteStation: (req: IncomingMessage, res: ServerResponse, id: string) => void;
   handleListShipwrecks: (req: IncomingMessage, res: ServerResponse) => void;
+  handleAddShipwreck: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleListAnomalies: (req: IncomingMessage, res: ServerResponse) => void;
   handleAddAnomaly: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleUpdateShop: (
@@ -72,6 +75,13 @@ function parseCapabilities(value: unknown): Station["capabilities"] | null {
 
 function parseTags(value: unknown): Station["tags"] | null {
   if (!Array.isArray(value) || value.some((entry) => !isUnitTag(entry))) return null;
+  return [...new Set(value)];
+}
+
+function parseSourceUnitIds(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.some((entry) => !Number.isInteger(entry) || entry <= 0)) {
+    return null;
+  }
   return [...new Set(value)];
 }
 
@@ -292,6 +302,35 @@ export function createWorldObjectAdminHandlers(
     writeJson(res, 200, { shipwrecks: Object.values(deps.state.shipwrecks) });
   }
 
+  async function handleAddShipwreck(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const session = requirePlanningAdmin(req, res, deps);
+    if (!session) return;
+    const body = await readJsonBody<Record<string, unknown>>(req);
+    const sourceUnitIds = parseSourceUnitIds(body?.sourceUnitIds ?? []);
+    if (!body || !isPositionValid(deps, body.q, body.r) || !sourceUnitIds) {
+      writeJson(res, 400, { error: "Invalid shipwreck payload" });
+      return;
+    }
+    const position = { q: Math.trunc(Number(body.q)), r: Math.trunc(Number(body.r)) };
+    if (getTileAt(deps.state, position)?.terrainType === "OBSTACLE") {
+      writeJson(res, 400, { error: "Cannot place shipwreck on obstacle tile" });
+      return;
+    }
+    const shipwreck: Shipwreck = {
+      id: deps.state.nextIds.shipwreck++,
+      position,
+      inventory: createEmptyItemInventory(),
+      createdOnTurn: deps.state.turnNumber,
+      sourceUnitIds,
+    };
+    deps.state.shipwrecks[shipwreck.id] = shipwreck;
+    appendAudit(deps.state, {
+      actor: { kind: "ADMIN", account: session.username }, operation: "CREATE_SHIPWRECK",
+      entityType: "SHIPWRECK", entityId: shipwreck.id, after: shipwreck,
+    });
+    deps.persistDatabase(); deps.broadcastState(); writeJson(res, 201, { shipwreck });
+  }
+
   function handleListAnomalies(req: IncomingMessage, res: ServerResponse): void {
     if (!deps.requireAdmin(req, res)) return;
     writeJson(res, 200, { anomalies: Object.values(deps.state.anomalies) });
@@ -446,7 +485,7 @@ export function createWorldObjectAdminHandlers(
 
   return {
     handleListStations, handleAddStation, handleUpdateStation, handleDeleteStation,
-    handleListShipwrecks, handleListAnomalies, handleAddAnomaly, handleUpdateShop,
+    handleListShipwrecks, handleAddShipwreck, handleListAnomalies, handleAddAnomaly, handleUpdateShop,
     handleAddItem, handleDeleteArtifact, handleListAudit,
     handleListTurnSnapshots, handleRollbackTurnSnapshot,
   };

@@ -53,6 +53,7 @@ export interface ApiRouteHandlers {
   handleUpdateStation: (req: IncomingMessage, res: ServerResponse, id: string) => Promise<void>;
   handleDeleteStation: (req: IncomingMessage, res: ServerResponse, id: string) => void;
   handleListShipwrecks: (req: IncomingMessage, res: ServerResponse) => void;
+  handleAddShipwreck: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleListAnomalies: (req: IncomingMessage, res: ServerResponse) => void;
   handleAddAnomaly: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleUpdateShop: (
@@ -147,6 +148,9 @@ export async function handleApiRequest(
   }
   if (path === "/api/admin/shipwrecks" && method === "GET") {
     handlers.handleListShipwrecks(req, res); return;
+  }
+  if (path === "/api/admin/shipwrecks" && method === "POST") {
+    await handlers.handleAddShipwreck(req, res); return;
   }
   if (path === "/api/admin/anomalies" && method === "GET") {
     handlers.handleListAnomalies(req, res); return;

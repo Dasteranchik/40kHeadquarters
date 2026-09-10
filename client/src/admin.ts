@@ -208,6 +208,7 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 function setSession(session: SessionInfo | null): void {
   runtime.session = session;
+  document.body.dataset.adminAuthenticated = String(session?.role === "admin");
   if (session) {
     authLine.textContent = `Logged as ${session.username} (${session.role})`;
     setPanelsVisible(true);
