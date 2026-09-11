@@ -28,6 +28,7 @@ export interface RenderMapSceneParams {
   plannedPath: HexCoord[];
   plannedMovePathsByFleetId: Record<string, HexCoord[]>;
   playerId: string | null;
+  hasFullMapVisibility: boolean;
   textResolution: number;
 }
 
@@ -148,6 +149,7 @@ export function renderMapScene(params: RenderMapSceneParams): void {
     plannedPath,
     plannedMovePathsByFleetId,
     playerId,
+    hasFullMapVisibility,
     textResolution,
   } = params;
 
@@ -157,7 +159,7 @@ export function renderMapScene(params: RenderMapSceneParams): void {
   drawFleets(state, layers, selectedFleet, labelSlots, textResolution);
   drawPlannedPaths(state, layers, plannedMovePathsByFleetId, selectedFleet?.id ?? null);
   drawDraftPath(layers, selectedFleet, plannedPath);
-  drawFog(state, layers, playerId);
+  drawFog(state, layers, playerId, hasFullMapVisibility);
   drawUiMarkers(state, layers, textResolution);
 }
 
@@ -492,10 +494,11 @@ function drawFog(
   state: GameState,
   layers: MapLayers,
   playerId: string | null,
+  hasFullMapVisibility: boolean,
 ): void {
   clearLayer(layers.fogLayer);
 
-  if (!playerId) {
+  if (hasFullMapVisibility || !playerId) {
     return;
   }
 

@@ -363,6 +363,7 @@ function renderScene(): void {
     plannedPath: runtime.plannedPath,
     plannedMovePathsByFleetId,
     playerId: activePlayerId(runtime),
+    hasFullMapVisibility: isAdmin(runtime),
     textResolution: mapCamera.mapTextResolution(),
   });
 }
