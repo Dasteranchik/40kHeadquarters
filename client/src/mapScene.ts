@@ -4,10 +4,12 @@ import { coordKey, hexDistance } from "../../src/hex";
 import type { Fleet, GameState, HexCoord, TerrainType, Tile } from "../../src/types";
 import { defaultPlayerColor, playerColorToNumber } from "../../src/utils/playerColor";
 import { axialToPixel, HEX_DIRECTIONS, hexPolygon, pixelToAxial } from "./hexMath";
+import { drawTacticalObjectOrbits } from "./tacticalObjects";
 
 export const HEX_SIZE = 30;
 export const MAP_OFFSET = { x: 70, y: 60 };
 const HEX_LAYOUT = { hexSize: HEX_SIZE, offset: MAP_OFFSET };
+const TACTICAL_RADIUS = 0;
 
 type Nullable<T> = T | null;
 type TileLabelSlots = Map<string, number>;
@@ -32,6 +34,7 @@ export interface RenderMapSceneParams {
   hasFullMapVisibility: boolean;
   navigatorLayerEnabled: boolean;
   tacticalCenter: HexCoord | null;
+  strategicSelectedHex: HexCoord | null;
   textResolution: number;
   hexScale: number;
 }
@@ -157,6 +160,7 @@ export function renderMapScene(params: RenderMapSceneParams): void {
     hasFullMapVisibility,
     navigatorLayerEnabled,
     tacticalCenter,
+    strategicSelectedHex,
     textResolution,
     hexScale,
   } = params;
@@ -164,7 +168,7 @@ export function renderMapScene(params: RenderMapSceneParams): void {
   const renderedState = tacticalCenter ? filterStateToTacticalArea(state, tacticalCenter) : state;
   applyMapLayerScale(layers, hexScale);
   const labelSlots: TileLabelSlots = new Map();
-  drawTerrain(renderedState, layers, tacticalCenter);
+  drawTerrain(renderedState, layers, tacticalCenter, strategicSelectedHex);
   drawWarpLayer(renderedState, layers, navigatorLayerEnabled, textResolution);
   if (navigatorLayerEnabled) {
     clearLayer(layers.planetLayer);
@@ -174,16 +178,27 @@ export function renderMapScene(params: RenderMapSceneParams): void {
     drawFog(renderedState, layers, playerId, hasFullMapVisibility, state);
     return;
   }
-  drawPlanets(renderedState, layers, labelSlots, textResolution);
-  drawFleets(renderedState, layers, selectedFleet, labelSlots, textResolution);
+  if (tacticalCenter) {
+    drawTacticalObjectOrbits({
+      state: renderedState,
+      layers,
+      selectedFleet,
+      hexScale,
+      textResolution,
+      toPixel,
+    });
+  } else {
+    drawPlanets(renderedState, layers, labelSlots, textResolution);
+    drawFleets(renderedState, layers, selectedFleet, labelSlots, textResolution);
+  }
   drawPlannedPaths(renderedState, layers, plannedMovePathsByFleetId, selectedFleet?.id ?? null);
-  drawDraftPath(layers, tacticalCenter && selectedFleet && hexDistance(tacticalCenter, selectedFleet.position) > 3 ? null : selectedFleet, plannedPath);
+  drawDraftPath(layers, tacticalCenter && selectedFleet && hexDistance(tacticalCenter, selectedFleet.position) > TACTICAL_RADIUS ? null : selectedFleet, plannedPath);
   drawFog(renderedState, layers, playerId, hasFullMapVisibility, state);
   drawUiMarkers(renderedState, layers, textResolution);
 }
 
 function filterStateToTacticalArea(state: GameState, center: HexCoord): GameState {
-  const isInArea = (position: HexCoord): boolean => hexDistance(center, position) <= 3;
+  const isInArea = (position: HexCoord): boolean => hexDistance(center, position) <= TACTICAL_RADIUS;
   return {
     ...state,
     map: { ...state.map, tiles: state.map.tiles.filter(isInArea) },
@@ -261,12 +276,12 @@ function mapFleetsByTile(state: GameState): Map<string, Fleet[]> {
   return byTile;
 }
 
-function drawTerrain(state: GameState, layers: MapLayers, tacticalCenter: HexCoord | null): void {
+function drawTerrain(state: GameState, layers: MapLayers, tacticalCenter: HexCoord | null, strategicSelectedHex: HexCoord | null): void {
   clearLayer(layers.terrainLayer);
 
   for (const tile of state.map.tiles) {
     const center = toPixel(tile);
-    const shape = hexPolygon(center, HEX_SIZE - 1);
+    const shape = hexPolygon(center, tacticalCenter ? HEX_SIZE : HEX_SIZE - 1);
 
     const graphics = new Graphics();
     graphics.lineStyle(1, 0x3a5270, 0.7);
@@ -276,11 +291,12 @@ function drawTerrain(state: GameState, layers: MapLayers, tacticalCenter: HexCoo
 
     layers.terrainLayer.addChild(graphics);
   }
-  if (!tacticalCenter) return;
+  const highlightedHex = tacticalCenter ? null : strategicSelectedHex;
+  if (!highlightedHex) return;
 
   const outline = new Graphics();
   outline.lineStyle(3, 0xfacc15, 1);
-  outline.drawPolygon(hexPolygon(toPixel(tacticalCenter), HEX_SIZE - 0.5));
+  outline.drawPolygon(hexPolygon(toPixel(highlightedHex), HEX_SIZE - 0.5));
   layers.terrainLayer.addChild(outline);
 
 }

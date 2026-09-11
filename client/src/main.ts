@@ -80,7 +80,7 @@ type Nullable<T> = T | null;
 const DEFAULT_MAP_ZOOM = 1;
 const MIN_MAP_ZOOM = 0.6;
 const MAX_MAP_ZOOM = 2.5;
-const TACTICAL_HEX_SCALE = 2;
+const TACTICAL_HEX_SCALE = 10;
 const BUTTON_ZOOM_STEP = 0.15;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 const PAN_DRAG_THRESHOLD_PX = 5;
@@ -227,6 +227,7 @@ const tacticalMapBtn = document.getElementById("tacticalMapBtn") as HTMLButtonEl
 const strategicMapBtn = document.getElementById("strategicMapBtn") as HTMLButtonElement;
 const navigatorMapBtn = document.getElementById("navigatorMapBtn") as HTMLButtonElement;
 const resetFocusBtn = document.getElementById("resetFocusBtn") as HTMLButtonElement;
+const resetRouteBtn = document.getElementById("resetRouteBtn") as HTMLButtonElement;
 const hudElements: HudElements = {
   userValueEl,
   authStateEl,
@@ -303,6 +304,7 @@ interface RuntimeState {
   strategicMapZoom: number;
   mapMode: "STRATEGIC" | "TACTICAL";
   tacticalCenter: HexCoord | null;
+  selectedStrategicHex: HexCoord | null;
   navigatorLayerEnabled: boolean;
   focusedUnitId: number | null;
 }
@@ -320,6 +322,7 @@ const runtime: RuntimeState = {
   strategicMapZoom: DEFAULT_MAP_ZOOM,
   mapMode: "STRATEGIC",
   tacticalCenter: null,
+  selectedStrategicHex: null,
   navigatorLayerEnabled: false,
   focusedUnitId: null,
 };
@@ -396,6 +399,7 @@ function renderScene(): void {
     layers: mapLayers,
     navigatorLayerEnabled: runtime.navigatorLayerEnabled,
     tacticalCenter: runtime.mapMode === "TACTICAL" ? runtime.tacticalCenter : null,
+    strategicSelectedHex: runtime.mapMode === "STRATEGIC" && !selectedFleet ? runtime.selectedStrategicHex : null,
     selectedFleet,
     plannedPath: runtime.plannedPath,
     plannedMovePathsByFleetId,
@@ -1499,6 +1503,7 @@ function refreshHud(): void {
     hudElements.pathLine.textContent = "Planned path: 0 steps";
 
     hudElements.clearPathBtn.disabled = true;
+    resetRouteBtn.disabled = true;
     fuelToMovementBtn.disabled = true;
     hudElements.setAttackBtn.disabled = true;
     hudElements.setDefenseBtn.disabled = true;
@@ -1533,11 +1538,15 @@ function refreshHud(): void {
     navigatorMapBtn.classList.remove("is-active");
   }
   navigatorMapBtn.disabled = !hasNavigatorData;
+  navigatorMapBtn.classList.toggle("is-active", runtime.navigatorLayerEnabled);
+  tacticalMapBtn.classList.toggle("is-active", runtime.mapMode === "TACTICAL");
+  strategicMapBtn.classList.toggle("is-active", runtime.mapMode === "STRATEGIC");
   tacticalMapBtn.disabled = runtime.mapMode === "TACTICAL";
   strategicMapBtn.disabled = runtime.mapMode === "STRATEGIC";
-  resetFocusBtn.disabled = runtime.focusedUnitId === null;
+  resetFocusBtn.disabled = runtime.focusedUnitId === null && runtime.selectedFleetId === null;
 
   const selected = getSelectedFleet(runtime, state);
+  resetRouteBtn.disabled = !playerId || selected === null;
   refreshArmyTransportControls(state, selected);
   const selectedStance = selected ? effectiveFleetStance(runtime, selected) : null;
   if (selected) {
@@ -1732,9 +1741,11 @@ function handleCanvasPrimaryClick(
   }
 
   if (runtime.mapMode === "TACTICAL") {
-    runtime.tacticalCenter = { ...clicked };
-    fitTacticalMap(clicked);
-    renderScene();
+    const center = runtime.tacticalCenter;
+    if (!center || clicked.q !== center.q || clicked.r !== center.r) {
+      hexContextMenu.hide();
+      return;
+    }
   }
   const fleetsHere = fleetsAtCoord(state, clicked);
   const ownFleetsHere = ownFleetsAtCoord(state, clicked);
@@ -1801,6 +1812,7 @@ function handleCanvasPrimaryClick(
   const ownFleet = ownFleetAtCoord(state, clicked);
   if (ownFleet) {
     runtime.selectedFleetId = ownFleet.id;
+    runtime.selectedStrategicHex = null;
     runtime.plannedPath = [];
     runtime.focusedUnitId = ownFleet.id;
     appendEvent(`Selected ${ownFleet.id}`);
@@ -1810,6 +1822,10 @@ function handleCanvasPrimaryClick(
   }
 
   if (!selected) {
+    if (runtime.mapMode === "STRATEGIC") {
+      runtime.selectedStrategicHex = { ...clicked };
+      renderScene();
+    }
     if (fleetsHere.length > 0) {
       appendEvent(`Tile ${coordKey(clicked)} has enemy fleets`);
     }
@@ -2024,9 +2040,15 @@ navigatorMapBtn.addEventListener("click", () => {
 });
 resetFocusBtn.addEventListener("click", () => {
   runtime.focusedUnitId = null;
+  runtime.selectedFleetId = null;
+  runtime.plannedPath = [];
 
-  appendEvent("Фокус сброшен; выбранный Юнит и его приказы сохранены");
+  appendEvent("Фокус и выбор Юнита сброшены; отданные приказы сохранены");
   refreshHud();
+  renderScene();
+});
+resetRouteBtn.addEventListener("click", () => {
+  orderActions.clearPath();
 });
 transferModeSelect.addEventListener("change", () => {
   refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);

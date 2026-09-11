@@ -294,6 +294,10 @@ button.is-active.ghost {
   background: linear-gradient(180deg, #274d3b 0%, #183324 100%);
 }
 
+button.is-active:disabled {
+  opacity: 1;
+}
+
 button.ally-vision-on,
 button.ally-vision-on.ghost {
   border-color: #55dc91;
@@ -388,6 +392,8 @@ button.ally-vision-off.ghost {
   z-index: 4;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  max-width: calc(100% - 28px);
   gap: 6px;
   padding: 6px;
   border: 1px solid #42658b;
