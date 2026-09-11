@@ -82,7 +82,9 @@ export interface AddFleetRequest {
   combatPower?: number;
   health?: number;
   influence?: number;
-  actionPoints?: number;
+  movementPoints?: number;
+  maxMovementPoints?: number;
+  navigatorRange?: number;
   visionRange?: number;
   capacity?: number;
   stance?: FleetStance;
@@ -100,6 +102,7 @@ export interface AddArmyRequest {
   health?: number;
   influence?: number;
   visionRange?: number;
+  navigatorRange?: number;
   stance?: FleetStance;
 }
 
@@ -107,6 +110,7 @@ export interface AddFactionRequest {
   code: string;
   name: string;
   description?: string;
+  isNavigator?: boolean;
 }
 
 export interface UpdatePlayerRequest {
@@ -149,7 +153,9 @@ export interface UpdateFleetRequest {
   combatPower?: number;
   health?: number;
   influence?: number;
-  actionPoints?: number;
+  movementPoints?: number;
+  maxMovementPoints?: number;
+  navigatorRange?: number;
   visionRange?: number;
   capacity?: number;
   stance?: FleetStance;
@@ -161,6 +167,7 @@ export interface UpdateFleetRequest {
 export interface UpdateFactionRequest {
   name?: string;
   description?: string;
+  isNavigator?: boolean;
 }
 
 export type RelationType = "WAR" | "ALLIANCE";

@@ -16,11 +16,13 @@ import { detectObjectsForFleetAtCurrentHex } from "../systems/detectionSystem";
 import type { DetectionResult } from "../detectionDomain";
 import { applyStationGeneration } from "../systems/stationSystem";
 
-const DEFAULT_ACTION_POINTS = 3;
-
-function resetActionPoints(state: GameState): void {
+function restoreMovementPoints(state: GameState): void {
   for (const fleet of Object.values(state.fleets)) {
-    fleet.actionPoints = DEFAULT_ACTION_POINTS;
+    if (fleet.domain !== "SPACE") continue;
+    fleet.movementPoints = Math.min(
+      fleet.maxMovementPoints,
+      Math.max(fleet.movementPoints, state.systemSettings.baseFleetMovementPoints),
+    );
   }
 }
 
@@ -79,7 +81,7 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
 
   state.phase = "UPDATE";
   state.turnNumber += 1;
-  resetActionPoints(state);
+  restoreMovementPoints(state);
   state.phase = "PLANNING";
 
   return {

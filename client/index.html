@@ -56,6 +56,12 @@
             <div class="actions-row">
               <button id="clearPathBtn" class="ghost">Clear Path</button>
             </div>
+            <label for="fuelToMovementAmount">Топливо в Очки движения</label>
+            <div class="actions-row">
+              <input id="fuelToMovementAmount" type="number" min="1" step="1" value="1" />
+              <button id="fuelToMovementBtn" class="ghost">Использовать топливо</button>
+            </div>
+
             <div class="actions-row">
               <button id="setAttackBtn">Set Attack</button>
               <button id="setDefenseBtn" class="ghost">Set Defense</button>
@@ -245,6 +251,10 @@
             <span id="mapZoomValue" class="map-zoom-value">100%</span>
             <button id="mapZoomInBtn" type="button" title="Zoom in">+</button>
             <button id="mapZoomResetBtn" class="ghost" type="button">Reset</button>
+            <button id="tacticalMapBtn" class="ghost" type="button">Тактическая карта</button>
+            <button id="strategicMapBtn" class="ghost" type="button">Стратегическая карта</button>
+            <button id="navigatorMapBtn" class="ghost" type="button">Карта Навигатора</button>
+            <button id="resetFocusBtn" class="ghost" type="button">Сбросить фокус</button>
           </div>
           <div id="relationsWindow" class="relations-window">
             <h2>Relations</h2>

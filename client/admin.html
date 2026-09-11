@@ -95,6 +95,10 @@
             <div>
               <label for="addFactionDescription">Description</label>
               <input id="addFactionDescription" placeholder="description (optional)" />
+            <div>
+              <label for="addFactionNavigator">Навигаторы</label>
+              <input id="addFactionNavigator" type="checkbox" />
+            </div>
             </div>
           </div>
           <button id="addFactionBtn">Add Faction</button>
@@ -207,8 +211,16 @@
               <input id="addFleetInfluence" type="number" placeholder="influence" value="5" />
             </div>
             <div>
-              <label for="addFleetAp">Action Points</label>
-              <input id="addFleetAp" type="number" placeholder="actionPoints" value="3" />
+              <label for="addFleetAp">Очки движения</label>
+              <input id="addFleetAp" type="number" min="0" placeholder="movementPoints" value="1" />
+            <div>
+              <label for="addFleetMaxMovement">Максимальные ОД</label>
+              <input id="addFleetMaxMovement" type="number" min="1" value="3" />
+            </div>
+            <div>
+              <label for="addFleetNavigatorRange">Дальность Навигатора</label>
+              <input id="addFleetNavigatorRange" type="number" min="0" value="0" />
+            </div>
             </div>
             <div>
               <label for="addFleetVision">Vision Range</label>
@@ -386,6 +398,16 @@
         </section>
 
         <section class="panel hidden admin-extension">
+          <h2>Системные параметры</h2>
+          <label for="extBaseFleetMovementPoints">Базовые Очки движения Флота</label>
+          <input id="extBaseFleetMovementPoints" type="number" min="1" step="1" value="1" />
+          <div class="row">
+            <button id="extSaveSystemSettingsBtn">Сохранить</button>
+            <button id="extRandomizeWarpBtn" class="ghost">Сгенерировать ШВВ</button>
+          </div>
+        </section>
+
+        <section class="panel hidden admin-extension">
           <h2>Artifact &amp; Knowledge Placement</h2>
           <label for="extItemTarget">Target inventory JSON</label>
           <input id="extItemTarget" value='{"kind":"FLEET","fleetId":1}' />
@@ -402,6 +424,11 @@
           <input id="extItemUseEffect" value="" placeholder='{"effectCode":"...","params":{}}' />
           <label for="extItemConsumable">Consumable Artifact</label>
           <input id="extItemConsumable" type="checkbox" />
+          <label for="extNavigatorRange">Дальность артефакта Навигатор</label>
+          <input id="extNavigatorRange" type="number" min="1" step="1" value="3" />
+          <label for="extNavigatorOrigin">Первоначальный игрок-Навигатор</label>
+          <select id="extNavigatorOrigin"></select>
+
           <button id="extAddItemBtn">Place Item</button>
           <div id="extArtifactsList" class="list"></div>
         </section>

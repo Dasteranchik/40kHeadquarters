@@ -40,6 +40,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       writeJson(res, 404, { error: "Owner player not found" });
       return;
     }
+
     if (body.stance !== undefined && !isFleetStance(body.stance)) {
       writeJson(res, 400, { error: "Stance must be ATTACK or DEFENSE" });
       return;
@@ -88,7 +89,9 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       combatPower: Math.max(0, Math.trunc(body.combatPower ?? 10)),
       health: Math.max(1, Math.trunc(body.health ?? 100)),
       influence: Math.max(0, Math.trunc(body.influence ?? 5)),
-      actionPoints: 0,
+      movementPoints: 0,
+      maxMovementPoints: 0,
+      navigatorRange: Math.max(0, Math.trunc(body.navigatorRange ?? 0)),
       visionRange: Math.max(0, Math.trunc(body.visionRange ?? 1)),
       shareVisionWithAllies: false,
       capacity: 0,
@@ -130,6 +133,25 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       return;
     }
 
+    const baseMovementPoints = deps.state.systemSettings.baseFleetMovementPoints;
+    const requestedMaxMovementPoints = body.maxMovementPoints ?? baseMovementPoints;
+    const requestedMovementPoints = body.movementPoints ?? baseMovementPoints;
+    const requestedNavigatorRange = body.navigatorRange ?? 0;
+    if (
+      !Number.isInteger(requestedMaxMovementPoints)
+      || requestedMaxMovementPoints < baseMovementPoints
+      || !Number.isInteger(requestedMovementPoints)
+      || requestedMovementPoints < 0
+      || requestedMovementPoints > requestedMaxMovementPoints
+      || !Number.isInteger(requestedNavigatorRange)
+      || requestedNavigatorRange < 0
+    ) {
+      writeJson(res, 400, {
+        error: "movementPoints/maxMovementPoints/navigatorRange violate Fleet invariants",
+      });
+      return;
+    }
+
     if (body.stance !== undefined && !isFleetStance(body.stance)) {
       writeJson(res, 400, { error: "Stance must be ATTACK or DEFENSE" });
       return;
@@ -163,6 +185,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       return;
     }
 
+    const maxMovementPoints = requestedMaxMovementPoints;
+    const movementPoints = requestedMovementPoints;
     const fleet: Fleet = {
       id: deps.state.nextIds.unit++,
       ownerPlayerId: body.ownerPlayerId,
@@ -170,7 +194,9 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       combatPower: Math.max(0, Math.trunc(body.combatPower ?? 10)),
       health: Math.max(1, Math.trunc(body.health ?? 100)),
       influence: Math.max(0, Math.trunc(body.influence ?? 5)),
-      actionPoints: Math.max(0, Math.trunc(body.actionPoints ?? 3)),
+      movementPoints,
+      maxMovementPoints,
+      navigatorRange: requestedNavigatorRange,
       visionRange: Math.max(0, Math.trunc(body.visionRange ?? 2)),
       shareVisionWithAllies: false,
       capacity: Math.max(0, Math.trunc(body.capacity ?? 10)),
@@ -272,7 +298,9 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       [body.combatPower, "combatPower"],
       [body.health, "health"],
       [body.influence, "influence"],
-      [body.actionPoints, "actionPoints"],
+      [body.movementPoints, "movementPoints"],
+      [body.maxMovementPoints, "maxMovementPoints"],
+      [body.navigatorRange, "navigatorRange"],
       [body.visionRange, "visionRange"],
       [body.capacity, "capacity"],
     ];
@@ -339,8 +367,25 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       fleet.influence = Math.max(0, Math.trunc(body.influence));
     }
 
-    if (body.actionPoints !== undefined) {
-      fleet.actionPoints = Math.max(0, Math.trunc(body.actionPoints));
+    const nextMaxMovementPoints = body.maxMovementPoints === undefined
+      ? fleet.maxMovementPoints
+      : Math.max(0, Math.trunc(body.maxMovementPoints));
+    const nextMovementPoints = body.movementPoints === undefined
+      ? fleet.movementPoints
+      : Math.max(0, Math.trunc(body.movementPoints));
+    const nextDomain = body.domain ?? fleet.domain;
+    if (
+      nextDomain === "SPACE"
+      && (nextMaxMovementPoints < deps.state.systemSettings.baseFleetMovementPoints
+        || nextMovementPoints > nextMaxMovementPoints)
+    ) {
+      writeJson(res, 400, { error: "Invalid movement point limits" });
+      return;
+    }
+    fleet.maxMovementPoints = nextDomain === "GROUND" ? 0 : nextMaxMovementPoints;
+    fleet.movementPoints = nextDomain === "GROUND" ? 0 : nextMovementPoints;
+    if (body.navigatorRange !== undefined) {
+      fleet.navigatorRange = Math.max(0, Math.trunc(body.navigatorRange));
     }
 
     if (body.visionRange !== undefined) {

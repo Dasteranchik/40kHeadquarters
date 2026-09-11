@@ -53,6 +53,11 @@ const itemCode = byId<HTMLInputElement>("extItemCode");
 const itemName = byId<HTMLInputElement>("extItemName");
 const itemUseEffect = byId<HTMLInputElement>("extItemUseEffect");
 const itemConsumable = byId<HTMLInputElement>("extItemConsumable");
+const navigatorRange = byId<HTMLInputElement>("extNavigatorRange");
+const navigatorOrigin = byId<HTMLSelectElement>("extNavigatorOrigin");
+const baseFleetMovementPoints = byId<HTMLInputElement>("extBaseFleetMovementPoints");
+const saveSystemSettingsBtn = byId<HTMLButtonElement>("extSaveSystemSettingsBtn");
+const randomizeWarpBtn = byId<HTMLButtonElement>("extRandomizeWarpBtn");
 const addItemBtn = byId<HTMLButtonElement>("extAddItemBtn");
 const artifactsList = byId<HTMLDivElement>("extArtifactsList");
 const anomalyQ = byId<HTMLInputElement>("extAnomalyQ");
@@ -278,6 +283,23 @@ function renderWorldObjects(): void {
     artifactsList.append(row);
   }
 }
+function renderNavigatorOrigins(): void {
+  const keep = navigatorOrigin.value;
+  navigatorOrigin.innerHTML = "";
+  if (!state) return;
+  for (const player of Object.values(state.players).sort((a, b) => a.id - b.id)) {
+    const faction = state.factions[player.factionId];
+    if (!faction?.isNavigator) continue;
+    const option = document.createElement("option");
+    option.value = String(player.id);
+    option.textContent = player.name + " (#" + player.id + ")";
+    navigatorOrigin.append(option);
+  }
+  if (Array.from(navigatorOrigin.options).some((option) => option.value === keep)) {
+    navigatorOrigin.value = keep;
+  }
+}
+
 
 function renderSnapshots(): void {
   snapshotsList.innerHTML = "";
@@ -323,6 +345,8 @@ async function loadAll(): Promise<void> {
       apiRequest<{ snapshots: SnapshotMetadata[] }>("/api/admin/turn-snapshots"),
     ]);
     state = stateResponse.state;
+    baseFleetMovementPoints.value = String(state.systemSettings.baseFleetMovementPoints);
+    renderNavigatorOrigins();
     snapshots = snapshotResponse.snapshots;
     auditList.textContent = JSON.stringify(auditResponse.audit.slice(-200).reverse(), null, 2);
     renderStations();
@@ -382,14 +406,21 @@ saveShopBtn.addEventListener("click", () => {
 addItemBtn.addEventListener("click", () => {
   try {
     const target = parseJson(itemTarget.value);
+    const definitionCode = itemCode.value.trim().toUpperCase();
+    const isNavigator = itemKind.value === "ARTIFACT" && definitionCode === "NAVIGATOR";
+    if (isNavigator && !navigatorOrigin.value) throw new Error("Выберите первоначального игрока-Навигатора");
     const payload = itemKind.value === "KNOWLEDGE"
       ? { kind: "KNOWLEDGE", code: itemCode.value.trim(), target }
       : {
           kind: "ARTIFACT",
-          definitionCode: itemCode.value.trim(),
+          definitionCode,
           name: itemName.value.trim(),
           consumable: itemConsumable.checked,
           target,
+          ...(isNavigator ? {
+            navigatorRange: Math.max(1, Math.trunc(Number(navigatorRange.value))),
+            navigatorOriginPlayerId: Number(navigatorOrigin.value),
+          } : {}),
           ...(itemUseEffect.value.trim()
             ? { useEffect: parseJson(itemUseEffect.value) }
             : {}),
@@ -433,9 +464,22 @@ addShipwreckBtn.addEventListener("click", () => {
   }
 });
 endTurnBtn.addEventListener("click", () => {
-  if (!window.confirm("Force canonical turn resolution now?")) return;
+  if (!window.confirm("Завершить ход принудительно?")) return;
   void mutate("/api/admin/end-turn", { method: "POST" });
 });
+
+saveSystemSettingsBtn.addEventListener("click", () => {
+  const value = Math.trunc(Number(baseFleetMovementPoints.value));
+  void mutate("/api/admin/system-settings", {
+    method: "PUT",
+    body: JSON.stringify({ baseFleetMovementPoints: value }),
+  });
+});
+randomizeWarpBtn.addEventListener("click", () => {
+  if (!window.confirm("Сгенерировать новые значения ШВВ для всех гексов?")) return;
+  void mutate("/api/admin/warp-disturbance/randomize", { method: "POST" });
+});
+
 reloadBtn.addEventListener("click", () => void loadAll());
 
 function syncVisibility(): void {

@@ -11,6 +11,7 @@ import {
 import { isResourceKey } from "../../planetDomain";
 import { createEmptyShop, type DisappearingItemRef, type ShopOwnerRef } from "../../shopDomain";
 import { appendAudit } from "../../systems/auditSystem";
+import { detectObjectsForFleetAtCurrentHex } from "../../systems/detectionSystem";
 import { resolveItemInventory } from "../../systems/itemSystem";
 import { isUnitTag } from "../../unitDomain";
 import {
@@ -66,6 +67,14 @@ function isPositionValid(deps: AdminHandlerDeps, q: unknown, r: unknown): q is n
     q: Math.trunc(Number(q)),
     r: Math.trunc(Number(r)),
   }));
+}
+
+function detectNewObjectsAtPosition(deps: AdminHandlerDeps, position: { q: number; r: number }): void {
+  for (const fleet of Object.values(deps.state.fleets)) {
+    if (fleet.position.q === position.q && fleet.position.r === position.r) {
+      detectObjectsForFleetAtCurrentHex(deps.state, fleet.id);
+    }
+  }
 }
 
 function parseCapabilities(value: unknown): Station["capabilities"] | null {
@@ -324,6 +333,7 @@ export function createWorldObjectAdminHandlers(
       sourceUnitIds,
     };
     deps.state.shipwrecks[shipwreck.id] = shipwreck;
+    detectNewObjectsAtPosition(deps, position);
     appendAudit(deps.state, {
       actor: { kind: "ADMIN", account: session.username }, operation: "CREATE_SHIPWRECK",
       entityType: "SHIPWRECK", entityId: shipwreck.id, after: shipwreck,
@@ -351,6 +361,7 @@ export function createWorldObjectAdminHandlers(
       informationRef: body.informationRef,
     };
     deps.state.anomalies[anomaly.id] = anomaly;
+    detectNewObjectsAtPosition(deps, anomaly.position);
     appendAudit(deps.state, {
       actor: { kind: "ADMIN", account: session.username }, operation: "CREATE_ANOMALY",
       entityType: "ANOMALY", entityId: anomaly.id, after: anomaly,
@@ -420,13 +431,28 @@ export function createWorldObjectAdminHandlers(
     }
     const inventory = resolveItemInventory(deps.state, target, true);
     if (!inventory) { writeJson(res, 400, { error: "Invalid target inventory" }); return; }
+    const configuration: ArtifactInstance["configuration"] = {};
+    if (body.definitionCode === "NAVIGATOR") {
+      if (
+        !Number.isInteger(body.navigatorRange) || Number(body.navigatorRange) <= 0
+        || !Number.isInteger(body.navigatorOriginPlayerId) || Number(body.navigatorOriginPlayerId) <= 0
+      ) {
+        writeJson(res, 400, { error: "Navigator range and origin player are required" }); return;
+      }
+      const origin = deps.state.players[Number(body.navigatorOriginPlayerId)];
+      if (!origin || !deps.state.factions[origin.factionId]?.isNavigator) {
+        writeJson(res, 400, { error: "Navigator origin player must belong to a Navigator faction" }); return;
+      }
+      configuration.navigatorRange = Number(body.navigatorRange);
+      configuration.navigatorOriginPlayerId = Number(body.navigatorOriginPlayerId);
+    }
     const id = `artifact-${deps.state.nextIds.artifact++}`;
     const artifact: ArtifactInstance = {
       id,
       definitionCode: body.definitionCode,
       name: body.name,
       owner: target,
-      configuration: {},
+      configuration,
       consumable: body.consumable === true,
       ...(useEffect ? { useEffect } : {}),
     };

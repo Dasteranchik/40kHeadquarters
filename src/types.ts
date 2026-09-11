@@ -34,6 +34,8 @@ export type TerrainType = "OPEN" | "NEBULA" | "OBSTACLE";
 
 export interface Tile extends HexCoord {
   terrainType: TerrainType;
+  /** Server-authoritative SPACE movement cost for entering this tile (1..6). */
+  warpDisturbanceLevel: number;
   planetId?: EntityId;
 }
 
@@ -79,6 +81,12 @@ export interface Faction {
   code: string;
   name: string;
   description?: string;
+  isNavigator: boolean;
+}
+
+export interface SystemSettings {
+  /** Minimum SPACE movement points restored at the end of a turn. */
+  baseFleetMovementPoints: number;
 }
 
 export interface Player {
@@ -105,7 +113,10 @@ export interface Fleet {
   combatPower: number;
   health: number;
   influence: number;
-  actionPoints: number;
+  movementPoints: number;
+  maxMovementPoints: number;
+  /** A positive value makes a Navigator faction unit a navigation source. */
+  navigatorRange: number;
   visionRange: number;
   shareVisionWithAllies: boolean;
   capacity: number;
@@ -146,6 +157,7 @@ export interface GameState {
   gameId: string;
   turnNumber: number;
   phase: GamePhase;
+  systemSettings: SystemSettings;
   productConversionRates: ProductConversionRates;
   map: MapState;
   players: Record<string, Player>;

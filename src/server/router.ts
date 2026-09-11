@@ -56,6 +56,8 @@ export interface ApiRouteHandlers {
   handleAddShipwreck: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleListAnomalies: (req: IncomingMessage, res: ServerResponse) => void;
   handleAddAnomaly: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  handleUpdateSystemSettings: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  handleRandomizeWarpDisturbance: (req: IncomingMessage, res: ServerResponse) => void;
   handleUpdateShop: (
     req: IncomingMessage,
     res: ServerResponse,
@@ -157,6 +159,12 @@ export async function handleApiRequest(
   }
   if (path === "/api/admin/anomalies" && method === "POST") {
     await handlers.handleAddAnomaly(req, res); return;
+  }
+  if (path === "/api/admin/system-settings" && method === "PUT") {
+    await handlers.handleUpdateSystemSettings(req, res); return;
+  }
+  if (path === "/api/admin/warp-disturbance/randomize" && method === "POST") {
+    handlers.handleRandomizeWarpDisturbance(req, res); return;
   }
   if (path === "/api/admin/items" && method === "POST") {
     await handlers.handleAddItem(req, res); return;

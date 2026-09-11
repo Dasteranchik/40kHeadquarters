@@ -37,7 +37,6 @@ function sortedActions(actions: Action[]): Action[] {
 function validateMoveAction(
   state: GameState,
   action: MoveFleetAction,
-  apUsedByFleet: Map<number, number>,
   projectedPositionByFleet: Map<number, HexCoord>,
   tileIndex: Map<string, Tile>,
 ): ValidationError | null {
@@ -52,15 +51,6 @@ function validateMoveAction(
 
   if (fleet.domain === "GROUND") {
     return { actionId: action.id, reason: "Armies cannot move independently" };
-  }
-
-  const pathLength = action.payload.path.length;
-  const alreadyUsed = apUsedByFleet.get(fleet.id) ?? 0;
-  if (alreadyUsed + pathLength > fleet.actionPoints) {
-    return {
-      actionId: action.id,
-      reason: "Total path length for fleet exceeds action points",
-    };
   }
 
   let prev = projectedPositionByFleet.get(fleet.id) ?? fleet.position;
@@ -85,7 +75,6 @@ function validateMoveAction(
     prev = step;
   }
 
-  apUsedByFleet.set(fleet.id, alreadyUsed + pathLength);
   projectedPositionByFleet.set(fleet.id, prev);
   return null;
 }
@@ -333,7 +322,6 @@ export function validateActions(
   const planetActions: PlanetAction[] = [];
   const errors: ValidationError[] = [];
 
-  const apUsedByFleet = new Map<number, number>();
   const projectedPositionByFleet = new Map<number, HexCoord>();
   const diplomacyPairSeen = new Set<string>();
   const moraleUsedByPlayer = new Set<number>();
@@ -344,7 +332,6 @@ export function validateActions(
       const error = validateMoveAction(
         state,
         action,
-        apUsedByFleet,
         projectedPositionByFleet,
         tileIndex,
       );

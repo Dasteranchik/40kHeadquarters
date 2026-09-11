@@ -90,6 +90,13 @@ export interface ArtifactUseMessage {
   artifactId: string;
 }
 
+export interface ConvertFuelToMovementMessage {
+  type: "convertFuelToMovement";
+  commandId: string;
+  fleetId: number;
+  amount: number;
+}
+
 export type ClientMessage =
   | SubmitActionMessage
   | RemoveActionMessage
@@ -102,7 +109,8 @@ export type ClientMessage =
   | DisembarkArmyMessage
   | ShopTradeMessage
   | ItemTransferMessage
-  | ArtifactUseMessage;
+  | ArtifactUseMessage
+  | ConvertFuelToMovementMessage;
 
 export interface PlannedMovePreview {
   fleetId: number;

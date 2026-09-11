@@ -28,6 +28,7 @@ import {
   ownFleetsAtCoord as ownFleetsAtCoordByPlayer,
   renderMapScene,
   toHex,
+  toPixel,
   type MapLayers,
 } from "./mapScene";
 import {
@@ -79,6 +80,7 @@ type Nullable<T> = T | null;
 const DEFAULT_MAP_ZOOM = 1;
 const MIN_MAP_ZOOM = 0.6;
 const MAX_MAP_ZOOM = 2.5;
+const TACTICAL_HEX_SCALE = 2;
 const BUTTON_ZOOM_STEP = 0.15;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 const PAN_DRAG_THRESHOLD_PX = 5;
@@ -117,6 +119,8 @@ const loginBtn = document.getElementById("loginBtn") as HTMLButtonElement;
 const logoutBtn = document.getElementById("logoutBtn") as HTMLButtonElement;
 
 const clearPathBtn = document.getElementById("clearPathBtn") as HTMLButtonElement;
+const fuelToMovementAmountInput = document.getElementById("fuelToMovementAmount") as HTMLInputElement;
+const fuelToMovementBtn = document.getElementById("fuelToMovementBtn") as HTMLButtonElement;
 const armyTransportTargetSelect = document.getElementById("armyTransportTarget") as HTMLSelectElement;
 const armyEmbarkBtn = document.getElementById("armyEmbarkBtn") as HTMLButtonElement;
 const armyDisembarkBtn = document.getElementById("armyDisembarkBtn") as HTMLButtonElement;
@@ -219,6 +223,10 @@ const mapZoomOutBtn = document.getElementById("mapZoomOutBtn") as HTMLButtonElem
 const mapZoomInBtn = document.getElementById("mapZoomInBtn") as HTMLButtonElement;
 const mapZoomResetBtn = document.getElementById("mapZoomResetBtn") as HTMLButtonElement;
 const mapZoomValueEl = document.getElementById("mapZoomValue") as HTMLSpanElement;
+const tacticalMapBtn = document.getElementById("tacticalMapBtn") as HTMLButtonElement;
+const strategicMapBtn = document.getElementById("strategicMapBtn") as HTMLButtonElement;
+const navigatorMapBtn = document.getElementById("navigatorMapBtn") as HTMLButtonElement;
+const resetFocusBtn = document.getElementById("resetFocusBtn") as HTMLButtonElement;
 const hudElements: HudElements = {
   userValueEl,
   authStateEl,
@@ -258,6 +266,7 @@ const canvasEl = app.view as HTMLCanvasElement;
 stageEl.appendChild(canvasEl);
 
 const terrainLayer = new Container();
+const warpLayer = new Container();
 const planetLayer = new Container();
 const fleetLayer = new Container();
 const effectLayer = new Container();
@@ -265,6 +274,7 @@ const fogLayer = new Container();
 const uiLayer = new Container();
 const mapLayers: MapLayers = {
   terrainLayer,
+  warpLayer,
   planetLayer,
   fleetLayer,
   effectLayer,
@@ -273,6 +283,7 @@ const mapLayers: MapLayers = {
 };
 
 app.stage.addChild(terrainLayer);
+app.stage.addChild(warpLayer);
 app.stage.addChild(planetLayer);
 app.stage.addChild(fleetLayer);
 app.stage.addChild(effectLayer);
@@ -289,6 +300,11 @@ interface RuntimeState {
   reconnectTimer: Nullable<number>;
   pendingFleetStances: Record<string, FleetStance>;
   mapZoom: number;
+  strategicMapZoom: number;
+  mapMode: "STRATEGIC" | "TACTICAL";
+  tacticalCenter: HexCoord | null;
+  navigatorLayerEnabled: boolean;
+  focusedUnitId: number | null;
 }
 
 const runtime: RuntimeState = {
@@ -301,6 +317,11 @@ const runtime: RuntimeState = {
   reconnectTimer: null,
   pendingFleetStances: {},
   mapZoom: DEFAULT_MAP_ZOOM,
+  strategicMapZoom: DEFAULT_MAP_ZOOM,
+  mapMode: "STRATEGIC",
+  tacticalCenter: null,
+  navigatorLayerEnabled: false,
+  focusedUnitId: null,
 };
 
 const mapCamera = createMapCameraController(
@@ -342,6 +363,10 @@ function ownFleetsAtCoord(state: GameState, coord: HexCoord): Fleet[] {
   return ownFleetsAtCoordByPlayer(state, coord, playerId);
 }
 
+function activeMapHexScale(): number {
+  return runtime.mapMode === "TACTICAL" ? TACTICAL_HEX_SCALE : 1;
+}
+
 function renderScene(): void {
   const state = runtime.gameState;
   if (!state) {
@@ -350,6 +375,16 @@ function renderScene(): void {
     return;
   }
 
+  if (runtime.mapMode === "STRATEGIC" && runtime.focusedUnitId !== null) {
+    const focusedUnit = state.fleets[runtime.focusedUnitId];
+    if (focusedUnit) {
+      const point = toPixel(focusedUnit.position);
+      app.stage.position.set(
+        stageEl.clientWidth / 2 - point.x * runtime.mapZoom,
+        stageEl.clientHeight / 2 - point.y * runtime.mapZoom,
+      );
+    }
+  }
   const selectedFleet = getSelectedFleet(runtime, state);
   const plannedMovePathsByFleetId = { ...runtime.plannedMovePathsByFleetId };
   if (selectedFleet && runtime.plannedPath.length > 0) {
@@ -359,12 +394,15 @@ function renderScene(): void {
   renderMapScene({
     state,
     layers: mapLayers,
+    navigatorLayerEnabled: runtime.navigatorLayerEnabled,
+    tacticalCenter: runtime.mapMode === "TACTICAL" ? runtime.tacticalCenter : null,
     selectedFleet,
     plannedPath: runtime.plannedPath,
     plannedMovePathsByFleetId,
     playerId: activePlayerId(runtime),
     hasFullMapVisibility: isAdmin(runtime),
     textResolution: mapCamera.mapTextResolution(),
+    hexScale: activeMapHexScale(),
   });
 }
 
@@ -398,6 +436,7 @@ const hexContextMenu = createHexContextMenuController({
   fleetsAtCoord,
   onOwnFleetSelected: (fleetId) => {
     runtime.selectedFleetId = fleetId;
+    runtime.focusedUnitId = fleetId;
     runtime.plannedPath = [];
     hexContextMenu.hide();
     appendEvent(`Selected ${fleetId}`);
@@ -1460,6 +1499,7 @@ function refreshHud(): void {
     hudElements.pathLine.textContent = "Planned path: 0 steps";
 
     hudElements.clearPathBtn.disabled = true;
+    fuelToMovementBtn.disabled = true;
     hudElements.setAttackBtn.disabled = true;
     hudElements.setDefenseBtn.disabled = true;
     hudElements.shareAllyVisionBtn.disabled = true;
@@ -1487,6 +1527,15 @@ function refreshHud(): void {
   hudElements.phaseValueEl.textContent = state.phase;
   const playerId = activePlayerId(runtime);
   hudElements.resourceValueEl.textContent = String(getPlayerResources(state, playerId));
+  const hasNavigatorData = state.map.tiles.some((tile) => Number.isInteger(tile.warpDisturbanceLevel));
+  if (!hasNavigatorData) {
+    runtime.navigatorLayerEnabled = false;
+    navigatorMapBtn.classList.remove("is-active");
+  }
+  navigatorMapBtn.disabled = !hasNavigatorData;
+  tacticalMapBtn.disabled = runtime.mapMode === "TACTICAL";
+  strategicMapBtn.disabled = runtime.mapMode === "STRATEGIC";
+  resetFocusBtn.disabled = runtime.focusedUnitId === null;
 
   const selected = getSelectedFleet(runtime, state);
   refreshArmyTransportControls(state, selected);
@@ -1495,7 +1544,7 @@ function refreshHud(): void {
     const pendingTag = selectedStance === selected.stance ? "" : ", pending";
     const unitLabel = selected.domain === "GROUND" ? "army" : "fleet";
     hudElements.selectedFleetLine.textContent =
-      `Selected ${unitLabel}: ${selected.id} (AP ${selected.actionPoints}, ${selectedStance}${pendingTag})`;
+      `Выбран ${unitLabel === "army" ? "отряд" : "флот"}: ${selected.id} (ОД ${selected.movementPoints}/${selected.maxMovementPoints}, ${selectedStance}${pendingTag})`;
     hudElements.selectedFleetDetailsEl.textContent = buildSelectedFleetDetails(selected, selectedStance);
   } else {
     hudElements.selectedFleetLine.textContent = "Selected fleet: none";
@@ -1515,6 +1564,12 @@ function refreshHud(): void {
 
   const controlsDisabled = !playerId;
   hudElements.clearPathBtn.disabled = controlsDisabled || runtime.plannedPath.length === 0;
+  const fuelCapacity = selected?.domain === "SPACE"
+    ? Math.max(0, Math.min(selected.inventory.FUEL ?? 0, selected.maxMovementPoints - selected.movementPoints))
+    : 0;
+  fuelToMovementAmountInput.max = String(fuelCapacity);
+  fuelToMovementBtn.disabled = controlsDisabled || state.phase !== "PLANNING" || fuelCapacity <= 0;
+
   hudElements.setAttackBtn.disabled = controlsDisabled || !selected;
   hudElements.setDefenseBtn.disabled = controlsDisabled || !selected;
   hudElements.shareAllyVisionBtn.disabled =
@@ -1618,7 +1673,7 @@ function applyRouteClick(
   if (selectedPathIndex >= 0) {
     runtime.plannedPath = runtime.plannedPath.slice(0, selectedPathIndex + 1);
     appendEvent(
-      `Rolled route back to ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
+      `Маршрут сокращён до ${coordKey(clicked)} (${runtime.plannedPath.length} шагов)`,
     );
     refreshHud();
     renderScene();
@@ -1641,14 +1696,10 @@ function applyRouteClick(
     appendEvent("Route must be built one adjacent hex at a time");
     return;
   }
-  if (runtime.plannedPath.length >= selected.actionPoints) {
-    appendEvent("No action points remaining");
-    return;
-  }
 
   runtime.plannedPath = [...runtime.plannedPath, { ...clicked }];
   appendEvent(
-    `Added waypoint ${coordKey(clicked)} (${runtime.plannedPath.length}/${selected.actionPoints} AP)`,
+    `Добавлена точка маршрута ${coordKey(clicked)} (${runtime.plannedPath.length} шагов)`,
   );
   refreshHud();
   renderScene();
@@ -1667,7 +1718,7 @@ function handleCanvasPrimaryClick(
   }
 
   const worldPoint = mapCamera.canvasClientToWorld(clientX, clientY);
-  const clicked = toHex(worldPoint.x, worldPoint.y);
+  const clicked = toHex(worldPoint.x / activeMapHexScale(), worldPoint.y / activeMapHexScale());
 
   if (!isInsideMap(state, clicked)) {
     hexContextMenu.hide();
@@ -1680,6 +1731,11 @@ function handleCanvasPrimaryClick(
     return;
   }
 
+  if (runtime.mapMode === "TACTICAL") {
+    runtime.tacticalCenter = { ...clicked };
+    fitTacticalMap(clicked);
+    renderScene();
+  }
   const fleetsHere = fleetsAtCoord(state, clicked);
   const ownFleetsHere = ownFleetsAtCoord(state, clicked);
   const selected = getSelectedFleet(runtime, state);
@@ -1746,6 +1802,7 @@ function handleCanvasPrimaryClick(
   if (ownFleet) {
     runtime.selectedFleetId = ownFleet.id;
     runtime.plannedPath = [];
+    runtime.focusedUnitId = ownFleet.id;
     appendEvent(`Selected ${ownFleet.id}`);
     refreshHud();
     renderScene();
@@ -1773,7 +1830,7 @@ const canvasController = createCanvasController({
   panGesture,
   panDragThresholdPx: PAN_DRAG_THRESHOLD_PX,
   mapCamera,
-  toHex,
+  toHex: (x, y) => toHex(x / activeMapHexScale(), y / activeMapHexScale()),
   isHoverHexValid: (coord) => {
     const state = runtime.gameState;
     if (!state) {
@@ -1930,7 +1987,47 @@ for (const input of [loginUserInput, loginPassInput]) {
 mapViewBtn.addEventListener("click", () => selectMainView("MAP"));
 eventsViewBtn.addEventListener("click", () => selectMainView("EVENTS"));
 selectMainView("MAP");
+function fitTacticalMap(center: HexCoord): void {
+  const point = toPixel(center);
+  const hexScale = activeMapHexScale();
+  app.stage.position.set(
+    stageEl.clientWidth / 2 - point.x * hexScale * runtime.mapZoom,
+    stageEl.clientHeight / 2 - point.y * hexScale * runtime.mapZoom,
+  );
+}
 
+tacticalMapBtn.addEventListener("click", () => {
+  const state = runtime.gameState;
+  if (!state) return;
+  const selected = getSelectedFleet(runtime, state);
+  const tile = state.map.tiles[0];
+  const center = selected ? { ...selected.position } : tile ? { q: tile.q, r: tile.r } : null;
+  if (!center) return;
+  runtime.strategicMapZoom = runtime.mapZoom;
+  runtime.mapMode = "TACTICAL";
+  runtime.tacticalCenter = center;
+  fitTacticalMap(center);
+  refreshHud();
+  renderScene();
+});
+strategicMapBtn.addEventListener("click", () => {
+  runtime.mapMode = "STRATEGIC";
+  mapCamera.applyMapZoom(runtime.strategicMapZoom);
+  runtime.tacticalCenter = null;
+  refreshHud();
+  renderScene();
+});
+navigatorMapBtn.addEventListener("click", () => {
+  runtime.navigatorLayerEnabled = !runtime.navigatorLayerEnabled;
+  navigatorMapBtn.classList.toggle("is-active", runtime.navigatorLayerEnabled);
+  renderScene();
+});
+resetFocusBtn.addEventListener("click", () => {
+  runtime.focusedUnitId = null;
+
+  appendEvent("Фокус сброшен; выбранный Юнит и его приказы сохранены");
+  refreshHud();
+});
 transferModeSelect.addEventListener("change", () => {
   refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
 });
@@ -1966,6 +2063,20 @@ armyDisembarkBtn.addEventListener("click", () => {
 });
 shopOwnerSelect.addEventListener("change", refreshHud);
 shopTradeBtn.addEventListener("click", submitShopTrade);
+fuelToMovementBtn.addEventListener("click", () => {
+  const state = runtime.gameState;
+  const fleet = state ? getSelectedFleet(runtime, state) : null;
+  const amount = Math.trunc(Number(fuelToMovementAmountInput.value));
+  if (!fleet || fleet.domain !== "SPACE" || !Number.isInteger(amount) || amount <= 0) return;
+  sendMessage({
+    type: "convertFuelToMovement",
+    commandId: nextActionId("fuel-movement"),
+    fleetId: fleet.id,
+    amount,
+  });
+  appendEvent(`Отправлена конвертация ${amount} FUEL в ОД для флота ${fleet.id}`);
+});
+
 artifactUseBtn.addEventListener("click", () => {
   if (!fleetArtifactSelect.value) return;
   sendMessage({

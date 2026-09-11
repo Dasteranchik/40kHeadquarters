@@ -6,6 +6,7 @@ import { Action, Fleet, GameState, HexCoord, Planet, TurnResolution } from "../t
 import { coordKey } from "../hex";
 import { Session } from "./contracts";
 import { createEmptyItemInventory } from "../itemDomain";
+import { collectVisibleWarpTileKeysForPlayer } from "../systems/navigatorSystem";
 import type { Station } from "../worldObjectDomain";
 
 function canSessionSeeFleetOwner(
@@ -142,7 +143,9 @@ export function filterFleetsForSession(
         influence: exact ? fleet.influence : estimateDetectedStat(
           fleet.influence, 0.3, `${viewerId}:${fleet.id}:influence:${state.turnNumber}`,
         ),
-        actionPoints: 0,
+        movementPoints: 0,
+        maxMovementPoints: 0,
+        navigatorRange: 0,
         visionRange: 0,
         shareVisionWithAllies: false,
         capacity: 0,
@@ -171,6 +174,9 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
   const detections = playerId
     ? state.detection.recordsByPlayerId[String(playerId)] ?? {}
     : {};
+  const visibleWarpTiles = playerId
+    ? collectVisibleWarpTileKeysForPlayer(state, playerId)
+    : new Set<string>();
   const visiblePlanets = Object.fromEntries(
     Object.entries(state.planets)
       .filter(([, planet]) => Boolean(detections[`PLANET:${planet.id}`]))
@@ -216,8 +222,18 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
     map: {
       ...state.map,
       tiles: state.map.tiles.map((tile) => {
-        if (tile.planetId === undefined || visiblePlanets[String(tile.planetId)]) return tile;
-        const { planetId: _planetId, ...safeTile } = tile;
+        const canSeePlanet = tile.planetId === undefined || visiblePlanets[String(tile.planetId)];
+        const canSeeWarp = visibleWarpTiles.has(coordKey(tile));
+        if (canSeePlanet && canSeeWarp) return tile;
+        const {
+          planetId: _planetId,
+          warpDisturbanceLevel: _warpDisturbanceLevel,
+          ...safeTile
+        } = tile;
+        if (canSeePlanet && !canSeeWarp) return safeTile;
+        if (!canSeePlanet && canSeeWarp) {
+          return { ...safeTile, warpDisturbanceLevel: tile.warpDisturbanceLevel };
+        }
         return safeTile;
       }),
     },

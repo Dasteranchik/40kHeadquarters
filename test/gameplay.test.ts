@@ -9,6 +9,9 @@ import { appendAudit } from "../src/systems/auditSystem";
 import { detectObjectsForFleetAtCurrentHex } from "../src/systems/detectionSystem";
 import { getProcessedCommandResult, rememberProcessedCommand } from "../src/systems/idempotencySystem";
 import { copyKnowledge, transferArtifact } from "../src/systems/itemSystem";
+import { executeMovement } from "../src/systems/movementSystem";
+import { convertFuelToMovement } from "../src/systems/movementPointSystem";
+import { collectVisibleWarpTileKeysForPlayer } from "../src/systems/navigatorSystem";
 import { applyImmediatePlanetAction, applyPlanetSystems } from "../src/systems/planetSystem";
 import { applyImmediateResourceTransfer } from "../src/systems/resourceTransferSystem";
 import {
@@ -20,21 +23,86 @@ import { tradeWithShop } from "../src/systems/shopSystem";
 import { recalcVisibility } from "../src/systems/fogOfWarSystem";
 import { createTurnTimerController, type TurnTimerScheduler } from "../src/turn/turnTimer";
 import { captureTurnSnapshotEntry, restorePlanningTurnSnapshot } from "../src/turn/turnSnapshot";
-import type { GameState, PlanetAction } from "../src/types";
+import type { GameState, MoveFleetAction, PlanetAction } from "../src/types";
 import { getObjectsAtHex, type Station } from "../src/worldObjectDomain";
 
 const makeState = (): GameState => createInitialGameState();
+
+test("movement spends destination warp cost and stops before an unaffordable hex", () => {
+  const game = makeState();
+  const fleet = game.fleets[1];
+  const first = game.map.tiles.find((tile) =>
+    tile.terrainType !== "OBSTACLE"
+    && Math.max(Math.abs(tile.q - fleet.position.q), Math.abs(tile.r - fleet.position.r), Math.abs((tile.q + tile.r) - (fleet.position.q + fleet.position.r))) === 1
+  );
+  assert.ok(first);
+  const second = game.map.tiles.find((tile) =>
+    tile.terrainType !== "OBSTACLE"
+    && Math.max(Math.abs(tile.q - first.q), Math.abs(tile.r - first.r), Math.abs((tile.q + tile.r) - (first.q + first.r))) === 1
+    && (tile.q !== fleet.position.q || tile.r !== fleet.position.r)
+  );
+  assert.ok(second);
+  first.warpDisturbanceLevel = 2;
+  second.warpDisturbanceLevel = 4;
+  fleet.movementPoints = 3;
+  const action: MoveFleetAction = {
+    id: "warp-move", playerId: fleet.ownerPlayerId, type: "MOVE_FLEET",
+    payload: { fleetId: fleet.id, path: [first, second] },
+  };
+  executeMovement(game, [action]);
+  assert.deepEqual(fleet.position, { q: first.q, r: first.r });
+  assert.equal(fleet.movementPoints, 1);
+});
+
+test("FUEL conversion respects owner, phase, inventory and maximum movement points", () => {
+  const game = makeState();
+  const fleet = game.fleets[1];
+  fleet.movementPoints = 1;
+  fleet.maxMovementPoints = 4;
+  fleet.inventory.FUEL = 5;
+  assert.equal(convertFuelToMovement(game, 2, fleet.id, 1).ok, false);
+  assert.equal(convertFuelToMovement(game, 1, fleet.id, 4).ok, false);
+  assert.equal(convertFuelToMovement(game, 1, fleet.id, 3).ok, true);
+  assert.equal(fleet.movementPoints, 4);
+  assert.equal(fleet.inventory.FUEL, 2);
+});
+
+test("navigator visibility exposes warp only inside active source union", () => {
+  const game = makeState();
+  const fleet = game.fleets[1];
+  game.factions[game.players[1].factionId].isNavigator = true;
+  fleet.navigatorRange = 1;
+  const allowed = collectVisibleWarpTileKeysForPlayer(game, 1);
+  assert.ok(allowed.size > 0);
+  assert.ok(allowed.size < game.map.tiles.length);
+  const payload = buildStateForSession(
+    { token: "nav", username: "p1", role: "player", playerId: 1, expiresAt: Date.now() + 1000 },
+    game,
+  );
+  for (const tile of payload.map.tiles) {
+    assert.equal(
+      Object.hasOwn(tile, "warpDisturbanceLevel"),
+      allowed.has(`${tile.q},${tile.r}`),
+    );
+  }
+});
 
 test("legacy snapshot normalization supplies new fields", () => {
   const legacy = makeState() as GameState & Record<string, unknown>;
   for (const key of [
     "stations", "shipwrecks", "anomalies", "artifacts", "audit",
-    "detection", "processedCommands", "turnTimer",
+    "detection", "processedCommands", "turnTimer", "systemSettings",
   ]) delete legacy[key];
   for (const fleet of Object.values(legacy.fleets)) {
+    (fleet as typeof fleet & { actionPoints?: number }).actionPoints = fleet.movementPoints;
+    delete (fleet as Partial<typeof fleet>).movementPoints;
+    delete (fleet as Partial<typeof fleet>).maxMovementPoints;
+    delete (fleet as Partial<typeof fleet>).navigatorRange;
     delete (fleet as Partial<typeof fleet>).itemInventory;
     delete (fleet as Partial<typeof fleet>).tags;
   }
+  for (const tile of legacy.map.tiles) delete (tile as Partial<typeof tile>).warpDisturbanceLevel;
+  for (const faction of Object.values(legacy.factions)) delete (faction as Partial<typeof faction>).isNavigator;
   for (const planet of Object.values(legacy.planets)) {
     delete (planet as Partial<typeof planet>).shop;
     delete (planet as Partial<typeof planet>).itemStorageByPlayerId;
@@ -43,6 +111,10 @@ test("legacy snapshot normalization supplies new fields", () => {
   assert.deepEqual(normalized.stations, {});
   assert.deepEqual(normalized.audit, []);
   assert.deepEqual(normalized.fleets[1].tags, []);
+  assert.equal(normalized.systemSettings.baseFleetMovementPoints, 1);
+  assert.equal(normalized.fleets[1].movementPoints, 3);
+  assert.equal(normalized.fleets[1].maxMovementPoints, 3);
+  assert.ok(normalized.map.tiles.every((tile) => tile.warpDisturbanceLevel >= 1));
   assert.deepEqual(normalized.planets[1].shop.resources, {});
   assert.ok(normalized.turnTimer.turnEndsAt > normalized.turnTimer.turnStartedAt);
 });

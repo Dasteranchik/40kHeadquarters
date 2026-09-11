@@ -14,6 +14,7 @@ type TileLabelSlots = Map<string, number>;
 
 export interface MapLayers {
   terrainLayer: Container;
+  warpLayer: Container;
   planetLayer: Container;
   fleetLayer: Container;
   effectLayer: Container;
@@ -29,7 +30,10 @@ export interface RenderMapSceneParams {
   plannedMovePathsByFleetId: Record<string, HexCoord[]>;
   playerId: string | null;
   hasFullMapVisibility: boolean;
+  navigatorLayerEnabled: boolean;
+  tacticalCenter: HexCoord | null;
   textResolution: number;
+  hexScale: number;
 }
 
 export function toPixel(coord: HexCoord): { x: number; y: number } {
@@ -85,7 +89,7 @@ export function buildPath(
   state: GameState,
   start: HexCoord,
   target: HexCoord,
-  maxSteps: number,
+  maxSteps = Number.POSITIVE_INFINITY,
 ): Nullable<HexCoord[]> {
   if (start.q === target.q && start.r === target.r) {
     return [];
@@ -134,6 +138,7 @@ export function buildPath(
 
 export function clearMapLayers(layers: MapLayers): void {
   clearLayer(layers.terrainLayer);
+  clearLayer(layers.warpLayer);
   clearLayer(layers.planetLayer);
   clearLayer(layers.fleetLayer);
   clearLayer(layers.effectLayer);
@@ -150,17 +155,44 @@ export function renderMapScene(params: RenderMapSceneParams): void {
     plannedMovePathsByFleetId,
     playerId,
     hasFullMapVisibility,
+    navigatorLayerEnabled,
+    tacticalCenter,
     textResolution,
+    hexScale,
   } = params;
 
+  const renderedState = tacticalCenter ? filterStateToTacticalArea(state, tacticalCenter) : state;
+  applyMapLayerScale(layers, hexScale);
   const labelSlots: TileLabelSlots = new Map();
-  drawTerrain(state, layers);
-  drawPlanets(state, layers, labelSlots, textResolution);
-  drawFleets(state, layers, selectedFleet, labelSlots, textResolution);
-  drawPlannedPaths(state, layers, plannedMovePathsByFleetId, selectedFleet?.id ?? null);
-  drawDraftPath(layers, selectedFleet, plannedPath);
-  drawFog(state, layers, playerId, hasFullMapVisibility);
-  drawUiMarkers(state, layers, textResolution);
+  drawTerrain(renderedState, layers, tacticalCenter);
+  drawWarpLayer(renderedState, layers, navigatorLayerEnabled, textResolution);
+  if (navigatorLayerEnabled) {
+    clearLayer(layers.planetLayer);
+    clearLayer(layers.fleetLayer);
+    clearLayer(layers.effectLayer);
+    clearLayer(layers.uiLayer);
+    drawFog(renderedState, layers, playerId, hasFullMapVisibility, state);
+    return;
+  }
+  drawPlanets(renderedState, layers, labelSlots, textResolution);
+  drawFleets(renderedState, layers, selectedFleet, labelSlots, textResolution);
+  drawPlannedPaths(renderedState, layers, plannedMovePathsByFleetId, selectedFleet?.id ?? null);
+  drawDraftPath(layers, tacticalCenter && selectedFleet && hexDistance(tacticalCenter, selectedFleet.position) > 3 ? null : selectedFleet, plannedPath);
+  drawFog(renderedState, layers, playerId, hasFullMapVisibility, state);
+  drawUiMarkers(renderedState, layers, textResolution);
+}
+
+function filterStateToTacticalArea(state: GameState, center: HexCoord): GameState {
+  const isInArea = (position: HexCoord): boolean => hexDistance(center, position) <= 3;
+  return {
+    ...state,
+    map: { ...state.map, tiles: state.map.tiles.filter(isInArea) },
+    planets: Object.fromEntries(Object.entries(state.planets).filter(([, planet]) => isInArea(planet.position))),
+    stations: Object.fromEntries(Object.entries(state.stations).filter(([, station]) => isInArea(station.position))),
+    shipwrecks: Object.fromEntries(Object.entries(state.shipwrecks).filter(([, shipwreck]) => isInArea(shipwreck.position))),
+    anomalies: Object.fromEntries(Object.entries(state.anomalies).filter(([, anomaly]) => isInArea(anomaly.position))),
+    fleets: Object.fromEntries(Object.entries(state.fleets).filter(([, fleet]) => isInArea(fleet.position))),
+  };
 }
 
 function tileColor(terrainType: TerrainType): number {
@@ -180,6 +212,15 @@ function ownerColor(state: GameState, ownerId: number): number {
 
 function clearLayer(layer: Container): void {
   layer.removeChildren().forEach((child) => child.destroy());
+}
+
+function applyMapLayerScale(layers: MapLayers, scale: number): void {
+  for (const layer of [
+    layers.terrainLayer, layers.warpLayer, layers.planetLayer, layers.fleetLayer,
+    layers.effectLayer, layers.fogLayer, layers.uiLayer,
+  ]) {
+    layer.scale.set(scale);
+  }
 }
 
 function createMapText(text: string, style: ConstructorParameters<typeof Text>[1], resolution: number): Text {
@@ -220,7 +261,7 @@ function mapFleetsByTile(state: GameState): Map<string, Fleet[]> {
   return byTile;
 }
 
-function drawTerrain(state: GameState, layers: MapLayers): void {
+function drawTerrain(state: GameState, layers: MapLayers, tacticalCenter: HexCoord | null): void {
   clearLayer(layers.terrainLayer);
 
   for (const tile of state.map.tiles) {
@@ -234,6 +275,42 @@ function drawTerrain(state: GameState, layers: MapLayers): void {
     graphics.endFill();
 
     layers.terrainLayer.addChild(graphics);
+  }
+  if (!tacticalCenter) return;
+
+  const outline = new Graphics();
+  outline.lineStyle(3, 0xfacc15, 1);
+  outline.drawPolygon(hexPolygon(toPixel(tacticalCenter), HEX_SIZE - 0.5));
+  layers.terrainLayer.addChild(outline);
+
+}
+
+function drawWarpLayer(
+  state: GameState,
+  layers: MapLayers,
+  enabled: boolean,
+  textResolution: number,
+): void {
+  clearLayer(layers.warpLayer);
+  if (!enabled) return;
+  const colors = [0x4ade80, 0xa3e635, 0xfacc15, 0xfb923c, 0xef4444, 0x991b1b];
+  for (const tile of state.map.tiles) {
+    if (!Number.isInteger(tile.warpDisturbanceLevel)) continue;
+    const level = tile.warpDisturbanceLevel;
+    if (level < 1 || level > 6) continue;
+    const center = toPixel(tile);
+    const overlay = new Graphics();
+    overlay.beginFill(colors[level - 1] ?? 0xffffff, 0.78);
+    overlay.drawPolygon(hexPolygon(center, HEX_SIZE - 2));
+    overlay.endFill();
+    layers.warpLayer.addChild(overlay);
+    const label = createMapText(String(level), {
+      fontFamily: "Chakra Petch", fontSize: 16, fill: 0xffffff,
+    }, textResolution);
+    label.anchor.set(0.5, 0.5);
+    label.x = center.x;
+    label.y = center.y;
+    layers.warpLayer.addChild(label);
   }
 }
 
@@ -495,6 +572,7 @@ function drawFog(
   layers: MapLayers,
   playerId: string | null,
   hasFullMapVisibility: boolean,
+  visibilityState: GameState,
 ): void {
   clearLayer(layers.fogLayer);
 
@@ -502,12 +580,12 @@ function drawFog(
     return;
   }
 
-  const player = state.players[playerId];
+  const player = visibilityState.players[playerId];
   if (!player) {
     return;
   }
 
-  const visible = computeVisibleTiles(state, playerId);
+  const visible = computeVisibleTiles(visibilityState, playerId);
   const explored = new Set(player.exploredTiles.map(coordKey));
 
   for (const tile of state.map.tiles) {

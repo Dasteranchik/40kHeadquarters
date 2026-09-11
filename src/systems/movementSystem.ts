@@ -1,3 +1,4 @@
+import { buildTileIndex, coordKey } from "../hex";
 import { MovementExecution, MovementReport, MoveFleetAction, GameState } from "../types";
 
 function orderedMoves(actions: MoveFleetAction[]): MoveFleetAction[] {
@@ -10,6 +11,7 @@ export function executeMovement(
   onFleetEnteredHex?: (fleetId: number) => void,
 ): MovementReport {
   const executed: MovementExecution[] = [];
+  const tileIndex = buildTileIndex(state.map);
 
   for (const action of orderedMoves(actions)) {
     const fleet = state.fleets[action.payload.fleetId];
@@ -18,11 +20,17 @@ export function executeMovement(
     }
 
     const from = { ...fleet.position };
-    const pathLength = action.payload.path.length;
+    let spentMovementPoints = 0;
 
-    if (pathLength > 0) {
+    if (action.payload.path.length > 0) {
       for (const step of action.payload.path) {
-        fleet.position = { ...step };
+        const cost = tileIndex.get(coordKey(step))?.warpDisturbanceLevel;
+        if (!cost || fleet.movementPoints < cost) {
+          break;
+        }
+        fleet.movementPoints -= cost;
+        spentMovementPoints += cost;
+        fleet.position = { q: step.q, r: step.r };
         for (const army of Object.values(state.fleets)) {
           if (army.domain === "GROUND" && army.carrierFleetId === fleet.id) {
             army.position = { ...fleet.position };
@@ -30,7 +38,6 @@ export function executeMovement(
         }
         onFleetEnteredHex?.(fleet.id);
       }
-      fleet.actionPoints = Math.max(0, fleet.actionPoints - pathLength);
     }
 
     executed.push({
@@ -38,8 +45,8 @@ export function executeMovement(
       fleetId: fleet.id,
       from,
       to: { ...fleet.position },
-      spentAP: pathLength,
-      remainingAP: fleet.actionPoints,
+      spentAP: spentMovementPoints,
+      remainingAP: fleet.movementPoints,
     });
   }
 

@@ -22,7 +22,7 @@ import {
 import { Account } from "./contracts";
 import { defaultPlayerColor } from "../utils/playerColor";
 
-const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
+const DEFAULT_FACTIONS: Array<{ id: string; name: string; isNavigator?: boolean }> = [
   { id: "astra_militarum", name: "Астра Милитарум" },
   { id: "battle_fleet", name: "Боевой Флот" },
   { id: "fleet", name: "Флот" },
@@ -30,7 +30,7 @@ const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
   { id: "rogue_traders", name: "Вольные Торговцы" },
   { id: "ecclesiarchy", name: "Эклезиархия" },
   { id: "administratum", name: "Администратум" },
-  { id: "navis_nobilite", name: "Навис Нобилите" },
+  { id: "navis_nobilite", name: "Навигаторы", isNavigator: true },
   { id: "other_psykers", name: "другие псайкеры" },
   { id: "inquisition", name: "Инквизиция" },
   { id: "chaos", name: "Хаоситы" },
@@ -46,6 +46,7 @@ function createDefaultFactions(): Record<string, Faction> {
       id,
       code: faction.id,
       name: faction.name,
+      isNavigator: faction.isNavigator === true,
     };
   });
 
@@ -64,7 +65,7 @@ export function buildMap(width: number, height: number): MapState {
         terrainType = "NEBULA";
       }
 
-      tiles.push({ q, r, terrainType });
+      tiles.push({ q, r, terrainType, warpDisturbanceLevel: 1 });
     }
   }
 
@@ -146,7 +147,9 @@ function createFleet(
     combatPower,
     health: 100,
     influence,
-    actionPoints: 3,
+    movementPoints: domain === "SPACE" ? 3 : 0,
+    maxMovementPoints: domain === "SPACE" ? 3 : 0,
+    navigatorRange: 0,
     visionRange: 2,
     shareVisionWithAllies: false,
     capacity: 10,
@@ -164,6 +167,7 @@ export function createInitialGameState(): GameState {
     gameId: "live-1",
     turnNumber: 1,
     phase: "PLANNING",
+    systemSettings: { baseFleetMovementPoints: 1 },
     productConversionRates: { ...DEFAULT_PRODUCT_CONVERSION_RATES },
     map: buildMap(18, 12),
     factions: createDefaultFactions(),

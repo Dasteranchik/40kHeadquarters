@@ -7,6 +7,7 @@ import {
   isImmediatePlanetActionKind,
 } from "../systems/planetSystem";
 import { applyImmediateResourceTransfer } from "../systems/resourceTransferSystem";
+import { convertFuelToMovement } from "../systems/movementPointSystem";
 import { disembarkArmy, requestArmyEmbark, respondArmyEmbark } from "../systems/armyTransportSystem";
 import { tradeWithShop } from "../systems/shopSystem";
 import {
@@ -623,6 +624,34 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     deps.persistDatabase(); if (result.ok) broadcastState();
   }
 
+  function applyFuelConversion(context: ClientContext, message: ClientMessage): void {
+    if (message.type !== "convertFuelToMovement") return;
+    if (!isCommandId(message.commandId)) {
+      sendOperationResult(context, false, "Valid commandId is required");
+      return;
+    }
+    if (duplicateResult(context, message.commandId)) return;
+    const playerId = context.session.playerId;
+    if (context.session.role !== "player" || !playerId) {
+      const result = { ok: false, message: "Для конвертации топлива требуется принадлежащий игроку флот" };
+      rememberResult(context, message.commandId, result);
+      sendOperationResult(context, result.ok, result.message, message.commandId);
+      return;
+    }
+    const result = convertFuelToMovement(deps.state, playerId, message.fleetId, message.amount);
+    rememberResult(context, message.commandId, result);
+    sendOperationResult(context, result.ok, result.message, message.commandId);
+    if (!result.ok) return;
+    appendAudit(deps.state, {
+      actor: { kind: "PLAYER", playerId }, operation: "CONVERT_FUEL_TO_MOVEMENT",
+      entityType: "FLEET", entityId: message.fleetId, commandId: message.commandId,
+      after: { amount: message.amount },
+    });
+    deps.readyPlayers.delete(playerId);
+    deps.persistDatabase();
+    broadcastState();
+  }
+
   function handleClientMessage(context: ClientContext, message: ClientMessage): void {
     applySubmitAction(context, message);
     applyRemoveAction(context, message);
@@ -633,6 +662,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     applyShopTrade(context, message);
     applyItemTransfer(context, message);
     applyArtifactUse(context, message);
+    applyFuelConversion(context, message);
     applyEndTurn(context, message);
   }
 

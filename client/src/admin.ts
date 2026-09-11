@@ -89,6 +89,7 @@ const playersList = document.getElementById("playersList") as HTMLDivElement;
 const addFactionId = document.getElementById("addFactionId") as HTMLInputElement;
 const addFactionName = document.getElementById("addFactionName") as HTMLInputElement;
 const addFactionDescription = document.getElementById("addFactionDescription") as HTMLInputElement;
+const addFactionNavigator = document.getElementById("addFactionNavigator") as HTMLInputElement;
 const addFactionBtn = document.getElementById("addFactionBtn") as HTMLButtonElement;
 const factionsSearch = document.getElementById("factionsSearch") as HTMLInputElement;
 const factionsList = document.getElementById("factionsList") as HTMLDivElement;
@@ -121,6 +122,8 @@ const addFleetPower = document.getElementById("addFleetPower") as HTMLInputEleme
 const addFleetHealth = document.getElementById("addFleetHealth") as HTMLInputElement;
 const addFleetInfluence = document.getElementById("addFleetInfluence") as HTMLInputElement;
 const addFleetAp = document.getElementById("addFleetAp") as HTMLInputElement;
+const addFleetMaxMovement = document.getElementById("addFleetMaxMovement") as HTMLInputElement;
+const addFleetNavigatorRange = document.getElementById("addFleetNavigatorRange") as HTMLInputElement;
 const addFleetVision = document.getElementById("addFleetVision") as HTMLInputElement;
 const addFleetCapacity = document.getElementById("addFleetCapacity") as HTMLInputElement;
 const addFleetStance = document.getElementById("addFleetStance") as HTMLSelectElement;
@@ -786,10 +789,14 @@ function renderFactions(): void {
     const descriptionInput = createInput(faction.description ?? "");
 
     const fields = document.createElement("div");
+    const navigatorInput = document.createElement("input");
+    navigatorInput.type = "checkbox";
+    navigatorInput.checked = faction.isNavigator;
     fields.className = "grid";
     fields.append(
       createLabeledField("Name", nameInput),
       createLabeledField("Description", descriptionInput),
+      createLabeledField("Навигаторы", navigatorInput),
     );
     item.appendChild(fields);
 
@@ -805,6 +812,7 @@ function renderFactions(): void {
             body: JSON.stringify({
               name: nameInput.value,
               description: descriptionInput.value,
+              isNavigator: navigatorInput.checked,
             }),
           });
           appendEvent(`Faction ${faction.id} updated`);
@@ -1022,10 +1030,12 @@ function renderFleetList(
     const powerInput = createNumberInput(fleet.combatPower);
     const healthInput = createNumberInput(fleet.health);
     const influenceInput = createNumberInput(fleet.influence);
-    const apInput = createNumberInput(fleet.actionPoints);
+    const apInput = createNumberInput(fleet.movementPoints);
     const visionInput = createNumberInput(fleet.visionRange);
     const capacityInput = createNumberInput(fleet.capacity);
 
+    const maxMovementInput = createNumberInput(fleet.maxMovementPoints);
+    const navigatorRangeInput = createNumberInput(fleet.navigatorRange);
     const stanceSelect = createSelect(fleet.stance, ["ATTACK", "DEFENSE"]);
     const domainSelect = createSelect(fleet.domain as FleetDomain, ["SPACE", "GROUND"]);
     const inventoryInput = createInput(toJsonCompact(fleet.inventory));
@@ -1039,7 +1049,9 @@ function renderFleetList(
       createLabeledField("Combat Power", powerInput),
       createLabeledField("Health", healthInput),
       createLabeledField("Influence", influenceInput),
-      createLabeledField("Action Points", apInput),
+      createLabeledField("Очки движения", apInput),
+      createLabeledField("Максимальные ОД", maxMovementInput),
+      createLabeledField("Дальность Навигатора", navigatorRangeInput),
       createLabeledField("Vision Range", visionInput),
       createLabeledField("Capacity", capacityInput),
       createLabeledField("Stance", stanceSelect),
@@ -1066,10 +1078,12 @@ function renderFleetList(
               combatPower: Number(powerInput.value),
               health: Number(healthInput.value),
               influence: Number(influenceInput.value),
-              actionPoints: Number(apInput.value),
+              movementPoints: Number(apInput.value),
               visionRange: Number(visionInput.value),
               capacity: Number(capacityInput.value),
               stance: stanceSelect.value as FleetStance,
+              maxMovementPoints: Number(maxMovementInput.value),
+              navigatorRange: Number(navigatorRangeInput.value),
               domain: domainSelect.value as FleetDomain,
               inventory,
             }),
@@ -1202,6 +1216,7 @@ async function addFaction(): Promise<void> {
         code: addFactionId.value.trim(),
         name: addFactionName.value.trim(),
         description: addFactionDescription.value.trim() || undefined,
+        isNavigator: addFactionNavigator.checked,
       }),
     });
     appendEvent(`Faction ${addFactionId.value.trim()} created`);
@@ -1264,11 +1279,13 @@ async function addFleet(): Promise<void> {
         combatPower: Number(addFleetPower.value),
         health: Number(addFleetHealth.value),
         influence: Number(addFleetInfluence.value),
-        actionPoints: Number(addFleetAp.value),
+        movementPoints: Number(addFleetAp.value),
         visionRange: Number(addFleetVision.value),
         capacity: Number(addFleetCapacity.value),
         stance: addFleetStance.value,
         domain: "SPACE",
+        maxMovementPoints: Number(addFleetMaxMovement.value),
+        navigatorRange: Number(addFleetNavigatorRange.value),
         inventory,
       }),
     });

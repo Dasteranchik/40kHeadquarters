@@ -47,6 +47,10 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
       writeJson(res, 400, { error: "description must be a string" });
       return;
     }
+    if (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean") {
+      writeJson(res, 400, { error: "isNavigator must be a boolean" });
+      return;
+    }
 
     const faction: Faction = {
       id: deps.state.nextIds.faction++,
@@ -56,6 +60,7 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
         typeof body.description === "string" && body.description.trim().length > 0
           ? body.description.trim()
           : undefined,
+      isNavigator: body.isNavigator === true,
     };
 
     deps.state.factions[faction.id] = faction;
@@ -100,6 +105,10 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
       writeJson(res, 400, { error: "description must be a string" });
       return;
     }
+    if (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean") {
+      writeJson(res, 400, { error: "isNavigator must be a boolean" });
+      return;
+    }
 
     if (body.name !== undefined) {
       faction.name = body.name.trim();
@@ -108,6 +117,7 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
     if (body.description !== undefined) {
       faction.description = body.description.trim().length > 0 ? body.description.trim() : undefined;
     }
+    if (body.isNavigator !== undefined) faction.isNavigator = body.isNavigator;
 
     deps.auditAdminMutation(req, {
       operation: "UPDATE_FACTION", entityType: "FACTION", entityId: factionId,

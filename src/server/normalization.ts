@@ -63,7 +63,7 @@ import {
 } from "../types";
 import { defaultPlayerColor, isPlayerColor } from "../utils/playerColor";
 
-const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
+const DEFAULT_FACTIONS: Array<{ id: string; name: string; isNavigator?: boolean }> = [
   { id: "astra_militarum", name: "Астра Милитарум" },
   { id: "battle_fleet", name: "Боевой Флот" },
   { id: "fleet", name: "Флот" },
@@ -71,7 +71,7 @@ const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
   { id: "rogue_traders", name: "Вольные Торговцы" },
   { id: "ecclesiarchy", name: "Эклезиархия" },
   { id: "administratum", name: "Администратум" },
-  { id: "navis_nobilite", name: "Навис Нобилите" },
+  { id: "navis_nobilite", name: "Навигаторы", isNavigator: true },
   { id: "other_psykers", name: "другие псайкеры" },
   { id: "inquisition", name: "Инквизиция" },
   { id: "chaos", name: "Хаоситы" },
@@ -311,6 +311,7 @@ function normalizeFaction(factionId: string, value: unknown): Faction {
       id,
       code: factionId,
       name: fallbackFactionNameById(factionId),
+      isNavigator: factionId === "navis_nobilite",
     };
   }
 
@@ -332,6 +333,7 @@ function normalizeFaction(factionId: string, value: unknown): Faction {
       : factionId,
     name: normalizedName,
     description: normalizedDescription,
+    isNavigator: raw.isNavigator === true || raw.code === "navis_nobilite",
   };
 }
 
@@ -343,6 +345,7 @@ function defaultFactions(): Record<string, Faction> {
       id,
       code: faction.id,
       name: faction.name,
+      isNavigator: faction.isNavigator === true,
     };
   });
   return result;
@@ -356,6 +359,7 @@ function addMissingDefaultFactions(factions: Record<string, Faction>): void {
         id,
         code: faction.id,
         name: faction.name,
+        isNavigator: faction.isNavigator === true,
       };
     }
   }
@@ -496,6 +500,16 @@ function normalizePlanet(id: string, value: unknown, legacyProductOwnerId?: numb
 
 function normalizeFleet(id: string, value: unknown): Fleet {
   const fleet = (value ?? {}) as Partial<Fleet>;
+  const legacyActionPoints = (fleet as Partial<Fleet> & { actionPoints?: unknown }).actionPoints;
+  const movementPoints = intOrDefault(
+    fleet.movementPoints ?? legacyActionPoints,
+    fleet.domain === "GROUND" ? 0 : 3,
+    0,
+  );
+  const maxMovementPoints = Math.max(
+    movementPoints,
+    intOrDefault(fleet.maxMovementPoints, movementPoints, 0),
+  );
 
   return {
     id: Number(id),
@@ -504,7 +518,9 @@ function normalizeFleet(id: string, value: unknown): Fleet {
     combatPower: intOrDefault(fleet.combatPower, 10, 0),
     health: intOrDefault(fleet.health, 100, 1),
     influence: intOrDefault(fleet.influence, 5, 0),
-    actionPoints: intOrDefault(fleet.actionPoints, 3, 0),
+    movementPoints,
+    maxMovementPoints,
+    navigatorRange: intOrDefault(fleet.navigatorRange, 0, 0),
     visionRange: intOrDefault(fleet.visionRange, 2, 0),
     shareVisionWithAllies: fleet.shareVisionWithAllies === true,
     capacity: intOrDefault(fleet.capacity, 10, 0),
@@ -517,6 +533,24 @@ function normalizeFleet(id: string, value: unknown): Fleet {
       ? { carrierFleetId: fleet.carrierFleetId }
       : {}),
   };
+}
+
+function normalizeSystemSettings(value: unknown): GameState["systemSettings"] {
+  const candidate = value && typeof value === "object"
+    ? value as Partial<GameState["systemSettings"]>
+    : {};
+  return {
+    baseFleetMovementPoints: intOrDefault(candidate.baseFleetMovementPoints, 1, 1),
+  };
+}
+
+function normalizeWarpDisturbance(state: GameState): void {
+  for (const tile of state.map.tiles) {
+    tile.warpDisturbanceLevel = Math.min(
+      6,
+      Math.max(1, intOrDefault(tile.warpDisturbanceLevel, 1, 1)),
+    );
+  }
 }
 
 function normalizeArmyTransportRequests(value: unknown): ArmyTransportRequest[] {
@@ -907,6 +941,8 @@ function reconcileArtifactOwnership(state: GameState): void {
 export function normalizeGameState(state: GameState): GameState {
   delete (state as GameState & { titheRules?: unknown }).titheRules;
   const normalizedFactions = normalizeFactions((state as Partial<GameState>).factions);
+  state.systemSettings = normalizeSystemSettings((state as Partial<GameState>).systemSettings);
+  normalizeWarpDisturbance(state);
   const fallbackFactionId = resolveDefaultFactionId(normalizedFactions);
 
   const normalizedPlayers: Record<string, Player> = {};
@@ -932,6 +968,13 @@ export function normalizeGameState(state: GameState): GameState {
     const fleet = normalizeFleet(fleetId, value);
     if (!normalizedPlayers[fleet.ownerPlayerId]) {
       continue;
+    }
+    if (fleet.domain === "SPACE") {
+      fleet.maxMovementPoints = Math.max(
+        state.systemSettings.baseFleetMovementPoints,
+        fleet.maxMovementPoints,
+      );
+      fleet.movementPoints = Math.min(fleet.movementPoints, fleet.maxMovementPoints);
     }
 
     normalizedFleets[fleetId] = fleet;
