@@ -1543,7 +1543,7 @@ function refreshHud(): void {
   strategicMapBtn.classList.toggle("is-active", runtime.mapMode === "STRATEGIC");
   tacticalMapBtn.disabled = runtime.mapMode === "TACTICAL";
   strategicMapBtn.disabled = runtime.mapMode === "STRATEGIC";
-  resetFocusBtn.disabled = runtime.focusedUnitId === null && runtime.selectedFleetId === null;
+  resetFocusBtn.disabled = false;
 
   const selected = getSelectedFleet(runtime, state);
   resetRouteBtn.disabled = !playerId || selected === null;
@@ -2017,7 +2017,7 @@ tacticalMapBtn.addEventListener("click", () => {
   if (!state) return;
   const selected = getSelectedFleet(runtime, state);
   const tile = state.map.tiles[0];
-  const center = selected ? { ...selected.position } : tile ? { q: tile.q, r: tile.r } : null;
+  const center = runtime.selectedStrategicHex ?? (selected ? { ...selected.position } : tile ? { q: tile.q, r: tile.r } : null);
   if (!center) return;
   runtime.strategicMapZoom = runtime.mapZoom;
   runtime.mapMode = "TACTICAL";
@@ -2040,10 +2040,15 @@ navigatorMapBtn.addEventListener("click", () => {
 });
 resetFocusBtn.addEventListener("click", () => {
   runtime.focusedUnitId = null;
-  runtime.selectedFleetId = null;
-  runtime.plannedPath = [];
+  runtime.mapMode = "STRATEGIC";
+  runtime.tacticalCenter = null;
+  const state = runtime.gameState;
+  if (state) {
+    const point = toPixel({ q: (state.map.width - 1) / 2, r: (state.map.height - 1) / 2 });
+    app.stage.position.set(stageEl.clientWidth / 2 - point.x * runtime.mapZoom, stageEl.clientHeight / 2 - point.y * runtime.mapZoom);
+  }
 
-  appendEvent("Фокус и выбор Юнита сброшены; отданные приказы сохранены");
+  appendEvent("Фокус сброшен; камера возвращена к центру глобальной карты");
   refreshHud();
   renderScene();
 });
