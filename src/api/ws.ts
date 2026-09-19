@@ -71,7 +71,28 @@ export interface DisembarkArmyMessage {
 
 export interface ShopTradeMessage {
   type: "shopTrade";
+  commandId: string;
   payload: ShopTradePayload;
+}
+
+export interface OpenSecretStorageMessage {
+  type: "openSecretStorage";
+  commandId: string;
+  target: { kind: "PLANET" | "STATION"; id: number };
+  password: string;
+}
+
+export interface ReportWorldMessage {
+  type: "reportWorld";
+  commandId: string;
+  planetId: number;
+}
+
+export interface ProposeTitheMessage {
+  type: "proposeTithe";
+  commandId: string;
+  planetId: number;
+  titheLevel: import("../planetDomain").TitheLevel;
 }
 
 export interface ItemTransferMessage {
@@ -110,7 +131,10 @@ export type ClientMessage =
   | ShopTradeMessage
   | ItemTransferMessage
   | ArtifactUseMessage
-  | ConvertFuelToMovementMessage;
+  | ConvertFuelToMovementMessage
+  | OpenSecretStorageMessage
+  | ReportWorldMessage
+  | ProposeTitheMessage;
 
 export interface PlannedMovePreview {
   fleetId: number;
@@ -142,7 +166,22 @@ export interface OperationResultMessage {
   duplicate?: boolean;
 }
 
+export interface SecretStorageResultMessage {
+  type: "secretStorageResult";
+  commandId: string;
+  ok: boolean;
+  message: string;
+  duplicate?: boolean;
+  target: { kind: "PLANET" | "STATION"; id: number };
+  storage?: {
+    allowedTypeKeys: import("../secretStorageDomain").SecretStorageTypeKey[];
+    stackableInventory: import("../itemDomain").StackableInventory;
+    itemInventory: import("../itemDomain").ItemInventory;
+  };
+}
+
 export type ServerMessage =
   | StateUpdateMessage
   | TurnResolvedMessage
-  | OperationResultMessage;
+  | OperationResultMessage
+  | SecretStorageResultMessage;

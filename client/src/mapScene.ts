@@ -367,7 +367,7 @@ function drawPlanets(
     layers.planetLayer.addChild(circle);
 
     const label = createMapText(
-      `${planet.name} | ${planet.worldType} +${planet.resourceProduction} | VR ${planet.overviewRange}`,
+      `${planet.name} | ${planet.worldType} +${planet.resourceProduction}`,
       {
         fontFamily: "Chakra Petch",
         fontSize: 11,

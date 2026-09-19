@@ -47,8 +47,12 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
       writeJson(res, 400, { error: "description must be a string" });
       return;
     }
-    if (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean") {
-      writeJson(res, 400, { error: "isNavigator must be a boolean" });
+    if (body.isChaos !== undefined && typeof body.isChaos !== "boolean") {
+      writeJson(res, 400, { error: "isChaos must be a boolean" });
+      return;
+    }
+    if (body.isAdministratum !== undefined && typeof body.isAdministratum !== "boolean") {
+      writeJson(res, 400, { error: "isAdministratum must be a boolean" });
       return;
     }
 
@@ -60,7 +64,8 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
         typeof body.description === "string" && body.description.trim().length > 0
           ? body.description.trim()
           : undefined,
-      isNavigator: body.isNavigator === true,
+      isChaos: body.isChaos === true,
+      isAdministratum: body.isAdministratum === true,
     };
 
     deps.state.factions[faction.id] = faction;
@@ -105,8 +110,12 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
       writeJson(res, 400, { error: "description must be a string" });
       return;
     }
-    if (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean") {
-      writeJson(res, 400, { error: "isNavigator must be a boolean" });
+    if (body.isChaos !== undefined && typeof body.isChaos !== "boolean") {
+      writeJson(res, 400, { error: "isChaos must be a boolean" });
+      return;
+    }
+    if (body.isAdministratum !== undefined && typeof body.isAdministratum !== "boolean") {
+      writeJson(res, 400, { error: "isAdministratum must be a boolean" });
       return;
     }
 
@@ -117,7 +126,8 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
     if (body.description !== undefined) {
       faction.description = body.description.trim().length > 0 ? body.description.trim() : undefined;
     }
-    if (body.isNavigator !== undefined) faction.isNavigator = body.isNavigator;
+    if (body.isChaos !== undefined) faction.isChaos = body.isChaos;
+    if (body.isAdministratum !== undefined) faction.isAdministratum = body.isAdministratum;
 
     deps.auditAdminMutation(req, {
       operation: "UPDATE_FACTION", entityType: "FACTION", entityId: factionId,
@@ -148,6 +158,15 @@ export function createFactionAdminHandlers(deps: AdminHandlerDeps): FactionAdmin
     if (assignedPlayer) {
       writeJson(res, 409, {
         error: `Faction is assigned to player ${assignedPlayer.id}. Reassign players before deletion.`,
+      });
+      return;
+    }
+    const ownedStation = Object.values(deps.state.stations).find(
+      (station) => station.ownerFactionId === numericFactionId,
+    );
+    if (ownedStation) {
+      writeJson(res, 409, {
+        error: `Faction owns station ${ownedStation.id}. Reassign the station before deletion.`,
       });
       return;
     }

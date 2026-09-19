@@ -32,37 +32,59 @@ export function addStackableResourceToShipwreck(): ShipwreckItemResult {
   return { ok: false, message: "Shipwrecks cannot contain RAW or PRODUCT resources" };
 }
 
-function createOrMergeShipwreck(
+function createShipwreckForBatch(
   state: GameState,
   position: HexCoord,
-  sourceUnitId: number,
+  sourceUnitIds: number[],
   inventory: ItemInventory,
 ): Shipwreck | null {
   if (inventory.artifactIds.length === 0 && inventory.knowledge.length === 0) return null;
-  // TODO(DEC-018): aggregation for simultaneous destruction is undecided.
-  // The provisional strategy is isolated here and creates one wreck per source unit.
   const shipwreck: Shipwreck = {
     id: state.nextIds.shipwreck++,
     position: { ...position },
     inventory,
     createdOnTurn: state.turnNumber,
-    sourceUnitIds: [sourceUnitId],
+    sourceUnitIds: [...new Set(sourceUnitIds)].sort((a, b) => a - b),
   };
   state.shipwrecks[shipwreck.id] = shipwreck;
   return shipwreck;
 }
 
 export function salvageDestroyedUnit(state: GameState, unit: Fleet): Shipwreck | null {
-  const inventory = createEmptyItemInventory();
-  inventory.artifactIds = [...unit.itemInventory.artifactIds];
-  inventory.knowledge = [...new Set(unit.itemInventory.knowledge)];
-  const shipwreck = createOrMergeShipwreck(state, unit.position, unit.id, inventory);
-  if (!shipwreck) return null;
-  for (const artifactId of inventory.artifactIds) {
-    const artifact = state.artifacts[artifactId];
-    if (artifact) artifact.owner = { kind: "SHIPWRECK", shipwreckId: shipwreck.id };
+  return salvageDestroyedUnits(state, [unit])[0] ?? null;
+}
+
+export function salvageDestroyedUnits(state: GameState, units: Fleet[]): Shipwreck[] {
+  const byHex = new Map<string, Fleet[]>();
+  for (const unit of units) {
+    const key = `${unit.position.q},${unit.position.r}`;
+    const list = byHex.get(key) ?? [];
+    list.push(unit);
+    byHex.set(key, list);
   }
-  unit.itemInventory.artifactIds = [];
-  unit.itemInventory.knowledge = [];
-  return shipwreck;
+  const wrecks: Shipwreck[] = [];
+  for (const groupedUnits of byHex.values()) {
+    const first = groupedUnits[0];
+    if (!first) continue;
+    const inventory = createEmptyItemInventory();
+    inventory.artifactIds = [...new Set(groupedUnits.flatMap((unit) => unit.itemInventory.artifactIds))];
+    inventory.knowledge = [...new Set(groupedUnits.flatMap((unit) => unit.itemInventory.knowledge))];
+    const shipwreck = createShipwreckForBatch(
+      state,
+      first.position,
+      groupedUnits.map((unit) => unit.id),
+      inventory,
+    );
+    for (const unit of groupedUnits) {
+      unit.itemInventory.artifactIds = [];
+      unit.itemInventory.knowledge = [];
+    }
+    if (!shipwreck) continue;
+    for (const artifactId of inventory.artifactIds) {
+      const artifact = state.artifacts[artifactId];
+      if (artifact) artifact.owner = { kind: "SHIPWRECK", shipwreckId: shipwreck.id };
+    }
+    wrecks.push(shipwreck);
+  }
+  return wrecks;
 }

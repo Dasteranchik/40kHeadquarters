@@ -1,31 +1,12 @@
 import { hexDistance } from "../hex";
 import type { ArtifactInstance, InventoryLocation } from "../itemDomain";
+import type { WarpVisibility } from "../navigationDomain";
 import type { GameState, HexCoord } from "../types";
 
 export interface NavigatorVisionSource {
   position: HexCoord;
-  range: number;
+  range: Exclude<WarpVisibility, null>;
   recipients: number[];
-}
-
-export interface NavigatorArtifactConfiguration {
-  navigatorRange: number;
-  navigatorOriginPlayerId: number;
-}
-
-export function navigatorArtifactConfiguration(
-  artifact: ArtifactInstance,
-): NavigatorArtifactConfiguration | null {
-  if (artifact.definitionCode !== "NAVIGATOR") return null;
-  const range = artifact.configuration.navigatorRange;
-  const origin = artifact.configuration.navigatorOriginPlayerId;
-  if (
-    typeof range !== "number" || !Number.isInteger(range) || range <= 0
-    || typeof origin !== "number" || !Number.isInteger(origin) || origin <= 0
-  ) {
-    return null;
-  }
-  return { navigatorRange: range, navigatorOriginPlayerId: origin };
 }
 
 function locationPosition(state: GameState, location: InventoryLocation): HexCoord | null {
@@ -35,6 +16,8 @@ function locationPosition(state: GameState, location: InventoryLocation): HexCoo
     case "PLANET_SHOP": return state.planets[location.planetId]?.position ?? null;
     case "STATION_STORAGE":
     case "STATION_SHOP": return state.stations[location.stationId]?.position ?? null;
+    case "PLANET_SECRET": return state.planets[location.planetId]?.position ?? null;
+    case "STATION_SECRET": return state.stations[location.stationId]?.position ?? null;
     case "SHIPWRECK": return state.shipwrecks[location.shipwreckId]?.position ?? null;
     default: {
       const exhaustive: never = location;
@@ -50,6 +33,8 @@ function currentHolderPlayerId(state: GameState, location: InventoryLocation): n
     case "STATION_STORAGE": return location.playerId;
     case "PLANET_SHOP":
     case "STATION_SHOP":
+    case "PLANET_SECRET":
+    case "STATION_SECRET":
     case "SHIPWRECK": return null;
     default: {
       const exhaustive: never = location;
@@ -58,31 +43,68 @@ function currentHolderPlayerId(state: GameState, location: InventoryLocation): n
   }
 }
 
+export function ownsNavigatorFleet(state: GameState, playerId: number): boolean {
+  return Object.values(state.fleets).some(
+    (fleet) => fleet.ownerPlayerId === playerId && fleet.isNavigator,
+  );
+}
+
+export function ownsNavigatorItem(state: GameState, playerId: number): boolean {
+  return Object.values(state.artifacts).some(
+    (artifact) => artifact.isNavigator && currentHolderPlayerId(state, artifact.owner) === playerId,
+  );
+}
+
+export function isEffectiveNavigator(state: GameState, playerId: number): boolean {
+  const player = state.players[playerId];
+  return Boolean(
+    player
+    && (player.manualNavigator || ownsNavigatorFleet(state, playerId) || ownsNavigatorItem(state, playerId)),
+  );
+}
+
+function artifactWarpSource(
+  state: GameState,
+  artifact: ArtifactInstance,
+): NavigatorVisionSource | null {
+  if (artifact.warpVisibility === null) return null;
+  const playerId = currentHolderPlayerId(state, artifact.owner);
+  const position = locationPosition(state, artifact.owner);
+  if (!playerId || !state.players[playerId] || !position) return null;
+  return {
+    position: { ...position },
+    range: artifact.warpVisibility,
+    recipients: [playerId],
+  };
+}
+
 export function collectNavigatorVisionSources(state: GameState): NavigatorVisionSource[] {
   const sources: NavigatorVisionSource[] = [];
   for (const fleet of Object.values(state.fleets)) {
+    if (fleet.warpVisibility === null) continue;
     const player = state.players[fleet.ownerPlayerId];
     const faction = player ? state.factions[player.factionId] : undefined;
-    if (!faction?.isNavigator || fleet.navigatorRange <= 0) continue;
+    if (!fleet.isNavigator && !faction?.isChaos) continue;
     sources.push({
       position: { ...fleet.position },
-      range: fleet.navigatorRange,
+      range: fleet.warpVisibility,
       recipients: [fleet.ownerPlayerId],
     });
   }
   for (const artifact of Object.values(state.artifacts)) {
-    const configuration = navigatorArtifactConfiguration(artifact);
-    if (!configuration || !state.players[configuration.navigatorOriginPlayerId]) continue;
-    const position = locationPosition(state, artifact.owner);
-    if (!position) continue;
-    const currentHolder = currentHolderPlayerId(state, artifact.owner);
+    const source = artifactWarpSource(state, artifact);
+    if (source) sources.push(source);
+  }
+  for (const station of Object.values(state.stations)) {
+    if (station.ownerFactionId === null || station.warpVisibility === null) continue;
+    const recipients = Object.values(state.players)
+      .filter((player) => player.factionId === station.ownerFactionId)
+      .map((player) => player.id);
+    if (recipients.length === 0) continue;
     sources.push({
-      position: { ...position },
-      range: configuration.navigatorRange,
-      recipients: [...new Set([
-        configuration.navigatorOriginPlayerId,
-        ...(currentHolder && state.players[currentHolder] ? [currentHolder] : []),
-      ])],
+      position: { ...station.position },
+      range: station.warpVisibility,
+      recipients,
     });
   }
   return sources;

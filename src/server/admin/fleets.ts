@@ -14,6 +14,8 @@ import { AddArmyRequest, AddFleetRequest, UpdateFleetRequest } from "../contract
 import { readJsonBody, writeJson } from "../transport";
 import { AdminHandlerDeps, requireAdminPlanning } from "./deps";
 import { getTileAt, parseResourceStore } from "./helpers";
+import { carrierCapacityUsed } from "../../systems/armyTransportSystem";
+import { isWarpVisibility } from "../../navigationDomain";
 
 export interface FleetAdminHandlers {
   handleAddArmy: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -45,6 +47,17 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       writeJson(res, 400, { error: "Stance must be ATTACK or DEFENSE" });
       return;
     }
+    if (body.unitVariantId !== undefined && body.unitVariantId !== null) {
+      if (!Number.isInteger(body.unitVariantId) || body.unitVariantId <= 0) {
+        writeJson(res, 400, { error: "unitVariantId must be a positive integer" });
+        return;
+      }
+      const variant = deps.state.unitVariants[body.unitVariantId];
+      if (!variant || variant.domain !== "GROUND") {
+        writeJson(res, 400, { error: "unitVariantId must reference a GROUND variant" });
+        return;
+      }
+    }
 
     let position: Fleet["position"];
     let carrierFleetId: number | undefined;
@@ -64,10 +77,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
           writeJson(res, 404, { error: "Destination carrier fleet not found" });
           return;
         }
-        const embarkedCount = Object.values(deps.state.fleets).filter(
-          (unit) => unit.carrierFleetId === carrier.id,
-        ).length;
-        if (embarkedCount >= carrier.capacity) {
+        const health = Math.max(1, Math.trunc(body.health ?? 100));
+        if (carrierCapacityUsed(deps.state, carrier.id) + Math.ceil(health / 1000) > carrier.capacity) {
           writeJson(res, 400, { error: "Destination fleet has no free capacity" });
           return;
         }
@@ -91,7 +102,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       influence: Math.max(0, Math.trunc(body.influence ?? 5)),
       movementPoints: 0,
       maxMovementPoints: 0,
-      navigatorRange: Math.max(0, Math.trunc(body.navigatorRange ?? 0)),
+      isNavigator: false,
+      warpVisibility: null,
       visionRange: Math.max(0, Math.trunc(body.visionRange ?? 1)),
       shareVisionWithAllies: false,
       capacity: 0,
@@ -100,6 +112,9 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       inventory: {},
       itemInventory: createEmptyItemInventory(),
       tags: [],
+      ...(body.unitVariantId === undefined || body.unitVariantId === null
+        ? {}
+        : { unitVariantId: body.unitVariantId }),
       ...(carrierFleetId === undefined ? {} : { carrierFleetId }),
     };
     deps.state.fleets[army.id] = army;
@@ -136,18 +151,17 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     const baseMovementPoints = deps.state.systemSettings.baseFleetMovementPoints;
     const requestedMaxMovementPoints = body.maxMovementPoints ?? baseMovementPoints;
     const requestedMovementPoints = body.movementPoints ?? baseMovementPoints;
-    const requestedNavigatorRange = body.navigatorRange ?? 0;
+    const requestedWarpVisibility = body.warpVisibility ?? null;
     if (
       !Number.isInteger(requestedMaxMovementPoints)
       || requestedMaxMovementPoints < baseMovementPoints
       || !Number.isInteger(requestedMovementPoints)
       || requestedMovementPoints < 0
       || requestedMovementPoints > requestedMaxMovementPoints
-      || !Number.isInteger(requestedNavigatorRange)
-      || requestedNavigatorRange < 0
+      || !isWarpVisibility(requestedWarpVisibility)
     ) {
       writeJson(res, 400, {
-        error: "movementPoints/maxMovementPoints/navigatorRange violate Fleet invariants",
+        error: "movementPoints/maxMovementPoints/warpVisibility violate Fleet invariants",
       });
       return;
     }
@@ -160,6 +174,21 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     if (body.domain !== undefined && body.domain !== "SPACE") {
       writeJson(res, 400, { error: "Ground units must be created through the army endpoint" });
       return;
+    }
+    if (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean") {
+      writeJson(res, 400, { error: "isNavigator must be boolean" });
+      return;
+    }
+    if (body.unitVariantId !== undefined && body.unitVariantId !== null) {
+      if (!Number.isInteger(body.unitVariantId) || body.unitVariantId <= 0) {
+        writeJson(res, 400, { error: "unitVariantId must be a positive integer" });
+        return;
+      }
+      const variant = deps.state.unitVariants[body.unitVariantId];
+      if (!variant || variant.domain !== "SPACE") {
+        writeJson(res, 400, { error: "unitVariantId must reference a SPACE variant" });
+        return;
+      }
     }
 
     const parsedInventory =
@@ -196,7 +225,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       influence: Math.max(0, Math.trunc(body.influence ?? 5)),
       movementPoints,
       maxMovementPoints,
-      navigatorRange: requestedNavigatorRange,
+      isNavigator: body.isNavigator === true,
+      warpVisibility: requestedWarpVisibility,
       visionRange: Math.max(0, Math.trunc(body.visionRange ?? 2)),
       shareVisionWithAllies: false,
       capacity: Math.max(0, Math.trunc(body.capacity ?? 10)),
@@ -205,6 +235,9 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       inventory: parsedInventory,
       itemInventory: createEmptyItemInventory(),
       tags: body.tags ? [...new Set(body.tags)] : [],
+      ...(body.unitVariantId === undefined || body.unitVariantId === null
+        ? {}
+        : { unitVariantId: body.unitVariantId }),
     };
 
     deps.state.fleets[fleet.id] = fleet;
@@ -230,7 +263,11 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       return;
     }
 
+    for (const artifactId of removedFleet.itemInventory.artifactIds) delete deps.state.artifacts[artifactId];
     delete deps.state.fleets[fleetId];
+    for (const unit of Object.values(deps.state.fleets)) {
+      if (unit.carrierFleetId === removedFleet.id) delete unit.carrierFleetId;
+    }
 
     for (const [actionId, action] of deps.pendingActions.entries()) {
       if (
@@ -300,7 +337,6 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       [body.influence, "influence"],
       [body.movementPoints, "movementPoints"],
       [body.maxMovementPoints, "maxMovementPoints"],
-      [body.navigatorRange, "navigatorRange"],
       [body.visionRange, "visionRange"],
       [body.capacity, "capacity"],
     ];
@@ -319,6 +355,19 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
 
     if (body.domain !== undefined && !isFleetDomain(body.domain)) {
       writeJson(res, 400, { error: "domain must be SPACE or GROUND" });
+      return;
+    }
+    if (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean") {
+      writeJson(res, 400, { error: "isNavigator must be boolean" });
+      return;
+    }
+    if (body.warpVisibility !== undefined && !isWarpVisibility(body.warpVisibility)) {
+      writeJson(res, 400, { error: "warpVisibility must be -, 0, 1, 2 or 3" });
+      return;
+    }
+    if (body.unitVariantId !== undefined && body.unitVariantId !== null
+      && (!Number.isInteger(body.unitVariantId) || body.unitVariantId <= 0)) {
+      writeJson(res, 400, { error: "unitVariantId must be a positive integer or null" });
       return;
     }
 
@@ -374,6 +423,14 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       ? fleet.movementPoints
       : Math.max(0, Math.trunc(body.movementPoints));
     const nextDomain = body.domain ?? fleet.domain;
+    const nextVariantId = body.unitVariantId === undefined ? fleet.unitVariantId : body.unitVariantId ?? undefined;
+    if (nextVariantId !== undefined) {
+      const variant = deps.state.unitVariants[nextVariantId];
+      if (!variant || variant.domain !== nextDomain) {
+        writeJson(res, 400, { error: `unitVariantId must reference a ${nextDomain} variant` });
+        return;
+      }
+    }
     if (
       nextDomain === "SPACE"
       && (nextMaxMovementPoints < deps.state.systemSettings.baseFleetMovementPoints
@@ -384,9 +441,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     }
     fleet.maxMovementPoints = nextDomain === "GROUND" ? 0 : nextMaxMovementPoints;
     fleet.movementPoints = nextDomain === "GROUND" ? 0 : nextMovementPoints;
-    if (body.navigatorRange !== undefined) {
-      fleet.navigatorRange = Math.max(0, Math.trunc(body.navigatorRange));
-    }
+    if (body.isNavigator !== undefined) fleet.isNavigator = body.isNavigator;
+    if (body.warpVisibility !== undefined) fleet.warpVisibility = body.warpVisibility;
 
     if (body.visionRange !== undefined) {
       fleet.visionRange = Math.max(0, Math.trunc(body.visionRange));
@@ -402,6 +458,10 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
 
     if (body.domain !== undefined) {
       fleet.domain = body.domain;
+    }
+    if (body.unitVariantId !== undefined) {
+      if (body.unitVariantId === null) delete fleet.unitVariantId;
+      else fleet.unitVariantId = body.unitVariantId;
     }
 
     if (parsedInventory !== undefined) {

@@ -54,6 +54,10 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       writeJson(res, 400, { error: "canTakePlanetResources must be boolean" });
       return;
     }
+    if (body.manualNavigator !== undefined && typeof body.manualNavigator !== "boolean") {
+      writeJson(res, 400, { error: "manualNavigator must be boolean" });
+      return;
+    }
 
     const requestedFactionId =
       body.factionId === undefined ? undefined : Number(body.factionId);
@@ -104,6 +108,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       alignment: body.alignment ?? "NON_IMPERIAL",
       factionId: defaultFactionId,
       intelFragments: {},
+      manualNavigator: body.manualNavigator === true,
     };
 
     deps.state.players[player.id] = player;
@@ -151,6 +156,11 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
 
     for (const planet of Object.values(deps.state.planets)) {
       delete planet.productStorageByPlayerId[String(playerId)];
+      delete planet.itemStorageByPlayerId[String(playerId)];
+    }
+    for (const station of Object.values(deps.state.stations)) {
+      delete station.productStorageByPlayerId[String(playerId)];
+      delete station.itemStorageByPlayerId[String(playerId)];
     }
 
     for (const [actionId, action] of deps.pendingActions.entries()) {
@@ -168,6 +178,9 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     );
     deps.state.pendingTitheChanges = deps.state.pendingTitheChanges.filter(
       (entry) => entry.requestedByPlayerId !== playerId,
+    );
+    deps.state.administratumTitheProposals = deps.state.administratumTitheProposals.filter(
+      (entry) => entry.playerId !== playerId,
     );
 
     deps.auditAdminMutation(req, {
@@ -260,6 +273,10 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       writeJson(res, 400, { error: "canTakePlanetResources must be boolean" });
       return;
     }
+    if (body.manualNavigator !== undefined && typeof body.manualNavigator !== "boolean") {
+      writeJson(res, 400, { error: "manualNavigator must be boolean" });
+      return;
+    }
 
     const requestedFactionId =
       body.factionId === undefined ? undefined : Number(body.factionId);
@@ -286,6 +303,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     if (body.canTakePlanetResources !== undefined) {
       player.canTakePlanetResources = body.canTakePlanetResources;
     }
+    if (body.manualNavigator !== undefined) player.manualNavigator = body.manualNavigator;
 
     if (body.resources !== undefined) {
       player.resources = Math.max(0, Math.trunc(body.resources));

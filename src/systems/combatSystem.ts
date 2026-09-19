@@ -1,6 +1,6 @@
 ﻿import { coordKey } from "../hex";
 import { CombatReport, Fleet, FleetStance, GameState, Player } from "../types";
-import { salvageDestroyedUnit } from "./shipwreckSystem";
+import { salvageDestroyedUnits } from "./shipwreckSystem";
 
 function isAtWar(players: Record<string, Player>, a: string, b: string): boolean {
   if (a === b) {
@@ -151,14 +151,11 @@ export function resolveCombat(state: GameState): CombatReport {
     }
   }
   const finalDestroyedFleetIds = [...allDestroyed].sort((a, b) => a - b);
-  const createdShipwreckIds: number[] = [];
-  for (const fleetId of finalDestroyedFleetIds) {
-    const unit = state.fleets[fleetId];
-    if (!unit) continue;
-    const shipwreck = salvageDestroyedUnit(state, unit);
-    if (shipwreck) createdShipwreckIds.push(shipwreck.id);
-    delete state.fleets[fleetId];
-  }
+  const destroyedUnits = finalDestroyedFleetIds
+    .map((fleetId) => state.fleets[fleetId])
+    .filter((unit): unit is Fleet => Boolean(unit));
+  const createdShipwreckIds = salvageDestroyedUnits(state, destroyedUnits).map((wreck) => wreck.id);
+  for (const fleetId of finalDestroyedFleetIds) delete state.fleets[fleetId];
 
   return {
     damageEvents,

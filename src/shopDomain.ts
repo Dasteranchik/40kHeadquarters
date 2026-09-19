@@ -22,7 +22,6 @@ export type ShopOwnerRef =
   | { kind: "STATION"; id: number };
 
 export interface ShopTradePayload {
-  commandId: string;
   shop: ShopOwnerRef;
   fleetId: number;
   receive: { resourceKey: ResourceKey; amount: number };

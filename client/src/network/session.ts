@@ -25,6 +25,7 @@ export interface NetworkSessionDeps {
   hideHexContextMenu: () => void;
   reconcilePendingFleetStances: (state: GameState) => void;
   resizeAndRenderScene: () => void;
+  showSecretStorage: (message: Extract<ServerMessage, { type: "secretStorageResult" }>) => void;
 }
 
 export interface NetworkSessionController {
@@ -112,6 +113,11 @@ export function createNetworkSessionController(
       const resultMessage = `${message.ok ? "OK" : "ERROR"}: ${message.message}`;
       deps.setStatus(resultMessage);
       deps.appendEvent(resultMessage);
+      return;
+    }
+    if (message.type === "secretStorageResult") {
+      deps.showSecretStorage(message);
+      deps.setStatus(message.message);
       return;
     }
 

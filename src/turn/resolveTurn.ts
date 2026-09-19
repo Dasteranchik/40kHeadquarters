@@ -15,6 +15,7 @@ import { applyPlanetSystems } from "../systems/planetSystem";
 import { detectObjectsForFleetAtCurrentHex } from "../systems/detectionSystem";
 import type { DetectionResult } from "../detectionDomain";
 import { applyStationGeneration } from "../systems/stationSystem";
+import { resolveAdministratumTitheProposals } from "../systems/administratumSystem";
 
 function restoreMovementPoints(state: GameState): void {
   for (const fleet of Object.values(state.fleets)) {
@@ -76,6 +77,8 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
   const combatEnd = resolveCombat(state);
   const combat = mergeCombatReports([combatStart, combatEnd]);
 
+  const administratum = resolveAdministratumTitheProposals(state);
+
   const economy = applyEconomy(state);
   const visibility = recalcVisibility(state);
 
@@ -93,6 +96,7 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
     economy,
     planet,
     detection,
+    administratum,
     visibility,
   };
 }

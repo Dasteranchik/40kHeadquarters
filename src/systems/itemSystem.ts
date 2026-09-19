@@ -6,6 +6,7 @@ import {
   type KnowledgeCode,
 } from "../itemDomain";
 import type { GameState } from "../types";
+import { secretStorageAllowsArtifact, secretStorageAllowsKnowledge } from "../secretStorageDomain";
 
 export interface ItemActor {
   role: "admin" | "player";
@@ -48,6 +49,10 @@ export function resolveItemInventory(
       const station = state.stations[location.stationId];
       return station?.capabilities.includes("SHOP") ? station.shop.items : null;
     }
+    case "PLANET_SECRET":
+      return state.planets[location.planetId]?.secretStorage?.itemInventory ?? null;
+    case "STATION_SECRET":
+      return state.stations[location.stationId]?.secretStorage?.itemInventory ?? null;
     case "SHIPWRECK":
       return state.shipwrecks[location.shipwreckId]?.inventory ?? null;
     default: {
@@ -72,6 +77,11 @@ export function actorCanAccessItemLocation(
       return location.playerId === actor.playerId;
     case "PLANET_SHOP":
     case "STATION_SHOP":
+    // TODO(SECRET-STORAGE-TRANSFER): password authentication reveals storage
+    // contents only. Physical player transfers remain disabled until their
+    // range/location rules are specified; do not infer them here.
+    case "PLANET_SECRET":
+    case "STATION_SECRET":
     case "SHIPWRECK":
       return false;
     default: {
@@ -106,6 +116,18 @@ export function transferArtifact(
   ) {
     return { ok: false, changed: false, message: "Artifact is not owned by source inventory" };
   }
+  if (target.kind === "PLANET_SECRET") {
+    const storage = state.planets[target.planetId]?.secretStorage;
+    if (!storage || !secretStorageAllowsArtifact(storage, artifact.definitionCode)) {
+      return { ok: false, changed: false, message: "Artifact type is not allowed in Secret Storage" };
+    }
+  }
+  if (target.kind === "STATION_SECRET") {
+    const storage = state.stations[target.stationId]?.secretStorage;
+    if (!storage || !secretStorageAllowsArtifact(storage, artifact.definitionCode)) {
+      return { ok: false, changed: false, message: "Artifact type is not allowed in Secret Storage" };
+    }
+  }
   if (targetInventory.artifactIds.includes(artifactId)) {
     return { ok: false, changed: false, message: "Target already contains artifact" };
   }
@@ -131,6 +153,18 @@ export function copyKnowledge(
   const targetInventory = resolveItemInventory(state, target, true);
   if (!sourceInventory || !targetInventory) {
     return { ok: false, changed: false, message: "Inventory not found" };
+  }
+  if (target.kind === "PLANET_SECRET") {
+    const storage = state.planets[target.planetId]?.secretStorage;
+    if (!storage || !secretStorageAllowsKnowledge(storage, knowledge)) {
+      return { ok: false, changed: false, message: "Knowledge type is not allowed in Secret Storage" };
+    }
+  }
+  if (target.kind === "STATION_SECRET") {
+    const storage = state.stations[target.stationId]?.secretStorage;
+    if (!storage || !secretStorageAllowsKnowledge(storage, knowledge)) {
+      return { ok: false, changed: false, message: "Knowledge type is not allowed in Secret Storage" };
+    }
   }
   if (!sourceInventory.knowledge.includes(knowledge)) {
     return { ok: false, changed: false, message: "Source does not contain knowledge" };

@@ -62,8 +62,12 @@ import {
   ResourceStore,
 } from "../types";
 import { defaultPlayerColor, isPlayerColor } from "../utils/playerColor";
+import { normalizeWarpVisibility } from "../navigationDomain";
+import type { SecretStorage } from "../secretStorageDomain";
+import { secretStorageAllowsArtifact, validateAllowedTypeKeys } from "../secretStorageDomain";
+import type { UnitVariant } from "../unitVariantDomain";
 
-const DEFAULT_FACTIONS: Array<{ id: string; name: string; isNavigator?: boolean }> = [
+const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
   { id: "astra_militarum", name: "Астра Милитарум" },
   { id: "battle_fleet", name: "Боевой Флот" },
   { id: "fleet", name: "Флот" },
@@ -71,7 +75,7 @@ const DEFAULT_FACTIONS: Array<{ id: string; name: string; isNavigator?: boolean 
   { id: "rogue_traders", name: "Вольные Торговцы" },
   { id: "ecclesiarchy", name: "Эклезиархия" },
   { id: "administratum", name: "Администратум" },
-  { id: "navis_nobilite", name: "Навигаторы", isNavigator: true },
+  { id: "navis_nobilite", name: "Навигаторы" },
   { id: "other_psykers", name: "другие псайкеры" },
   { id: "inquisition", name: "Инквизиция" },
   { id: "chaos", name: "Хаоситы" },
@@ -311,7 +315,8 @@ function normalizeFaction(factionId: string, value: unknown): Faction {
       id,
       code: factionId,
       name: fallbackFactionNameById(factionId),
-      isNavigator: factionId === "navis_nobilite",
+      isChaos: false,
+      isAdministratum: false,
     };
   }
 
@@ -333,7 +338,8 @@ function normalizeFaction(factionId: string, value: unknown): Faction {
       : factionId,
     name: normalizedName,
     description: normalizedDescription,
-    isNavigator: raw.isNavigator === true || raw.code === "navis_nobilite",
+    isChaos: raw.isChaos === true,
+    isAdministratum: raw.isAdministratum === true,
   };
 }
 
@@ -345,7 +351,8 @@ function defaultFactions(): Record<string, Faction> {
       id,
       code: faction.id,
       name: faction.name,
-      isNavigator: faction.isNavigator === true,
+      isChaos: false,
+      isAdministratum: false,
     };
   });
   return result;
@@ -359,7 +366,8 @@ function addMissingDefaultFactions(factions: Record<string, Faction>): void {
         id,
         code: faction.id,
         name: faction.name,
-        isNavigator: faction.isNavigator === true,
+        isChaos: false,
+        isAdministratum: false,
       };
     }
   }
@@ -430,11 +438,44 @@ function normalizePlayer(
         : derivedAlignment,
     factionId: Number.isInteger(rawFactionId) ? rawFactionId : Number(fallbackFactionId),
     intelFragments: normalizeIntelMap(player.intelFragments),
+    manualNavigator: player.manualNavigator === true,
+  };
+}
+
+function normalizeSecretStorage(value: unknown): SecretStorage | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<SecretStorage>;
+  const allowedTypeKeys = validateAllowedTypeKeys(candidate.allowedTypeKeys);
+  const verifier = candidate.passwordVerifier;
+  if (
+    !allowedTypeKeys
+    || !verifier
+    || verifier.algorithm !== "SCRYPT"
+    || typeof verifier.salt !== "string"
+    || typeof verifier.digest !== "string"
+    || verifier.salt.length === 0
+    || verifier.digest.length === 0
+  ) return undefined;
+  const stackableInventory = normalizeResourceStore(candidate.stackableInventory, true);
+  for (const key of Object.keys(stackableInventory)) {
+    if (!allowedTypeKeys.includes(key as never)) delete stackableInventory[key as keyof typeof stackableInventory];
+  }
+  const itemInventory = normalizeItemInventory(candidate.itemInventory);
+  itemInventory.knowledge = itemInventory.knowledge.filter((code) =>
+    allowedTypeKeys.includes(`KNOWLEDGE:${code}`),
+  );
+  return {
+    enabled: candidate.enabled === true,
+    passwordVerifier: { ...verifier },
+    allowedTypeKeys,
+    stackableInventory,
+    itemInventory,
   };
 }
 
 function normalizePlanet(id: string, value: unknown, legacyProductOwnerId?: number): Planet {
   const planet = (value ?? {}) as Partial<Planet> & { productStorage?: unknown };
+  const secretStorage = normalizeSecretStorage(planet.secretStorage);
   const worldType = defaultWorldType(planet);
   const worldTags = normalizeTags(planet.worldTags);
   const population = intOrDefault(
@@ -489,12 +530,12 @@ function normalizePlanet(id: string, value: unknown, legacyProductOwnerId?: numb
     ) / 100,
     influenceValue: intOrDefault(planet.influenceValue, 1, 0),
     visionRange: intOrDefault(planet.visionRange, 1, 0),
-    overviewRange: intOrDefault(planet.overviewRange, intOrDefault(planet.visionRange, 1, 0), 0),
     rawStock: normalizeResourceStore(planet.rawStock, true),
     productStorageByPlayerId,
     itemStorageByPlayerId: normalizePlayerItemInventories(planet.itemStorageByPlayerId),
     shop: normalizeShop(planet.shop),
     infoFragments: normalizeIntelMap(planet.infoFragments),
+    ...(secretStorage ? { secretStorage } : {}),
   };
 }
 
@@ -520,7 +561,14 @@ function normalizeFleet(id: string, value: unknown): Fleet {
     influence: intOrDefault(fleet.influence, 5, 0),
     movementPoints,
     maxMovementPoints,
-    navigatorRange: intOrDefault(fleet.navigatorRange, 0, 0),
+    isNavigator: fleet.isNavigator === true,
+    warpVisibility: normalizeWarpVisibility(
+      fleet.warpVisibility !== undefined ? fleet.warpVisibility : (
+        typeof (fleet as Partial<Fleet> & { navigatorRange?: unknown }).navigatorRange === "number"
+          ? Math.min(3, Math.max(0, Math.trunc((fleet as Partial<Fleet> & { navigatorRange: number }).navigatorRange)))
+          : null
+      ),
+    ),
     visionRange: intOrDefault(fleet.visionRange, 2, 0),
     shareVisionWithAllies: fleet.shareVisionWithAllies === true,
     capacity: intOrDefault(fleet.capacity, 10, 0),
@@ -529,8 +577,11 @@ function normalizeFleet(id: string, value: unknown): Fleet {
     inventory: normalizeResourceStore(fleet.inventory),
     itemInventory: normalizeItemInventory(fleet.itemInventory),
     tags: normalizeUnitTags(fleet.tags),
-    ...(typeof fleet.carrierFleetId === "string" && fleet.carrierFleetId
-      ? { carrierFleetId: fleet.carrierFleetId }
+    ...(Number.isInteger(Number(fleet.carrierFleetId)) && Number(fleet.carrierFleetId) > 0
+      ? { carrierFleetId: Number(fleet.carrierFleetId) }
+      : {}),
+    ...(Number.isInteger(Number(fleet.unitVariantId)) && Number(fleet.unitVariantId) > 0
+      ? { unitVariantId: Number(fleet.unitVariantId) }
       : {}),
   };
 }
@@ -634,6 +685,7 @@ function normalizePendingInformants(value: unknown): PendingPlanetInformantActio
 
 function normalizeStation(id: string, value: unknown): Station {
   const station = (value ?? {}) as Partial<Station>;
+  const secretStorage = normalizeSecretStorage(station.secretStorage);
   const capabilities = Array.isArray(station.capabilities)
     ? [...new Set(station.capabilities.filter(isStationCapability))]
     : [];
@@ -653,7 +705,11 @@ function normalizeStation(id: string, value: unknown): Station {
     itemStorageByPlayerId: normalizePlayerItemInventories(station.itemStorageByPlayerId),
     shop: normalizeShop(station.shop),
     infoFragments: normalizeIntelMap(station.infoFragments),
-    overviewRange: intOrDefault(station.overviewRange, 0, 0),
+    ownerFactionId: Number.isInteger(Number(station.ownerFactionId)) && Number(station.ownerFactionId) > 0
+      ? Number(station.ownerFactionId)
+      : null,
+    warpVisibility: normalizeWarpVisibility(station.warpVisibility),
+    ...(secretStorage ? { secretStorage } : {}),
     fleetCombatPower: intOrDefault(station.fleetCombatPower, 0, 0),
     armyCombatPower: intOrDefault(station.armyCombatPower, 0, 0),
   };
@@ -736,6 +792,14 @@ function normalizeInventoryLocation(value: unknown): InventoryLocation | null {
       return Number.isInteger(location.stationId)
         ? { kind: "STATION_SHOP", stationId: Number(location.stationId) }
         : null;
+    case "PLANET_SECRET":
+      return Number.isInteger(location.planetId)
+        ? { kind: "PLANET_SECRET", planetId: Number(location.planetId) }
+        : null;
+    case "STATION_SECRET":
+      return Number.isInteger(location.stationId)
+        ? { kind: "STATION_SECRET", stationId: Number(location.stationId) }
+        : null;
     case "SHIPWRECK":
       return Number.isInteger(location.shipwreckId)
         ? { kind: "SHIPWRECK", shipwreckId: Number(location.shipwreckId) }
@@ -784,6 +848,12 @@ function normalizeArtifacts(value: unknown): Record<string, ArtifactInstance> {
       name: typeof candidate.name === "string" && candidate.name ? candidate.name : id,
       owner,
       configuration: normalizeJsonRecord(candidate.configuration),
+      isNavigator: candidate.isNavigator === true,
+      warpVisibility: normalizeWarpVisibility(
+        candidate.warpVisibility !== undefined
+          ? candidate.warpVisibility
+          : candidate.configuration?.navigatorRange,
+      ),
       ...(passiveEffect ? { passiveEffect } : {}),
       ...(useEffect ? { useEffect } : {}),
       ...(Number.isInteger(candidate.cooldownTurns) && Number(candidate.cooldownTurns) >= 0
@@ -796,6 +866,64 @@ function normalizeArtifacts(value: unknown): Record<string, ArtifactInstance> {
     };
   }
   return result;
+}
+
+function normalizeUnitVariants(value: unknown): Record<string, UnitVariant> {
+  if (!value || typeof value !== "object") return {};
+  const result: Record<string, UnitVariant> = {};
+  for (const [id, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!Number.isInteger(Number(id)) || Number(id) <= 0 || !raw || typeof raw !== "object") continue;
+    const candidate = raw as Partial<UnitVariant>;
+    if (typeof candidate.name !== "string" || !candidate.name.trim()) continue;
+    if (candidate.domain !== "SPACE" && candidate.domain !== "GROUND") continue;
+    const description = typeof candidate.description === "string" && candidate.description.trim()
+      ? candidate.description.trim()
+      : undefined;
+    result[id] = {
+      id: Number(id),
+      name: candidate.name.trim(),
+      domain: candidate.domain,
+      ...(description ? { description } : {}),
+    };
+  }
+  return result;
+}
+
+function normalizeAdministratumWorldReports(value: unknown, state: GameState): GameState["administratumWorldReports"] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<number>();
+  return value.flatMap((raw) => {
+    if (!raw || typeof raw !== "object") return [];
+    const entry = raw as Partial<GameState["administratumWorldReports"][number]>;
+    const planetId = Number(entry.planetId);
+    if (!Number.isInteger(planetId) || !state.planets[planetId] || seen.has(planetId)) return [];
+    seen.add(planetId);
+    return [{
+      planetId,
+      reportedAtTurn: intOrDefault(entry.reportedAtTurn, 1, 1),
+      sequence: intOrDefault(entry.sequence, seen.size, 1),
+    }];
+  }).sort((a, b) => a.sequence - b.sequence);
+}
+
+function normalizeAdministratumTitheProposals(value: unknown, state: GameState): GameState["administratumTitheProposals"] {
+  if (!Array.isArray(value)) return [];
+  const result = new Map<string, GameState["administratumTitheProposals"][number]>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const entry = raw as Partial<GameState["administratumTitheProposals"][number]>;
+    const planetId = Number(entry.planetId);
+    const playerId = Number(entry.playerId);
+    if (!state.planets[planetId] || !state.players[playerId] || !isTitheLevel(entry.titheLevel)) continue;
+    const requestedOnTurn = intOrDefault(entry.requestedOnTurn, state.turnNumber, 1);
+    result.set(`${playerId}:${planetId}:${requestedOnTurn}`, {
+      planetId,
+      playerId,
+      requestedOnTurn,
+      titheLevel: entry.titheLevel,
+    });
+  }
+  return [...result.values()];
 }
 
 function normalizeDetectionState(value: unknown): DetectionState {
@@ -907,6 +1035,10 @@ function resolveItemInventory(
       const station = state.stations[location.stationId];
       return station?.capabilities.includes("SHOP") ? station.shop.items : null;
     }
+    case "PLANET_SECRET":
+      return state.planets[location.planetId]?.secretStorage?.itemInventory ?? null;
+    case "STATION_SECRET":
+      return state.stations[location.stationId]?.secretStorage?.itemInventory ?? null;
     case "SHIPWRECK":
       return state.shipwrecks[location.shipwreckId]?.inventory ?? null;
     default: {
@@ -921,14 +1053,30 @@ function reconcileArtifactOwnership(state: GameState): void {
   for (const fleet of Object.values(state.fleets)) inventories.push(fleet.itemInventory);
   for (const planet of Object.values(state.planets)) {
     inventories.push(planet.shop.items, ...Object.values(planet.itemStorageByPlayerId));
+    if (planet.secretStorage) inventories.push(planet.secretStorage.itemInventory);
   }
   for (const station of Object.values(state.stations)) {
     inventories.push(station.shop.items, ...Object.values(station.itemStorageByPlayerId));
+    if (station.secretStorage) inventories.push(station.secretStorage.itemInventory);
   }
   for (const shipwreck of Object.values(state.shipwrecks)) inventories.push(shipwreck.inventory);
   for (const inventory of inventories) inventory.artifactIds = [];
 
   for (const [artifactId, artifact] of Object.entries(state.artifacts)) {
+    if (artifact.owner.kind === "PLANET_SECRET") {
+      const storage = state.planets[artifact.owner.planetId]?.secretStorage;
+      if (!storage || !secretStorageAllowsArtifact(storage, artifact.definitionCode)) {
+        delete state.artifacts[artifactId];
+        continue;
+      }
+    }
+    if (artifact.owner.kind === "STATION_SECRET") {
+      const storage = state.stations[artifact.owner.stationId]?.secretStorage;
+      if (!storage || !secretStorageAllowsArtifact(storage, artifact.definitionCode)) {
+        delete state.artifacts[artifactId];
+        continue;
+      }
+    }
     const inventory = resolveItemInventory(state, artifact.owner);
     if (!inventory) {
       delete state.artifacts[artifactId];
@@ -940,7 +1088,16 @@ function reconcileArtifactOwnership(state: GameState): void {
 
 export function normalizeGameState(state: GameState): GameState {
   delete (state as GameState & { titheRules?: unknown }).titheRules;
-  const normalizedFactions = normalizeFactions((state as Partial<GameState>).factions);
+  const rawFactions = (state as Partial<GameState>).factions;
+  const legacyNavigatorFactionIds = new Set<number>();
+  if (rawFactions && typeof rawFactions === "object") {
+    for (const [id, raw] of Object.entries(rawFactions)) {
+      if (raw && typeof raw === "object" && (raw as { isNavigator?: unknown }).isNavigator === true) {
+        legacyNavigatorFactionIds.add(Number(id));
+      }
+    }
+  }
+  const normalizedFactions = normalizeFactions(rawFactions);
   state.systemSettings = normalizeSystemSettings((state as Partial<GameState>).systemSettings);
   normalizeWarpDisturbance(state);
   const fallbackFactionId = resolveDefaultFactionId(normalizedFactions);
@@ -951,6 +1108,7 @@ export function normalizeGameState(state: GameState): GameState {
     if (!normalizedFactions[player.factionId]) {
       player.factionId = Number(fallbackFactionId);
     }
+    if (legacyNavigatorFactionIds.has(player.factionId)) player.manualNavigator = true;
 
     normalizedPlayers[playerId] = player;
   }
@@ -968,6 +1126,20 @@ export function normalizeGameState(state: GameState): GameState {
     const fleet = normalizeFleet(fleetId, value);
     if (!normalizedPlayers[fleet.ownerPlayerId]) {
       continue;
+    }
+    const legacyNavigatorRange = (value as Partial<Fleet> & { navigatorRange?: unknown })
+      ?.navigatorRange;
+    if (
+      !fleet.isNavigator
+      && legacyNavigatorFactionIds.has(normalizedPlayers[fleet.ownerPlayerId].factionId)
+      && typeof legacyNavigatorRange === "number"
+      && Number.isFinite(legacyNavigatorRange)
+      && legacyNavigatorRange > 0
+    ) {
+      // In legacy snapshots the Faction flag and a positive fleet range formed
+      // one navigation source. Preserve that source while moving permission to
+      // Player.manualNavigator and source capability to Fleet.isNavigator.
+      fleet.isNavigator = true;
     }
     if (fleet.domain === "SPACE") {
       fleet.maxMovementPoints = Math.max(
@@ -994,9 +1166,20 @@ export function normalizeGameState(state: GameState): GameState {
   state.fleets = normalizedFleets;
   const partialState = state as Partial<GameState>;
   state.stations = normalizeStations(partialState.stations);
+  for (const station of Object.values(state.stations)) {
+    if (station.ownerFactionId !== null && !state.factions[station.ownerFactionId]) {
+      station.ownerFactionId = null;
+    }
+  }
   state.shipwrecks = normalizeShipwrecks(partialState.shipwrecks);
   state.anomalies = normalizeAnomalies(partialState.anomalies);
   state.artifacts = normalizeArtifacts(partialState.artifacts);
+  state.unitVariants = normalizeUnitVariants(partialState.unitVariants);
+  for (const fleet of Object.values(state.fleets)) {
+    if (fleet.unitVariantId === undefined) continue;
+    const variant = state.unitVariants[fleet.unitVariantId];
+    if (!variant || variant.domain !== fleet.domain) delete fleet.unitVariantId;
+  }
   state.audit = normalizeAudit(partialState.audit);
   state.detection = normalizeDetectionState(partialState.detection);
   state.processedCommands = normalizeProcessedCommands(partialState.processedCommands);
@@ -1023,6 +1206,10 @@ export function normalizeGameState(state: GameState): GameState {
     audit: Math.max(
       intOrDefault(state.nextIds?.audit, 1, 1),
       ...state.audit.map((entry) => entry.id + 1),
+    ),
+    unitVariant: Math.max(
+      intOrDefault(state.nextIds?.unitVariant, 1, 1),
+      ...Object.values(state.unitVariants).map((entry) => entry.id + 1),
     ),
   };
   state.events = Array.isArray((state as Partial<GameState>).events)
@@ -1051,8 +1238,7 @@ export function normalizeGameState(state: GameState): GameState {
     planet.tithePaid = progress.paid;
     planet.titheTarget = progress.target;
   }
-  // Tithe is now configured directly by the administrator; legacy scheduled
-  // faction changes must not overwrite the derived current level.
+  // Legacy scheduled faction changes are not proposals and are intentionally discarded.
   state.pendingTitheChanges = [];
   state.pendingInformantActions = normalizePendingInformants(state.pendingInformantActions);
   state.pendingArmyTransportRequests = normalizeArmyTransportRequests(
@@ -1062,6 +1248,14 @@ export function normalizeGameState(state: GameState): GameState {
     const fleet = state.fleets[request.fleetId];
     return army?.domain === "GROUND" && fleet?.domain === "SPACE" && army.carrierFleetId !== fleet.id;
   });
+  state.administratumWorldReports = normalizeAdministratumWorldReports(
+    partialState.administratumWorldReports,
+    state,
+  );
+  state.administratumTitheProposals = normalizeAdministratumTitheProposals(
+    partialState.administratumTitheProposals,
+    state,
+  );
 
   for (const army of Object.values(state.fleets)) {
     if (army.domain !== "GROUND" || !army.carrierFleetId) continue;

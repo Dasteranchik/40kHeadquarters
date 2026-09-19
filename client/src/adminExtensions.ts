@@ -31,9 +31,15 @@ const statusLine = byId<HTMLParagraphElement>("extStatusLine");
 const stationName = byId<HTMLInputElement>("extStationName");
 const stationQ = byId<HTMLInputElement>("extStationQ");
 const stationR = byId<HTMLInputElement>("extStationR");
-const stationOverview = byId<HTMLInputElement>("extStationOverview");
+const stationOwnerFaction = byId<HTMLSelectElement>("extStationOwnerFaction");
+const stationWarpVisibility = byId<HTMLSelectElement>("extStationWarpVisibility");
 const stationFleetPower = byId<HTMLInputElement>("extStationFleetPower");
 const stationArmyPower = byId<HTMLInputElement>("extStationArmyPower");
+const stationSecretEnabled = byId<HTMLInputElement>("extStationSecretEnabled");
+const stationSecretPassword = byId<HTMLInputElement>("extStationSecretPassword");
+const stationSecretAllowed = byId<HTMLInputElement>("extStationSecretAllowed");
+const stationSecretStackable = byId<HTMLInputElement>("extStationSecretStackable");
+const stationSecretKnowledge = byId<HTMLInputElement>("extStationSecretKnowledge");
 const stationGeneration = byId<HTMLInputElement>("extStationGeneration");
 const stationRawStock = byId<HTMLInputElement>("extStationRawStock");
 const stationInfo = byId<HTMLInputElement>("extStationInfo");
@@ -53,8 +59,13 @@ const itemCode = byId<HTMLInputElement>("extItemCode");
 const itemName = byId<HTMLInputElement>("extItemName");
 const itemUseEffect = byId<HTMLInputElement>("extItemUseEffect");
 const itemConsumable = byId<HTMLInputElement>("extItemConsumable");
-const navigatorRange = byId<HTMLInputElement>("extNavigatorRange");
-const navigatorOrigin = byId<HTMLSelectElement>("extNavigatorOrigin");
+const itemNavigator = byId<HTMLInputElement>("extItemNavigator");
+const itemWarpVisibility = byId<HTMLSelectElement>("extItemWarpVisibility");
+const variantName = byId<HTMLInputElement>("extVariantName");
+const variantDomain = byId<HTMLSelectElement>("extVariantDomain");
+const variantDescription = byId<HTMLInputElement>("extVariantDescription");
+const addVariantBtn = byId<HTMLButtonElement>("extAddVariantBtn");
+const variantsList = byId<HTMLDivElement>("extVariantsList");
 const baseFleetMovementPoints = byId<HTMLInputElement>("extBaseFleetMovementPoints");
 const saveSystemSettingsBtn = byId<HTMLButtonElement>("extSaveSystemSettingsBtn");
 const randomizeWarpBtn = byId<HTMLButtonElement>("extRandomizeWarpBtn");
@@ -136,9 +147,17 @@ function stationPayload(): Record<string, unknown> {
     r: Math.trunc(Number(stationR.value)),
     capabilities,
     tags,
-    overviewRange: numeric(stationOverview),
+    ownerFactionId: stationOwnerFaction.value ? Number(stationOwnerFaction.value) : null,
+    warpVisibility: stationWarpVisibility.value === "" ? null : Number(stationWarpVisibility.value),
     fleetCombatPower: numeric(stationFleetPower),
     armyCombatPower: numeric(stationArmyPower),
+    secretStorage: {
+      enabled: stationSecretEnabled.checked,
+      ...(stationSecretPassword.value !== "" ? { password: stationSecretPassword.value } : {}),
+      allowedTypeKeys: parseJson(stationSecretAllowed.value, ["ORE"]),
+      stackableInventory: parseJson(stationSecretStackable.value, {}),
+      knowledge: parseJson(stationSecretKnowledge.value, []),
+    },
     ...(capabilities.includes("RESOURCE_GENERATION")
       ? { resourceGeneration: parseJson(stationGeneration.value, {}) }
       : {}),
@@ -156,9 +175,15 @@ function resetStationForm(): void {
   stationName.value = "";
   stationQ.value = "";
   stationR.value = "";
-  stationOverview.value = "0";
+  stationOwnerFaction.value = "";
+  stationWarpVisibility.value = "";
   stationFleetPower.value = "0";
   stationArmyPower.value = "0";
+  stationSecretEnabled.checked = false;
+  stationSecretPassword.value = "";
+  stationSecretAllowed.value = '["ORE"]';
+  stationSecretStackable.value = "{}";
+  stationSecretKnowledge.value = "[]";
   stationGeneration.value = "{}";
   stationRawStock.value = "{}";
   stationInfo.value = "{}";
@@ -176,9 +201,15 @@ function loadStationForEdit(station: Station): void {
   stationName.value = station.name;
   stationQ.value = String(station.position.q);
   stationR.value = String(station.position.r);
-  stationOverview.value = String(station.overviewRange);
+  stationOwnerFaction.value = station.ownerFactionId === null ? "" : String(station.ownerFactionId);
+  stationWarpVisibility.value = station.warpVisibility === null ? "" : String(station.warpVisibility);
   stationFleetPower.value = String(station.fleetCombatPower);
   stationArmyPower.value = String(station.armyCombatPower);
+  stationSecretEnabled.checked = station.secretStorage?.enabled === true;
+  stationSecretPassword.value = "";
+  stationSecretAllowed.value = JSON.stringify(station.secretStorage?.allowedTypeKeys ?? ["ORE"]);
+  stationSecretStackable.value = JSON.stringify(station.secretStorage?.stackableInventory ?? {});
+  stationSecretKnowledge.value = JSON.stringify(station.secretStorage?.itemInventory.knowledge ?? []);
   stationGeneration.value = JSON.stringify(station.resourceGeneration);
   stationRawStock.value = JSON.stringify(station.rawStock);
   stationInfo.value = JSON.stringify(station.infoFragments);
@@ -276,27 +307,83 @@ function renderWorldObjects(): void {
     row.className = "list-row";
     const text = document.createElement("span");
     text.textContent = artifact.id + " " + artifact.name + " @ " + JSON.stringify(artifact.owner);
-    row.append(text, actionButton("Delete", () => {
+    const navigator = document.createElement("input");
+    navigator.type = "checkbox";
+    navigator.checked = artifact.isNavigator;
+    const warp = document.createElement("select");
+    for (const value of ["", "0", "1", "2", "3"]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value || "-";
+      option.selected = value === (artifact.warpVisibility === null ? "" : String(artifact.warpVisibility));
+      warp.append(option);
+    }
+    row.append(text, document.createTextNode(" Навигатор "), navigator,
+      document.createTextNode(" Warp "), warp,
+      actionButton("Save", () => {
+        void mutate("/api/admin/artifacts/" + encodeURIComponent(artifact.id), {
+          method: "PUT",
+          body: JSON.stringify({
+            isNavigator: navigator.checked,
+            warpVisibility: warp.value === "" ? null : Number(warp.value),
+          }),
+        });
+      }), actionButton("Delete", () => {
       if (!window.confirm("Delete " + artifact.id + "?")) return;
       void mutate("/api/admin/artifacts/" + encodeURIComponent(artifact.id), { method: "DELETE" });
     }, true));
     artifactsList.append(row);
   }
 }
-function renderNavigatorOrigins(): void {
-  const keep = navigatorOrigin.value;
-  navigatorOrigin.innerHTML = "";
+
+function renderFactionOptions(): void {
+  const keep = stationOwnerFaction.value;
+  stationOwnerFaction.innerHTML = '<option value="">-</option>';
   if (!state) return;
-  for (const player of Object.values(state.players).sort((a, b) => a.id - b.id)) {
-    const faction = state.factions[player.factionId];
-    if (!faction?.isNavigator) continue;
+  for (const faction of Object.values(state.factions).sort((a, b) => a.id - b.id)) {
     const option = document.createElement("option");
-    option.value = String(player.id);
-    option.textContent = player.name + " (#" + player.id + ")";
-    navigatorOrigin.append(option);
+    option.value = String(faction.id);
+    option.textContent = faction.name + " (#" + faction.id + ")";
+    stationOwnerFaction.append(option);
   }
-  if (Array.from(navigatorOrigin.options).some((option) => option.value === keep)) {
-    navigatorOrigin.value = keep;
+  if (Array.from(stationOwnerFaction.options).some((option) => option.value === keep)) {
+    stationOwnerFaction.value = keep;
+  }
+}
+
+function renderVariants(): void {
+  variantsList.innerHTML = "";
+  if (!state) return;
+  for (const variant of Object.values(state.unitVariants).sort((a, b) => a.id - b.id)) {
+    const row = document.createElement("div");
+    row.className = "list-row";
+    const text = document.createElement("span");
+    text.textContent = `#${variant.id} ${variant.name} [${variant.domain}] ${variant.description ?? ""}`;
+    row.append(text, actionButton("Изменить", () => {
+      const name = window.prompt("Название вида", variant.name);
+      if (name === null) return;
+      const domain = window.prompt("Среда: SPACE или GROUND", variant.domain);
+      if (domain === null) return;
+      const normalizedDomain = domain.trim().toUpperCase();
+      if (normalizedDomain !== "SPACE" && normalizedDomain !== "GROUND") {
+        statusLine.textContent = "Среда должна быть SPACE или GROUND";
+        return;
+      }
+      const description = window.prompt("Описание", variant.description ?? "");
+      if (description === null) return;
+      void mutate(`/api/admin/unit-variants/${variant.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: name.trim(),
+          domain: normalizedDomain,
+          description: description.trim(),
+        }),
+      });
+    }), actionButton("Delete", () => {
+      if (!window.confirm(`Удалить вид ${variant.name}? Ссылки юнитов будут очищены.`)) return;
+      void mutate(`/api/admin/unit-variants/${variant.id}`, { method: "DELETE" });
+    }, true));
+    variantsList.append(row);
   }
 }
 
@@ -346,7 +433,8 @@ async function loadAll(): Promise<void> {
     ]);
     state = stateResponse.state;
     baseFleetMovementPoints.value = String(state.systemSettings.baseFleetMovementPoints);
-    renderNavigatorOrigins();
+    renderFactionOptions();
+    renderVariants();
     snapshots = snapshotResponse.snapshots;
     auditList.textContent = JSON.stringify(auditResponse.audit.slice(-200).reverse(), null, 2);
     renderStations();
@@ -407,8 +495,6 @@ addItemBtn.addEventListener("click", () => {
   try {
     const target = parseJson(itemTarget.value);
     const definitionCode = itemCode.value.trim().toUpperCase();
-    const isNavigator = itemKind.value === "ARTIFACT" && definitionCode === "NAVIGATOR";
-    if (isNavigator && !navigatorOrigin.value) throw new Error("Выберите первоначального игрока-Навигатора");
     const payload = itemKind.value === "KNOWLEDGE"
       ? { kind: "KNOWLEDGE", code: itemCode.value.trim(), target }
       : {
@@ -417,10 +503,8 @@ addItemBtn.addEventListener("click", () => {
           name: itemName.value.trim(),
           consumable: itemConsumable.checked,
           target,
-          ...(isNavigator ? {
-            navigatorRange: Math.max(1, Math.trunc(Number(navigatorRange.value))),
-            navigatorOriginPlayerId: Number(navigatorOrigin.value),
-          } : {}),
+          isNavigator: itemNavigator.checked,
+          warpVisibility: itemWarpVisibility.value === "" ? null : Number(itemWarpVisibility.value),
           ...(itemUseEffect.value.trim()
             ? { useEffect: parseJson(itemUseEffect.value) }
             : {}),
@@ -429,6 +513,21 @@ addItemBtn.addEventListener("click", () => {
   } catch (error) {
     statusLine.textContent = (error as Error).message;
   }
+});
+addVariantBtn.addEventListener("click", () => {
+  const name = variantName.value.trim();
+  if (!name) {
+    statusLine.textContent = "Введите название вида";
+    return;
+  }
+  void mutate("/api/admin/unit-variants", {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      domain: variantDomain.value,
+      description: variantDescription.value.trim() || undefined,
+    }),
+  });
 });
 addAnomalyBtn.addEventListener("click", () => {
   void mutate("/api/admin/anomalies", {

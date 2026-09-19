@@ -16,6 +16,7 @@ import {
   PlayerProductStorages,
 } from "../types";
 import type { UnitTag } from "../unitDomain";
+import type { WarpVisibility } from "../navigationDomain";
 
 export type Role = "admin" | "player";
 
@@ -52,6 +53,7 @@ export interface AddPlayerRequest {
   password?: string;
   alignment?: PlayerAlignment;
   factionId?: number;
+  manualNavigator?: boolean;
 }
 
 export interface AddPlanetRequest {
@@ -69,10 +71,10 @@ export interface AddPlanetRequest {
   resourceGeneration?: ResourceStore;
   influenceValue?: number;
   visionRange?: number;
-  overviewRange?: number;
   rawStock?: ResourceStore;
   productStorageByPlayerId?: PlayerProductStorages;
   infoFragments?: IntelFragmentMap;
+  secretStorage?: unknown;
 }
 
 export interface AddFleetRequest {
@@ -84,13 +86,15 @@ export interface AddFleetRequest {
   influence?: number;
   movementPoints?: number;
   maxMovementPoints?: number;
-  navigatorRange?: number;
+  isNavigator?: boolean;
+  warpVisibility?: WarpVisibility;
   visionRange?: number;
   capacity?: number;
   stance?: FleetStance;
   domain?: FleetDomain;
   inventory?: ResourceStore;
   tags?: UnitTag[];
+  unitVariantId?: number | null;
 }
 
 export interface AddArmyRequest {
@@ -102,7 +106,7 @@ export interface AddArmyRequest {
   health?: number;
   influence?: number;
   visionRange?: number;
-  navigatorRange?: number;
+  unitVariantId?: number | null;
   stance?: FleetStance;
 }
 
@@ -110,7 +114,8 @@ export interface AddFactionRequest {
   code: string;
   name: string;
   description?: string;
-  isNavigator?: boolean;
+  isChaos?: boolean;
+  isAdministratum?: boolean;
 }
 
 export interface UpdatePlayerRequest {
@@ -122,6 +127,7 @@ export interface UpdatePlayerRequest {
   password?: string;
   alignment?: PlayerAlignment;
   factionId?: number;
+  manualNavigator?: boolean;
 }
 
 export interface UpdatePlanetRequest {
@@ -139,10 +145,10 @@ export interface UpdatePlanetRequest {
   resourceGeneration?: ResourceStore;
   influenceValue?: number;
   visionRange?: number;
-  overviewRange?: number;
   rawStock?: ResourceStore;
   productStorageByPlayerId?: PlayerProductStorages;
   infoFragments?: IntelFragmentMap;
+  secretStorage?: unknown;
 }
 
 
@@ -155,19 +161,22 @@ export interface UpdateFleetRequest {
   influence?: number;
   movementPoints?: number;
   maxMovementPoints?: number;
-  navigatorRange?: number;
+  isNavigator?: boolean;
+  warpVisibility?: WarpVisibility;
   visionRange?: number;
   capacity?: number;
   stance?: FleetStance;
   domain?: FleetDomain;
   inventory?: ResourceStore;
   tags?: UnitTag[];
+  unitVariantId?: number | null;
 }
 
 export interface UpdateFactionRequest {
   name?: string;
   description?: string;
-  isNavigator?: boolean;
+  isChaos?: boolean;
+  isAdministratum?: boolean;
 }
 
 export type RelationType = "WAR" | "ALLIANCE";

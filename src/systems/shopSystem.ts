@@ -162,7 +162,7 @@ export function tradeWithShop(
   }
   return {
     ok: true,
-    message: `Traded ${paymentTotal} resources for ${receiveAmount} ${receiveKey}`,
+    message: `Обменено ${paymentTotal} ед. ресурсов на ${receiveAmount} ${receiveKey}`,
     received: receiveAmount,
     paymentTotal,
     disappeared,

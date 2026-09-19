@@ -20,6 +20,24 @@ function hasMoveOrder(actions: Iterable<Action>, unitId: number): boolean {
   return false;
 }
 
+export function armyCapacityUsed(army: GameState["fleets"][number]): number {
+  return army.domain === "GROUND" ? Math.ceil(Math.max(0, army.health) / 1000) : 0;
+}
+
+export function carrierCapacityUsed(state: GameState, carrierFleetId: number): number {
+  return Object.values(state.fleets).reduce(
+    (total, unit) => total + (unit.carrierFleetId === carrierFleetId ? armyCapacityUsed(unit) : 0),
+    0,
+  );
+}
+
+function hasCapacityForArmy(state: GameState, carrierFleetId: number, army: GameState["fleets"][number]): boolean {
+  const carrier = state.fleets[carrierFleetId];
+  if (!carrier || carrier.domain !== "SPACE") return false;
+  const alreadyOnCarrier = army.carrierFleetId === carrierFleetId ? armyCapacityUsed(army) : 0;
+  return carrierCapacityUsed(state, carrierFleetId) - alreadyOnCarrier + armyCapacityUsed(army) <= carrier.capacity;
+}
+
 export function requestArmyEmbark(
   state: GameState,
   actions: Iterable<Action>,
@@ -39,6 +57,9 @@ export function requestArmyEmbark(
   }
   if (fleet.ownerPlayerId !== playerId && !areMutualAllies(state.players, playerId, fleet.ownerPlayerId)) {
     return { ok: false, message: "Carrier fleet must be owned by player or a mutual ally" };
+  }
+  if (!hasCapacityForArmy(state, fleet.id, army)) {
+    return { ok: false, message: "Carrier fleet has insufficient capacity" };
   }
   if (hasMoveOrder(actions, fleetId) || (army.carrierFleetId && hasMoveOrder(actions, army.carrierFleetId))) {
     return { ok: false, message: "Embarkation is available only before movement is planned" };
@@ -74,6 +95,9 @@ export function respondArmyEmbark(
   if (request.requestedOnTurn !== state.turnNumber || hasMoveOrder(actions, fleet.id) ||
       (army.carrierFleetId && hasMoveOrder(actions, army.carrierFleetId))) {
     return { ok: true, message: "Embarkation request expired: operation is available only at the start of the turn" };
+  }
+  if (!hasCapacityForArmy(state, fleet.id, army)) {
+    return { ok: true, message: "Embarkation request expired: carrier capacity is insufficient" };
   }
   army.carrierFleetId = fleet.id;
   army.position = { ...fleet.position };

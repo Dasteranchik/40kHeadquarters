@@ -6,7 +6,8 @@ import { Action, Fleet, GameState, HexCoord, Planet, TurnResolution } from "../t
 import { coordKey } from "../hex";
 import { Session } from "./contracts";
 import { createEmptyItemInventory } from "../itemDomain";
-import { collectVisibleWarpTileKeysForPlayer } from "../systems/navigatorSystem";
+import { collectVisibleWarpTileKeysForPlayer, isEffectiveNavigator } from "../systems/navigatorSystem";
+import { playerIsAdministratum } from "../systems/administratumSystem";
 import type { Station } from "../worldObjectDomain";
 
 function canSessionSeeFleetOwner(
@@ -58,10 +59,12 @@ function canSessionSeeFleet(
 }
 
 function planetForPlayer(planet: Planet, playerId: number): Planet {
+  const { secretStorage, ...safePlanet } = planet;
   const ownStorage = planet.productStorageByPlayerId[String(playerId)];
   const ownItems = planet.itemStorageByPlayerId[String(playerId)];
   return {
-    ...planet,
+    ...safePlanet,
+    ...(secretStorage ? { secretStorageAvailable: secretStorage.enabled } : {}),
     productStorageByPlayerId: ownStorage
       ? { [String(playerId)]: { ...ownStorage } }
       : {},
@@ -72,10 +75,12 @@ function planetForPlayer(planet: Planet, playerId: number): Planet {
 }
 
 function stationForPlayer(station: Station, playerId: number): Station {
+  const { secretStorage, ...safeStation } = station;
   const ownStorage = station.productStorageByPlayerId[String(playerId)];
   const ownItems = station.itemStorageByPlayerId[String(playerId)];
   return {
-    ...station,
+    ...safeStation,
+    ...(secretStorage ? { secretStorageAvailable: secretStorage.enabled } : {}),
     productStorageByPlayerId: ownStorage ? { [String(playerId)]: { ...ownStorage } } : {},
     itemStorageByPlayerId: ownItems ? { [String(playerId)]: { ...ownItems } } : {},
   };
@@ -145,7 +150,8 @@ export function filterFleetsForSession(
         ),
         movementPoints: 0,
         maxMovementPoints: 0,
-        navigatorRange: 0,
+        isNavigator: false,
+        warpVisibility: null,
         visionRange: 0,
         shareVisionWithAllies: false,
         capacity: 0,
@@ -217,6 +223,7 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
     shipwreck.inventory.artifactIds.forEach((id) => visibleArtifactIds.add(id));
   }
   const { audit: _audit, processedCommands: _processedCommands, ...safeState } = state;
+  const administratumAccess = Boolean(playerId && playerIsAdministratum(state, playerId));
   return {
     ...safeState,
     map: {
@@ -245,11 +252,20 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
       Object.entries(state.artifacts).filter(([artifactId]) => visibleArtifactIds.has(artifactId)),
     ),
     fleets: filterFleetsForSession(session, state, state.fleets),
+    players: Object.fromEntries(Object.entries(state.players).map(([id, player]) => [
+      id,
+      {
+        ...player,
+        ...(player.id === playerId ? { effectiveNavigator: isEffectiveNavigator(state, player.id) } : {}),
+      },
+    ])),
     events: state.events.filter((event) =>
       Boolean(playerId && event.playerIds.includes(playerId)),
     ),
     detection: { recordsByPlayerId: playerId ? { [String(playerId)]: detections } : {} },
     pendingArmyTransportRequests,
+    administratumWorldReports: administratumAccess ? state.administratumWorldReports : [],
+    administratumTitheProposals: administratumAccess ? state.administratumTitheProposals : [],
   } as GameState;
 }
 
@@ -367,6 +383,9 @@ export function buildResolutionForSession(
       ),
     },
     detection: resolution.detection.filter((entry) => entry.playerId === viewerId),
+    administratum: resolution.administratum.filter((entry) =>
+      Boolean(viewerId && (entry.notifiedPlayerIds.includes(viewerId) || playerIsAdministratum(state, viewerId))),
+    ),
     visibility: filterVisibilityForSession(session, resolution),
   };
 }

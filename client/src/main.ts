@@ -183,6 +183,13 @@ const planetTitheLevelSelect = document.getElementById(
   "planetTitheLevel",
 ) as HTMLSelectElement;
 const planetSetTitheBtn = document.getElementById("planetSetTitheBtn") as HTMLButtonElement;
+const planetReportWorldBtn = document.getElementById("planetReportWorldBtn") as HTMLButtonElement;
+const secretStorageTargetSelect = document.getElementById("secretStorageTarget") as HTMLSelectElement;
+const secretStoragePasswordInput = document.getElementById("secretStoragePassword") as HTMLInputElement;
+const secretStorageOpenBtn = document.getElementById("secretStorageOpenBtn") as HTMLButtonElement;
+const secretStorageContentsEl = document.getElementById("secretStorageContents") as HTMLPreElement;
+const administratumPanel = document.getElementById("administratumPanel") as HTMLElement;
+const administratumRegistryEl = document.getElementById("administratumRegistry") as HTMLDivElement;
 
 const adminPlayerIdInput = document.getElementById("adminPlayerId") as HTMLInputElement;
 const adminPlayerNameInput = document.getElementById("adminPlayerName") as HTMLInputElement;
@@ -1042,8 +1049,8 @@ function submitShopTrade(): void {
     const commandId = nextActionId("shop");
     sendMessage({
       type: "shopTrade",
+      commandId,
       payload: {
-        commandId,
         shop: selected.owner,
         fleetId: fleet.id,
         receive: {
@@ -1118,6 +1125,19 @@ function resolvePlanetActionContext(): PlanetActionContext | null {
     selectedFleet,
     planet,
   };
+}
+
+function selectedPlanetForReport(): Planet | null {
+  const state = runtime.gameState;
+  if (!state) return null;
+  const fleet = getSelectedFleet(runtime, state);
+  const fleetPlanet = fleet ? selectedFleetPlanet(state, fleet) : null;
+  if (fleetPlanet) return fleetPlanet;
+  const selectedHex = runtime.selectedStrategicHex;
+  if (!selectedHex) return null;
+  return Object.values(state.planets).find((planet) =>
+    planet.position.q === selectedHex.q && planet.position.r === selectedHex.r
+  ) ?? null;
 }
 
 function fillPlanetResourceOptions(
@@ -1270,6 +1290,83 @@ function submitPlanetAction(
   }
 }
 
+function refreshSecretStorageControls(state: Nullable<GameState>): void {
+  const previous = secretStorageTargetSelect.value;
+  secretStorageTargetSelect.innerHTML = "";
+  if (state) {
+    for (const planet of Object.values(state.planets)) {
+      if (!planet.secretStorageAvailable) continue;
+      const option = document.createElement("option");
+      option.value = `PLANET:${planet.id}`;
+      option.textContent = `Планета ${planet.name} (#${planet.id})`;
+      secretStorageTargetSelect.append(option);
+    }
+    for (const station of Object.values(state.stations)) {
+      if (!station.secretStorageAvailable) continue;
+      const option = document.createElement("option");
+      option.value = `STATION:${station.id}`;
+      option.textContent = `Станция ${station.name} (#${station.id})`;
+      secretStorageTargetSelect.append(option);
+    }
+  }
+  if (Array.from(secretStorageTargetSelect.options).some((option) => option.value === previous)) {
+    secretStorageTargetSelect.value = previous;
+  }
+  const available = secretStorageTargetSelect.options.length > 0;
+  secretStorageTargetSelect.disabled = !available;
+  secretStoragePasswordInput.disabled = !available;
+  secretStorageOpenBtn.disabled = !available;
+  if (!available) secretStorageContentsEl.textContent = "-";
+}
+
+function renderAdministratum(state: Nullable<GameState>, playerId: number | null): void {
+  const hasAccess = Boolean(
+    state && playerId && state.factions[state.players[playerId]?.factionId]?.isAdministratum,
+  );
+  administratumPanel.classList.toggle("hidden", !hasAccess);
+  administratumRegistryEl.innerHTML = "";
+  if (!state || !hasAccess) return;
+  for (const report of [...state.administratumWorldReports].sort((a, b) => a.sequence - b.sequence)) {
+    const row = document.createElement("div");
+    row.className = "entity-row";
+    const planet = state.planets[report.planetId];
+    const proposals = state.administratumTitheProposals
+      .filter((entry) => entry.planetId === report.planetId && entry.requestedOnTurn === state.turnNumber)
+      .map((entry) => `${entry.playerId}: ${entry.titheLevel}`)
+      .join(", ");
+    const description = document.createElement("span");
+    description.textContent = `${report.sequence}. ${planet?.name ?? `Мир #${report.planetId}`} · ход ${report.reportedAtTurn}`
+      + (proposals ? ` · предложения: ${proposals}` : "");
+    const level = document.createElement("select");
+    for (const titheLevel of TITHE_LEVEL_ORDER) {
+      const option = document.createElement("option");
+      option.value = titheLevel;
+      option.textContent = titheLevel;
+      level.append(option);
+    }
+    const ownProposal = state.administratumTitheProposals.find((entry) =>
+      entry.planetId === report.planetId
+      && entry.playerId === playerId
+      && entry.requestedOnTurn === state.turnNumber
+    );
+    level.value = ownProposal?.titheLevel ?? planet?.maxTitheLevel ?? TITHE_LEVEL_ORDER[0];
+    const propose = document.createElement("button");
+    propose.className = "ghost";
+    propose.textContent = "Предложить десятину";
+    propose.disabled = state.phase !== "PLANNING";
+    propose.addEventListener("click", () => {
+      sendMessage({
+        type: "proposeTithe",
+        commandId: nextActionId("tithe-proposal"),
+        planetId: report.planetId,
+        titheLevel: level.value as TitheLevel,
+      });
+    });
+    row.append(description, level, propose);
+    administratumRegistryEl.append(row);
+  }
+}
+
 function refreshPlanetActionControls(
   state: Nullable<GameState>,
   selectedFleet: Nullable<Fleet>,
@@ -1296,6 +1393,9 @@ function refreshPlanetActionControls(
   planetInfoCategorySelect.disabled = !canUsePlanet;
   planetTitheLevelSelect.disabled = !canUsePlanet;
   planetSetTitheBtn.disabled = true;
+  planetReportWorldBtn.disabled = !Boolean(
+    state && playerId && state.phase === "PLANNING" && selectedPlanetForReport(),
+  );
 
   if (!state || !selectedFleet || !playerId || !planet || state.phase !== "PLANNING") {
     planetRawResourceSelect.innerHTML = "";
@@ -1339,8 +1439,10 @@ function refreshPlanetActionControls(
     playerId,
     "inquisition",
   );
-  planetSetTitheBtn.disabled = true;
-  planetTitheLevelSelect.value = planet.titheLevel;
+  const administratum = Boolean(state.factions[player?.factionId]?.isAdministratum);
+  planetSetTitheBtn.disabled = !administratum;
+  planetTitheLevelSelect.disabled = !administratum;
+  planetTitheLevelSelect.value = planet.maxTitheLevel;
 }
 
 function submitTakeOrRaidStock(): void {
@@ -1524,6 +1626,8 @@ function refreshHud(): void {
     refreshArmyTransportControls(null, null);
     refreshShopControls(null, null);
     refreshDetectedObjects(null);
+    refreshSecretStorageControls(null);
+    renderAdministratum(null, null);
     refreshTurnCountdown();
     return;
   }
@@ -1532,12 +1636,13 @@ function refreshHud(): void {
   hudElements.phaseValueEl.textContent = state.phase;
   const playerId = activePlayerId(runtime);
   hudElements.resourceValueEl.textContent = String(getPlayerResources(state, playerId));
-  const hasNavigatorData = state.map.tiles.some((tile) => Number.isInteger(tile.warpDisturbanceLevel));
-  if (!hasNavigatorData) {
+  const hasNavigatorAccess = session.role === "admin"
+    || Boolean(playerId && state.players[playerId]?.effectiveNavigator);
+  if (!hasNavigatorAccess) {
     runtime.navigatorLayerEnabled = false;
     navigatorMapBtn.classList.remove("is-active");
   }
-  navigatorMapBtn.disabled = !hasNavigatorData;
+  navigatorMapBtn.disabled = !hasNavigatorAccess;
   navigatorMapBtn.classList.toggle("is-active", runtime.navigatorLayerEnabled);
   tacticalMapBtn.classList.toggle("is-active", runtime.mapMode === "TACTICAL");
   strategicMapBtn.classList.toggle("is-active", runtime.mapMode === "STRATEGIC");
@@ -1607,6 +1712,8 @@ function refreshHud(): void {
   });
   refreshTransferControls(state, selected);
   refreshPlanetActionControls(state, selected);
+  refreshSecretStorageControls(state);
+  renderAdministratum(state, playerId ? Number(playerId) : null);
   refreshShopControls(state, selected);
   refreshDetectedObjects(state);
   refreshTurnCountdown();
@@ -1633,6 +1740,12 @@ const networkSession = createNetworkSessionController({
   resizeAndRenderScene: () => {
     app.renderer.resize(stageEl.clientWidth, stageEl.clientHeight);
     renderScene();
+  },
+  showSecretStorage: (message) => {
+    secretStorageContentsEl.textContent = message.storage
+      ? JSON.stringify(message.storage, null, 2)
+      : message.message;
+    appendEvent(message.message);
   },
 });
 
@@ -1824,6 +1937,7 @@ function handleCanvasPrimaryClick(
   if (!selected) {
     if (runtime.mapMode === "STRATEGIC") {
       runtime.selectedStrategicHex = { ...clicked };
+      refreshHud();
       renderScene();
     }
     if (fleetsHere.length > 0) {
@@ -2154,9 +2268,37 @@ planetDeployInformantBtn.addEventListener("click", () => {
   });
 });
 planetSetTitheBtn.addEventListener("click", () => {
-  submitPlanetAction("ADMINISTRATUM_SET_TITHE", {
+  const context = resolvePlanetActionContext();
+  if (!context) return;
+  sendMessage({
+    type: "proposeTithe",
+    commandId: nextActionId("tithe-proposal"),
+    planetId: context.planet.id,
     titheLevel: planetTitheLevelSelect.value as TitheLevel,
   });
+});
+planetReportWorldBtn.addEventListener("click", () => {
+  const state = runtime.gameState;
+  const playerId = activePlayerId(runtime);
+  const planet = selectedPlanetForReport();
+  if (!state || !playerId || !planet || state.phase !== "PLANNING") return;
+  sendMessage({
+    type: "reportWorld",
+    commandId: nextActionId("report-world"),
+    planetId: planet.id,
+  });
+});
+secretStorageOpenBtn.addEventListener("click", () => {
+  const [kind, idText] = secretStorageTargetSelect.value.split(":");
+  const id = Number(idText);
+  if ((kind !== "PLANET" && kind !== "STATION") || !Number.isInteger(id)) return;
+  sendMessage({
+    type: "openSecretStorage",
+    commandId: nextActionId("secret-storage"),
+    target: { kind, id },
+    password: secretStoragePasswordInput.value,
+  });
+  secretStoragePasswordInput.value = "";
 });
 
 mapCamera.updateMapZoomUi();

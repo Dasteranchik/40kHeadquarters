@@ -1,4 +1,5 @@
 import type { ResourceKey } from "./planetDomain";
+import type { WarpVisibility } from "./navigationDomain";
 
 export type StackableInventory = Partial<Record<ResourceKey, number>>;
 
@@ -21,6 +22,8 @@ export type InventoryLocation =
   | { kind: "PLANET_SHOP"; planetId: number }
   | { kind: "STATION_STORAGE"; stationId: number; playerId: number }
   | { kind: "STATION_SHOP"; stationId: number }
+  | { kind: "PLANET_SECRET"; planetId: number }
+  | { kind: "STATION_SECRET"; stationId: number }
   | { kind: "SHIPWRECK"; shipwreckId: number };
 
 export type JsonValue =
@@ -42,6 +45,8 @@ export interface ArtifactInstance {
   name: string;
   owner: InventoryLocation;
   configuration: Record<string, JsonValue>;
+  isNavigator: boolean;
+  warpVisibility: WarpVisibility;
   passiveEffect?: ArtifactEffect;
   useEffect?: ArtifactEffect;
   cooldownTurns?: number;
@@ -67,6 +72,10 @@ export function inventoryLocationKey(location: InventoryLocation): string {
       return `STATION_STORAGE:${location.stationId}:${location.playerId}`;
     case "STATION_SHOP":
       return `STATION_SHOP:${location.stationId}`;
+    case "PLANET_SECRET":
+      return `PLANET_SECRET:${location.planetId}`;
+    case "STATION_SECRET":
+      return `STATION_SECRET:${location.stationId}`;
     case "SHIPWRECK":
       return `SHIPWRECK:${location.shipwreckId}`;
     default: {

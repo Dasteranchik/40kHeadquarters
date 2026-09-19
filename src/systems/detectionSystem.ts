@@ -11,9 +11,6 @@ import { getObjectsAtHex, type WorldObject } from "../worldObjectDomain";
 
 export type DetectionRng = () => number;
 
-// TODO(DEC-014): Planet/Station overview interaction with the Fleet HP roll
-// is intentionally not applied until its modifier rule is agreed.
-
 function objectHasStealth(object: WorldObject): boolean {
   switch (object.kind) {
     case "FLEET":
@@ -95,11 +92,8 @@ export function detectObjectsForFleetAtCurrentHex(
   rng: DetectionRng = Math.random,
 ): DetectionResult | null {
   const observer = state.fleets[fleetId];
-  if (!observer || observer.domain !== "SPACE") {
-    // TODO(DEC-015): independent Army detection has no agreed characteristic/formula.
-    return null;
-  }
-  const dieSize = Math.max(1, Math.trunc(observer.health));
+  if (!observer) return null;
+  const dieSize = 4;
   const roll = rollDie(dieSize, rng);
   const detected: DetectionRecord[] = [];
   const unresolvedStealthObjectKeys: string[] = [];

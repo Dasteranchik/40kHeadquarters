@@ -24,6 +24,9 @@ import type { Session } from "../contracts";
 import { readJsonBody, writeJson } from "../transport";
 import type { AdminHandlerDeps } from "./deps";
 import { getTileAt, parseIntelFragments, parseResourceStore } from "./helpers";
+import { parseSecretStorageUpdate } from "./helpers";
+import { isWarpVisibility } from "../../navigationDomain";
+import { secretStorageAllowsArtifact, secretStorageAllowsKnowledge } from "../../secretStorageDomain";
 
 export interface WorldObjectAdminHandlers {
   handleListStations: (req: IncomingMessage, res: ServerResponse) => void;
@@ -42,6 +45,7 @@ export interface WorldObjectAdminHandlers {
   ) => Promise<void>;
   handleAddItem: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleDeleteArtifact: (req: IncomingMessage, res: ServerResponse, id: string) => void;
+  handleUpdateArtifact: (req: IncomingMessage, res: ServerResponse, id: string) => Promise<void>;
   handleListAudit: (req: IncomingMessage, res: ServerResponse) => void;
   handleListTurnSnapshots: (req: IncomingMessage, res: ServerResponse) => void;
   handleRollbackTurnSnapshot: (
@@ -111,6 +115,12 @@ function parseInventoryLocation(value: unknown): InventoryLocation | null {
       : null;
     case "STATION_SHOP": return positive(ref.stationId)
       ? { kind: "STATION_SHOP", stationId: ref.stationId }
+      : null;
+    case "PLANET_SECRET": return positive(ref.planetId)
+      ? { kind: "PLANET_SECRET", planetId: ref.planetId }
+      : null;
+    case "STATION_SECRET": return positive(ref.stationId)
+      ? { kind: "STATION_SECRET", stationId: ref.stationId }
       : null;
     case "SHIPWRECK": return positive(ref.shipwreckId)
       ? { kind: "SHIPWRECK", shipwreckId: ref.shipwreckId }
@@ -188,13 +198,21 @@ export function createWorldObjectAdminHandlers(
     const generation = body.resourceGeneration === undefined ? {} : parseResourceStore(body.resourceGeneration, true);
     const rawStock = body.rawStock === undefined ? {} : parseResourceStore(body.rawStock, true);
     const fragments = body.infoFragments === undefined ? {} : parseIntelFragments(body.infoFragments);
-    const overviewRange = Number(body.overviewRange ?? 0);
     const fleetCombatPower = Number(body.fleetCombatPower ?? 0);
     const armyCombatPower = Number(body.armyCombatPower ?? 0);
+    const ownerFactionId = body.ownerFactionId === null || body.ownerFactionId === undefined
+      ? null
+      : Number(body.ownerFactionId);
+    const warpVisibility = body.warpVisibility ?? null;
+    const parsedSecretStorage = body.secretStorage === undefined
+      ? { ok: true as const, storage: undefined }
+      : parseSecretStorageUpdate(deps.state, body.secretStorage);
     if (!generation || !rawStock || !fragments
-      || !Number.isFinite(overviewRange)
       || !Number.isFinite(fleetCombatPower)
-      || !Number.isFinite(armyCombatPower)) {
+      || !Number.isFinite(armyCombatPower)
+      || (ownerFactionId !== null && (!Number.isInteger(ownerFactionId) || !deps.state.factions[ownerFactionId]))
+      || !isWarpVisibility(warpVisibility)
+      || !parsedSecretStorage.ok) {
       writeJson(res, 400, { error: "Invalid station stores" });
       return;
     }
@@ -210,7 +228,9 @@ export function createWorldObjectAdminHandlers(
       itemStorageByPlayerId: {},
       shop: createEmptyShop(),
       infoFragments: fragments,
-      overviewRange: Math.max(0, Math.trunc(overviewRange)),
+      ownerFactionId,
+      warpVisibility,
+      ...(parsedSecretStorage.storage ? { secretStorage: parsedSecretStorage.storage } : {}),
       fleetCombatPower: Math.max(0, Math.trunc(fleetCombatPower)),
       armyCombatPower: Math.max(0, Math.trunc(armyCombatPower)),
     };
@@ -278,7 +298,29 @@ export function createWorldObjectAdminHandlers(
       }
       draft.position = position;
     }
-    const numericFields = ["overviewRange", "fleetCombatPower", "armyCombatPower"] as const;
+    if (body.ownerFactionId !== undefined) {
+      if (body.ownerFactionId === null) draft.ownerFactionId = null;
+      else {
+        const ownerFactionId = Number(body.ownerFactionId);
+        if (!Number.isInteger(ownerFactionId) || !deps.state.factions[ownerFactionId]) {
+          writeJson(res, 400, { error: "ownerFactionId must reference a Faction or be null" }); return;
+        }
+        draft.ownerFactionId = ownerFactionId;
+      }
+    }
+    if (body.warpVisibility !== undefined) {
+      if (!isWarpVisibility(body.warpVisibility)) {
+        writeJson(res, 400, { error: "warpVisibility must be -, 0, 1, 2 or 3" }); return;
+      }
+      draft.warpVisibility = body.warpVisibility;
+    }
+    if (body.secretStorage !== undefined) {
+      const parsed = parseSecretStorageUpdate(deps.state, body.secretStorage, draft.secretStorage);
+      if (!parsed.ok) { writeJson(res, 400, { error: parsed.error }); return; }
+      if (parsed.storage) draft.secretStorage = parsed.storage;
+      else delete draft.secretStorage;
+    }
+    const numericFields = ["fleetCombatPower", "armyCombatPower"] as const;
     for (const field of numericFields) {
       if (body[field] !== undefined) {
         if (!Number.isFinite(body[field])) { writeJson(res, 400, { error: `${field} must be numeric` }); return; }
@@ -298,6 +340,12 @@ export function createWorldObjectAdminHandlers(
     if (!session) return;
     const station = deps.state.stations[id];
     if (!station) { writeJson(res, 404, { error: "Station not found" }); return; }
+    const artifactIds = new Set<string>([
+      ...station.shop.items.artifactIds,
+      ...Object.values(station.itemStorageByPlayerId).flatMap((inventory) => inventory.artifactIds),
+      ...(station.secretStorage?.itemInventory.artifactIds ?? []),
+    ]);
+    for (const artifactId of artifactIds) delete deps.state.artifacts[artifactId];
     delete deps.state.stations[id];
     appendAudit(deps.state, {
       actor: { kind: "ADMIN", account: session.username }, operation: "DELETE_STATION",
@@ -412,6 +460,14 @@ export function createWorldObjectAdminHandlers(
     if (!body || !target) { writeJson(res, 400, { error: "Invalid target inventory" }); return; }
     if (body.kind === "KNOWLEDGE") {
       if (!isKnowledgeCode(body.code)) { writeJson(res, 400, { error: "Invalid Knowledge code" }); return; }
+      const secretStorage = target.kind === "PLANET_SECRET"
+        ? deps.state.planets[target.planetId]?.secretStorage
+        : target.kind === "STATION_SECRET"
+          ? deps.state.stations[target.stationId]?.secretStorage
+          : undefined;
+      if (secretStorage && !secretStorageAllowsKnowledge(secretStorage, body.code)) {
+        writeJson(res, 400, { error: "Knowledge type is not allowed in Secret Storage" }); return;
+      }
       const inventory = resolveItemInventory(deps.state, target, true);
       if (!inventory) { writeJson(res, 400, { error: "Invalid target inventory" }); return; }
       if (!inventory.knowledge.includes(body.code)) inventory.knowledge.push(body.code);
@@ -429,22 +485,22 @@ export function createWorldObjectAdminHandlers(
     if (body.useEffect !== undefined && !useEffect) {
       writeJson(res, 400, { error: "Invalid Artifact useEffect" }); return;
     }
+    if (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean") {
+      writeJson(res, 400, { error: "isNavigator must be boolean" }); return;
+    }
+    const warpVisibility = body.warpVisibility ?? null;
+    if (!isWarpVisibility(warpVisibility)) {
+      writeJson(res, 400, { error: "warpVisibility must be -, 0, 1, 2 or 3" }); return;
+    }
     const inventory = resolveItemInventory(deps.state, target, true);
     if (!inventory) { writeJson(res, 400, { error: "Invalid target inventory" }); return; }
-    const configuration: ArtifactInstance["configuration"] = {};
-    if (body.definitionCode === "NAVIGATOR") {
-      if (
-        !Number.isInteger(body.navigatorRange) || Number(body.navigatorRange) <= 0
-        || !Number.isInteger(body.navigatorOriginPlayerId) || Number(body.navigatorOriginPlayerId) <= 0
-      ) {
-        writeJson(res, 400, { error: "Navigator range and origin player are required" }); return;
-      }
-      const origin = deps.state.players[Number(body.navigatorOriginPlayerId)];
-      if (!origin || !deps.state.factions[origin.factionId]?.isNavigator) {
-        writeJson(res, 400, { error: "Navigator origin player must belong to a Navigator faction" }); return;
-      }
-      configuration.navigatorRange = Number(body.navigatorRange);
-      configuration.navigatorOriginPlayerId = Number(body.navigatorOriginPlayerId);
+    const secretStorage = target.kind === "PLANET_SECRET"
+      ? deps.state.planets[target.planetId]?.secretStorage
+      : target.kind === "STATION_SECRET"
+        ? deps.state.stations[target.stationId]?.secretStorage
+        : undefined;
+    if (secretStorage && !secretStorageAllowsArtifact(secretStorage, body.definitionCode)) {
+      writeJson(res, 400, { error: "Artifact type is not allowed in Secret Storage" }); return;
     }
     const id = `artifact-${deps.state.nextIds.artifact++}`;
     const artifact: ArtifactInstance = {
@@ -452,7 +508,9 @@ export function createWorldObjectAdminHandlers(
       definitionCode: body.definitionCode,
       name: body.name,
       owner: target,
-      configuration,
+      configuration: {},
+      isNavigator: body.isNavigator === true,
+      warpVisibility,
       consumable: body.consumable === true,
       ...(useEffect ? { useEffect } : {}),
     };
@@ -478,6 +536,29 @@ export function createWorldObjectAdminHandlers(
       entityType: "ARTIFACT", entityId: id, before: artifact,
     });
     deps.persistDatabase(); deps.broadcastState(); writeJson(res, 200, { removedArtifactId: id });
+  }
+
+  async function handleUpdateArtifact(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+    const session = requirePlanningAdmin(req, res, deps);
+    if (!session) return;
+    const artifact = deps.state.artifacts[id];
+    if (!artifact) { writeJson(res, 404, { error: "Artifact not found" }); return; }
+    const body = await readJsonBody<Record<string, unknown>>(req);
+    if (!body
+      || (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim()))
+      || (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean")
+      || (body.warpVisibility !== undefined && !isWarpVisibility(body.warpVisibility))) {
+      writeJson(res, 400, { error: "Invalid Artifact payload" }); return;
+    }
+    const before = structuredClone(artifact);
+    if (typeof body.name === "string") artifact.name = body.name.trim();
+    if (typeof body.isNavigator === "boolean") artifact.isNavigator = body.isNavigator;
+    if (body.warpVisibility !== undefined) artifact.warpVisibility = body.warpVisibility;
+    appendAudit(deps.state, {
+      actor: { kind: "ADMIN", account: session.username }, operation: "UPDATE_ARTIFACT",
+      entityType: "ARTIFACT", entityId: id, before, after: artifact,
+    });
+    deps.persistDatabase(); deps.broadcastState(); writeJson(res, 200, { artifact });
   }
 
   function handleListAudit(req: IncomingMessage, res: ServerResponse): void {
@@ -512,7 +593,7 @@ export function createWorldObjectAdminHandlers(
   return {
     handleListStations, handleAddStation, handleUpdateStation, handleDeleteStation,
     handleListShipwrecks, handleAddShipwreck, handleListAnomalies, handleAddAnomaly, handleUpdateShop,
-    handleAddItem, handleDeleteArtifact, handleListAudit,
+    handleAddItem, handleUpdateArtifact, handleDeleteArtifact, handleListAudit,
     handleListTurnSnapshots, handleRollbackTurnSnapshot,
   };
 }

@@ -12,6 +12,7 @@ import {
   parseIntelFragments,
   parsePlayerProductStorages,
   parseResourceStore,
+  parseSecretStorageUpdate,
   setPlanetResourceProduction,
 } from "./helpers";
 
@@ -77,7 +78,6 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       [body.tithePaid, "tithePaid"],
       [body.influenceValue, "influenceValue"],
       [body.visionRange, "visionRange"],
-      [body.overviewRange, "overviewRange"],
     ];
 
     for (const [value, field] of numericChecks) {
@@ -125,6 +125,13 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       writeJson(res, 400, { error: "infoFragments must be an object<InfoCategory, number>" });
       return;
     }
+    const parsedSecretStorage = body.secretStorage === undefined
+      ? { ok: true as const, storage: undefined }
+      : parseSecretStorageUpdate(deps.state, body.secretStorage);
+    if (!parsedSecretStorage.ok) {
+      writeJson(res, 400, { error: parsedSecretStorage.error });
+      return;
+    }
 
     const coord = { q: Math.trunc(body.q), r: Math.trunc(body.r) };
     const tile = getTileAt(deps.state, coord);
@@ -157,12 +164,12 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       resourceProduction: 0,
       influenceValue: Math.max(0, Math.trunc(body.influenceValue ?? 1)),
       visionRange,
-      overviewRange: Math.max(0, Math.trunc(body.overviewRange ?? visionRange)),
       rawStock: parsedRawStock,
       productStorageByPlayerId: parsedProductStorages,
       itemStorageByPlayerId: {},
       shop: createEmptyShop(),
       infoFragments: parsedInfoFragments,
+      ...(parsedSecretStorage.storage ? { secretStorage: parsedSecretStorage.storage } : {}),
     };
 
     const initialTitheProgress = calculateTitheProgress(
@@ -199,14 +206,27 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     }
     const removedPlanet = structuredClone(planet);
 
+    const artifactIds = new Set<string>([
+      ...planet.shop.items.artifactIds,
+      ...Object.values(planet.itemStorageByPlayerId).flatMap((inventory) => inventory.artifactIds),
+      ...(planet.secretStorage?.itemInventory.artifactIds ?? []),
+    ]);
+    for (const artifactId of artifactIds) delete deps.state.artifacts[artifactId];
+
     const previousPosition = { ...planet.position };
     delete deps.state.planets[planetId];
     syncLegacyPlanetIdAt(deps, previousPosition);
     deps.state.pendingInformantActions = deps.state.pendingInformantActions.filter(
-      (entry) => entry.planetId !== planetId,
+      (entry) => Number(entry.planetId) !== Number(planetId),
     );
     deps.state.pendingTitheChanges = deps.state.pendingTitheChanges.filter(
-      (entry) => entry.planetId !== planetId,
+      (entry) => Number(entry.planetId) !== Number(planetId),
+    );
+    deps.state.administratumWorldReports = deps.state.administratumWorldReports.filter(
+      (entry) => Number(entry.planetId) !== Number(planetId),
+    );
+    deps.state.administratumTitheProposals = deps.state.administratumTitheProposals.filter(
+      (entry) => Number(entry.planetId) !== Number(planetId),
     );
 
     deps.auditAdminMutation(req, {
@@ -283,7 +303,6 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       [body.tithePaid, "tithePaid"],
       [body.influenceValue, "influenceValue"],
       [body.visionRange, "visionRange"],
-      [body.overviewRange, "overviewRange"],
     ];
 
     for (const [value, field] of numericChecks) {
@@ -329,6 +348,13 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       body.infoFragments === undefined ? undefined : parseIntelFragments(body.infoFragments);
     if (parsedInfoFragments === null) {
       writeJson(res, 400, { error: "infoFragments must be an object<InfoCategory, number>" });
+      return;
+    }
+    const parsedSecretStorage = body.secretStorage === undefined
+      ? undefined
+      : parseSecretStorageUpdate(deps.state, body.secretStorage, planet.secretStorage);
+    if (parsedSecretStorage && !parsedSecretStorage.ok) {
+      writeJson(res, 400, { error: parsedSecretStorage.error });
       return;
     }
 
@@ -401,10 +427,6 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       planet.visionRange = Math.max(0, Math.trunc(body.visionRange));
     }
 
-    if (body.overviewRange !== undefined) {
-      planet.overviewRange = Math.max(0, Math.trunc(body.overviewRange));
-    }
-
     if (parsedRawStock !== undefined) {
       planet.rawStock = parsedRawStock;
     }
@@ -417,6 +439,10 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
 
     if (parsedInfoFragments !== undefined) {
       planet.infoFragments = parsedInfoFragments;
+    }
+    if (parsedSecretStorage?.ok) {
+      if (parsedSecretStorage.storage) planet.secretStorage = parsedSecretStorage.storage;
+      else delete planet.secretStorage;
     }
 
     const titheProgress = calculateTitheProgress(

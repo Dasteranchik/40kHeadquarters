@@ -10,6 +10,7 @@ import { createRelationAdminHandlers } from "./server/admin/relations";
 import { createProductConversionAdminHandlers } from "./server/admin/productConversion";
 import { createWorldObjectAdminHandlers } from "./server/admin/worldObjects";
 import { createSystemSettingsAdminHandlers } from "./server/admin/systemSettings";
+import { createUnitVariantAdminHandlers } from "./server/admin/unitVariants";
 import { Account, ClientContext, Session } from "./server/contracts";
 import { normalizeGameState } from "./server/normalization";
 import { createPublicApiHandlers } from "./server/publicApi";
@@ -218,6 +219,7 @@ const relationAdmin = createRelationAdminHandlers(adminDeps);
 const productConversionAdmin = createProductConversionAdminHandlers(adminDeps);
 const worldObjectAdmin = createWorldObjectAdminHandlers(adminDeps);
 const systemSettingsAdmin = createSystemSettingsAdminHandlers(adminDeps);
+const unitVariantAdmin = createUnitVariantAdminHandlers(adminDeps);
 
 const publicApi = createPublicApiHandlers({
   accounts,
@@ -235,6 +237,7 @@ const apiHandlers = {
   ...productConversionAdmin,
   ...worldObjectAdmin,
   ...systemSettingsAdmin,
+  ...unitVariantAdmin,
   handleAdminEndTurn: (req: IncomingMessage, res: ServerResponse): void => {
     const session = requireAdmin(req, res);
     if (!session) return;

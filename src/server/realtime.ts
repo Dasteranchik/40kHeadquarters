@@ -31,6 +31,8 @@ import type { TurnSnapshotPoint } from "../storage/documentDb";
 import { applyImmediateDiplomacy } from "./immediateDiplomacy";
 import { ClientContext } from "./contracts";
 import { send } from "./transport";
+import { openSecretStorage } from "../systems/secretStorageSystem";
+import { proposeTithe, reportWorld } from "../systems/administratumSystem";
 import {
   buildPlanningForSession,
   buildResolutionForSession,
@@ -58,6 +60,20 @@ export interface RealtimeController {
 
 export function createRealtimeController(deps: RealtimeDeps): RealtimeController {
   let resolutionInProgress = false;
+
+  function detectionKindLabel(kind: import("../detectionDomain").DetectionObjectKind): string {
+    switch (kind) {
+      case "PLANET": return "планета";
+      case "FLEET": return "флот";
+      case "STATION": return "станция";
+      case "SHIPWRECK": return "кораблекрушение";
+      case "ANOMALY": return "аномалия";
+      default: {
+        const exhaustive: never = kind;
+        return exhaustive;
+      }
+    }
+  }
 
   function sendOperationResult(
     context: ClientContext,
@@ -130,7 +146,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     const fleetNameByIdBeforeResolution = new Map<number, string>();
     for (const fleet of Object.values(deps.state.fleets)) {
       ownerByFleetIdBeforeResolution.set(fleet.id, fleet.ownerPlayerId);
-      fleetNameByIdBeforeResolution.set(fleet.id, `${fleet.domain === "GROUND" ? "Army" : "Fleet"} ${fleet.id}`);
+      fleetNameByIdBeforeResolution.set(fleet.id, `${fleet.domain === "GROUND" ? "Армия" : "Флот"} ${fleet.id}`);
     }
 
     const beforeTurn = deps.state.turnNumber;
@@ -142,7 +158,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
         id: deps.state.nextIds.event++,
         turnNumber: resolution.turnNumber,
         kind: "MOVEMENT",
-        message: `${fleetNameByIdBeforeResolution.get(movement.fleetId) ?? `Unit ${movement.fleetId}`} moved [${movement.from.q},${movement.from.r}] → [${movement.to.q},${movement.to.r}]`,
+        message: `${fleetNameByIdBeforeResolution.get(movement.fleetId) ?? `Юнит ${movement.fleetId}`} перемещён [${movement.from.q},${movement.from.r}] → [${movement.to.q},${movement.to.r}]`,
         playerIds: [ownerId],
       });
     }
@@ -158,21 +174,21 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
         id: deps.state.nextIds.event++,
         turnNumber: resolution.turnNumber,
         kind: "COMBAT",
-        message: `${fleetNameByIdBeforeResolution.get(combat.fleetId) ?? `Unit ${combat.fleetId}`} received ${combat.damage} damage${destroyed ? " and was destroyed" : `; HP ${combat.healthAfter}`}`,
+        message: `${fleetNameByIdBeforeResolution.get(combat.fleetId) ?? `Юнит ${combat.fleetId}`} получил ${combat.damage} урона${destroyed ? " и был уничтожен" : `; ОЗ ${combat.healthAfter}`}`,
         playerIds,
       });
     }
     for (const relation of resolution.diplomacy.declaredWars) {
       deps.state.events.push({
         id: deps.state.nextIds.event++, turnNumber: resolution.turnNumber, kind: "DIPLOMACY",
-        message: `Players ${relation.playerAId} and ${relation.playerBId} are now at war`,
+        message: `Игроки ${relation.playerAId} и ${relation.playerBId} теперь находятся в состоянии войны`,
         playerIds: [relation.playerAId, relation.playerBId],
       });
     }
     for (const relation of resolution.diplomacy.formedAlliances) {
       deps.state.events.push({
         id: deps.state.nextIds.event++, turnNumber: resolution.turnNumber, kind: "DIPLOMACY",
-        message: `Players ${relation.playerAId} and ${relation.playerBId} formed an alliance`,
+        message: `Игроки ${relation.playerAId} и ${relation.playerBId} заключили союз`,
         playerIds: [relation.playerAId, relation.playerBId],
       });
     }
@@ -180,7 +196,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       for (const record of detection.detected) {
         deps.state.events.push({
           id: deps.state.nextIds.event++, turnNumber: resolution.turnNumber, kind: "DETECTION",
-          message: `Detected ${record.objectKind} ${record.objectId} (${record.confidence})`,
+          message: `Обнаружен объект: ${detectionKindLabel(record.objectKind)} ${record.objectId} (${record.confidence === "EXACT" ? "точно" : "оценочно"})`,
           playerIds: [record.playerId],
         });
       }
@@ -193,7 +209,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
         .filter((id): id is number => id !== undefined);
       deps.state.events.push({
         id: deps.state.nextIds.event++, turnNumber: resolution.turnNumber, kind: "SHIPWRECK",
-        message: `Shipwreck ${shipwreckId} formed at [${wreck.position.q},${wreck.position.r}]`,
+        message: `Кораблекрушение ${shipwreckId} образовалось в [${wreck.position.q},${wreck.position.r}]`,
         playerIds: [...new Set(playerIds)],
       });
       appendAudit(deps.state, {
@@ -202,6 +218,22 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
         entityType: "SHIPWRECK",
         entityId: shipwreckId,
         after: wreck,
+      });
+    }
+    for (const change of resolution.administratum) {
+      deps.state.events.push({
+        id: deps.state.nextIds.event++,
+        turnNumber: resolution.turnNumber,
+        kind: "ADMINISTRATUM",
+        message: `Администратум изменил десятину мира ${change.planetId}: ${change.titheLevel}`,
+        playerIds: change.notifiedPlayerIds,
+      });
+      appendAudit(deps.state, {
+        actor: { kind: "SYSTEM", id: "administratum-resolution" },
+        operation: "APPLY_TITHE_PROPOSAL",
+        entityType: "PLANET",
+        entityId: change.planetId,
+        after: { titheLevel: change.titheLevel },
       });
     }
     appendAudit(deps.state, {
@@ -532,7 +564,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
 
   function applyShopTrade(context: ClientContext, message: ClientMessage): void {
     if (message.type !== "shopTrade") return;
-    const commandId = message.payload.commandId;
+    const commandId = message.commandId;
     if (deps.state.phase !== "PLANNING" || !isCommandId(commandId)) {
       sendOperationResult(context, false, "Shop trade requires PLANNING and a valid commandId", commandId); return;
     }
@@ -544,28 +576,139 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       role: context.session.role,
       playerId: context.session.playerId,
     }, message.payload);
+    if (result.ok) {
+      appendAudit(deps.state, {
+        actor: context.session.role === "admin"
+          ? { kind: "ADMIN", account: context.session.username }
+          : { kind: "PLAYER", playerId: context.session.playerId! },
+        operation: Object.keys(result.disappeared).length > 0 ? "SHOP_TRADE_DISAPPEARING" : "SHOP_TRADE",
+        entityType: message.payload.shop.kind,
+        entityId: message.payload.shop.id,
+        commandId,
+        before,
+        after: message.payload,
+      });
+      if (context.session.playerId) {
+        deps.readyPlayers.delete(context.session.playerId);
+        deps.state.events.push({
+          id: deps.state.nextIds.event++, turnNumber: deps.state.turnNumber, kind: "SHOP",
+          message: result.message, playerIds: [context.session.playerId],
+        });
+      }
+    }
     rememberResult(context, commandId, result);
     sendOperationResult(context, result.ok, result.message, commandId);
-    if (!result.ok) { deps.persistDatabase(); return; }
-    appendAudit(deps.state, {
-      actor: context.session.role === "admin"
-        ? { kind: "ADMIN", account: context.session.username }
-        : { kind: "PLAYER", playerId: context.session.playerId! },
-      operation: Object.keys(result.disappeared).length > 0 ? "SHOP_TRADE_DISAPPEARING" : "SHOP_TRADE",
-      entityType: message.payload.shop.kind,
-      entityId: message.payload.shop.id,
-      commandId,
-      before,
-      after: message.payload,
-    });
-    if (context.session.playerId) {
-      deps.readyPlayers.delete(context.session.playerId);
-      deps.state.events.push({
-        id: deps.state.nextIds.event++, turnNumber: deps.state.turnNumber, kind: "SHOP",
-        message: result.message, playerIds: [context.session.playerId],
-      });
+    if (result.ok) broadcastState();
+  }
+
+  function applyOpenSecretStorage(context: ClientContext, message: ClientMessage): void {
+    if (message.type !== "openSecretStorage") return;
+    if (!isCommandId(message.commandId) || typeof message.password !== "string"
+      || !Number.isInteger(message.target.id) || message.target.id <= 0
+      || (context.session.role === "player" && !context.session.playerId)
+      || (message.target.kind !== "PLANET" && message.target.kind !== "STATION")) {
+      sendOperationResult(context, false, "Некорректный запрос секретного хранилища", message.commandId);
+      return;
     }
-    deps.persistDatabase(); broadcastState();
+    const previous = getProcessedCommandResult(deps.state, actorKey(context), message.commandId);
+    if (previous && typeof previous === "object" && !Array.isArray(previous)) {
+      const candidate = previous as {
+        ok?: unknown;
+        message?: unknown;
+        contents?: import("../systems/secretStorageSystem").SecretStorageContents;
+      };
+      if (typeof candidate.ok === "boolean" && typeof candidate.message === "string") {
+        const replay = candidate.ok
+          ? openSecretStorage(deps.state, message.target, message.password)
+          : null;
+        if (candidate.ok && !replay?.ok) {
+          const actor = context.session.role === "admin"
+            ? { kind: "ADMIN" as const, account: context.session.username }
+            : { kind: "PLAYER" as const, playerId: context.session.playerId! };
+          appendAudit(deps.state, {
+            actor,
+            operation: "SECRET_STORAGE_AUTH_FAILED",
+            entityType: message.target.kind,
+            entityId: message.target.id,
+            commandId: message.commandId,
+            after: { ok: false, duplicateCommandId: true },
+          });
+          deps.persistDatabase();
+          send(context.socket, {
+            type: "secretStorageResult",
+            commandId: message.commandId,
+            ok: false,
+            message: replay?.message ?? "Неверный пароль секретного хранилища",
+            target: message.target,
+            duplicate: true,
+          });
+          return;
+        }
+        send(context.socket, {
+          type: "secretStorageResult",
+          commandId: message.commandId,
+          ok: candidate.ok,
+          message: candidate.message,
+          target: message.target,
+          duplicate: true,
+          ...(replay?.contents
+            ? { storage: replay.contents }
+            : candidate.contents
+              ? { storage: candidate.contents }
+              : {}),
+        });
+        return;
+      }
+    }
+    const result = openSecretStorage(deps.state, message.target, message.password);
+    const actor = context.session.role === "admin"
+      ? { kind: "ADMIN" as const, account: context.session.username }
+      : { kind: "PLAYER" as const, playerId: context.session.playerId! };
+    appendAudit(deps.state, {
+      actor,
+      operation: result.ok ? "OPEN_SECRET_STORAGE" : "SECRET_STORAGE_AUTH_FAILED",
+      entityType: message.target.kind,
+      entityId: message.target.id,
+      commandId: message.commandId,
+      after: { ok: result.ok },
+    });
+    rememberResult(context, message.commandId, result);
+    send(context.socket, {
+      type: "secretStorageResult",
+      commandId: message.commandId,
+      ok: result.ok,
+      message: result.message,
+      target: message.target,
+      ...(result.contents ? { storage: result.contents } : {}),
+    });
+  }
+
+  function applyAdministratum(context: ClientContext, message: ClientMessage): void {
+    if (message.type !== "reportWorld" && message.type !== "proposeTithe") return;
+    if (deps.state.phase !== "PLANNING" || context.session.role !== "player"
+      || !context.session.playerId || !isCommandId(message.commandId)
+      || !Number.isInteger(message.planetId) || message.planetId <= 0) {
+      sendOperationResult(context, false, "Операция доступна игроку только в фазе планирования", message.commandId);
+      return;
+    }
+    if (duplicateResult(context, message.commandId)) return;
+    const result = message.type === "reportWorld"
+      ? reportWorld(deps.state, context.session.playerId, message.planetId)
+      : proposeTithe(deps.state, context.session.playerId, message.planetId, message.titheLevel);
+    if (result.ok) {
+      appendAudit(deps.state, {
+        actor: { kind: "PLAYER", playerId: context.session.playerId },
+        operation: message.type === "reportWorld" ? "REPORT_WORLD" : "PROPOSE_TITHE",
+        entityType: "PLANET",
+        entityId: message.planetId,
+        commandId: message.commandId,
+        after: message.type === "reportWorld" ? { reported: true } : { titheLevel: message.titheLevel },
+      });
+      deps.readyPlayers.delete(context.session.playerId);
+    }
+    rememberResult(context, message.commandId, result);
+    sendOperationResult(context, result.ok, result.message, message.commandId);
+    if (result.ok) broadcastState();
   }
 
   function applyItemTransfer(context: ClientContext, message: ClientMessage): void {
@@ -578,9 +721,6 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     const result = message.item.kind === "ARTIFACT"
       ? transferArtifact(deps.state, actor, message.item.artifactId, message.source, message.target)
       : copyKnowledge(deps.state, actor, message.item.knowledge, message.source, message.target);
-    rememberResult(context, message.commandId, result);
-    sendOperationResult(context, result.ok, result.message, message.commandId);
-    if (!result.ok) { deps.persistDatabase(); return; }
     if (result.changed) appendAudit(deps.state, {
       actor: context.session.role === "admin"
         ? { kind: "ADMIN", account: context.session.username }
@@ -592,8 +732,10 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       before: message.source,
       after: message.target,
     });
-    if (context.session.playerId) deps.readyPlayers.delete(context.session.playerId);
-    deps.persistDatabase(); broadcastState();
+    if (result.ok && context.session.playerId) deps.readyPlayers.delete(context.session.playerId);
+    rememberResult(context, message.commandId, result);
+    sendOperationResult(context, result.ok, result.message, message.commandId);
+    if (result.ok) broadcastState();
   }
 
   function applyArtifactUse(context: ClientContext, message: ClientMessage): void {
@@ -612,8 +754,6 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       if (inventory) inventory.artifactIds = inventory.artifactIds.filter((id) => id !== artifact.id);
       delete deps.state.artifacts[artifact.id];
     }
-    rememberResult(context, message.commandId, result);
-    sendOperationResult(context, result.ok, result.message, message.commandId);
     if (result.ok) appendAudit(deps.state, {
       actor: context.session.role === "admin"
         ? { kind: "ADMIN", account: context.session.username }
@@ -621,7 +761,10 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       operation: "USE_ARTIFACT", entityType: "ARTIFACT", entityId: message.artifactId,
       commandId: message.commandId, before: artifact, after: result,
     });
-    deps.persistDatabase(); if (result.ok) broadcastState();
+    if (result.ok && context.session.playerId) deps.readyPlayers.delete(context.session.playerId);
+    rememberResult(context, message.commandId, result);
+    sendOperationResult(context, result.ok, result.message, message.commandId);
+    if (result.ok) broadcastState();
   }
 
   function applyFuelConversion(context: ClientContext, message: ClientMessage): void {
@@ -639,17 +782,17 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       return;
     }
     const result = convertFuelToMovement(deps.state, playerId, message.fleetId, message.amount);
+    if (result.ok) {
+      appendAudit(deps.state, {
+        actor: { kind: "PLAYER", playerId }, operation: "CONVERT_FUEL_TO_MOVEMENT",
+        entityType: "FLEET", entityId: message.fleetId, commandId: message.commandId,
+        after: { amount: message.amount },
+      });
+      deps.readyPlayers.delete(playerId);
+    }
     rememberResult(context, message.commandId, result);
     sendOperationResult(context, result.ok, result.message, message.commandId);
-    if (!result.ok) return;
-    appendAudit(deps.state, {
-      actor: { kind: "PLAYER", playerId }, operation: "CONVERT_FUEL_TO_MOVEMENT",
-      entityType: "FLEET", entityId: message.fleetId, commandId: message.commandId,
-      after: { amount: message.amount },
-    });
-    deps.readyPlayers.delete(playerId);
-    deps.persistDatabase();
-    broadcastState();
+    if (result.ok) broadcastState();
   }
 
   function handleClientMessage(context: ClientContext, message: ClientMessage): void {
@@ -663,6 +806,8 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     applyItemTransfer(context, message);
     applyArtifactUse(context, message);
     applyFuelConversion(context, message);
+    applyOpenSecretStorage(context, message);
+    applyAdministratum(context, message);
     applyEndTurn(context, message);
   }
 

@@ -166,11 +166,27 @@
             </div>
             <label for="planetInfoCategory">Info category</label>
             <select id="planetInfoCategory"></select>
+            <button id="planetReportWorldBtn" class="ghost">Сообщить о мире</button>
             <label for="planetTitheLevel">Tithe level</label>
             <div class="actions-row">
               <select id="planetTitheLevel"></select>
-              <button id="planetSetTitheBtn" class="ghost">Set Tithe</button>
+              <button id="planetSetTitheBtn" class="ghost">Предложить десятину</button>
             </div>
+          </section>
+
+          <section>
+            <h2>Секретное хранилище</h2>
+            <label for="secretStorageTarget">Объект</label>
+            <select id="secretStorageTarget"></select>
+            <label for="secretStoragePassword">Пароль</label>
+            <input id="secretStoragePassword" type="password" autocomplete="off" />
+            <button id="secretStorageOpenBtn" class="ghost">Открыть</button>
+            <pre id="secretStorageContents" class="fleet-details">-</pre>
+          </section>
+
+          <section id="administratumPanel" class="hidden">
+            <h2>Реестр Администратума</h2>
+            <div id="administratumRegistry" class="entity-list"></div>
           </section>
 
           <section>

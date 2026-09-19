@@ -48,7 +48,6 @@ export function isImmediatePlanetActionKind(
 const MAX_MORALE = 100;
 const ECCLESIARCHY_FACTION_ID = "ecclesiarchy";
 const INQUISITION_FACTION_ID = "inquisition";
-const ADMINISTRATUM_FACTION_ID = "administratum";
 
 function orderedPlanetIds(state: GameState): string[] {
   return Object.keys(state.planets).sort((a, b) => a.localeCompare(b));
@@ -208,7 +207,7 @@ function applyPendingInformants(state: GameState, report: PlanetReport): void {
     event(report, {
       planetId: planet.id,
       kind: "PENDING_INFORMANT_APPLIED",
-      details: `player ${player.id} gained ${gained} ${pending.infoCategory} intel`,
+      details: `Игрок ${player.id} получил ${gained} ед. разведданных ${pending.infoCategory}`,
     });
   }
 
@@ -235,7 +234,7 @@ function applyPendingTitheChanges(state: GameState, report: PlanetReport): void 
     event(report, {
       planetId: planet.id,
       kind: "PENDING_TITHE_APPLIED",
-      details: `tithe set to ${pending.titheLevel} (${planet.titheTarget})`,
+      details: `Десятина установлена на ${pending.titheLevel} (цель: ${planet.titheTarget})`,
     });
   }
 
@@ -267,7 +266,7 @@ function generateForPlanet(
   event(report, {
     planetId: planet.id,
     kind: "TURN_GENERATION",
-    details: `generated ${generated.join(", ")} into ${generationTarget === planet.rawStock ? "raw stock" : "Shop"}`,
+    details: `Произведено ${generated.join(", ")} в ${generationTarget === planet.rawStock ? "Склад десятины" : "Магазин"}`,
   });
 }
 
@@ -318,18 +317,18 @@ function requireActionFleet(
 ): Fleet | null {
   const fleetId = action.payload.fleetId;
   if (!fleetId) {
-    reject(report, action, "fleetId is required");
+    reject(report, action, "Требуется fleetId");
     return null;
   }
 
   const fleet = state.fleets[fleetId];
   if (!fleet || fleet.ownerPlayerId !== action.playerId) {
-    reject(report, action, "fleet not found or does not belong to player");
+    reject(report, action, "Флот не найден или не принадлежит игроку");
     return null;
   }
 
   if (fleet.position.q !== planet.position.q || fleet.position.r !== planet.position.r) {
-    reject(report, action, "fleet is not in planet hex");
+    reject(report, action, "Флот не находится в гексе планеты");
     return null;
   }
 
@@ -343,11 +342,11 @@ function applyTakeStock(
   report: PlanetReport,
 ): void {
   if (!isImperialPlayer(state, action.playerId)) {
-    reject(report, action, "take stock is only for imperial players");
+    reject(report, action, "Забирать десятину могут только имперские игроки");
     return;
   }
   if (!state.players[action.playerId]?.canTakePlanetResources) {
-    reject(report, action, "player is not allowed to take planet resources");
+    reject(report, action, "Игроку запрещено забирать ресурсы планеты");
     return;
   }
 
@@ -358,7 +357,7 @@ function applyTakeStock(
 
   const resourceKey = action.payload.resourceKey;
   if (!isRawResourceKey(resourceKey)) {
-    reject(report, action, "resourceKey must be a raw resource");
+    reject(report, action, "resourceKey должен указывать RAW-ресурс");
     return;
   }
 
@@ -367,20 +366,20 @@ function applyTakeStock(
     remainingTitheCapacity(planet),
   );
   if (requested <= 0) {
-    reject(report, action, "planet tithe cap has been reached");
+    reject(report, action, "Лимит десятины планеты исчерпан");
     return;
   }
 
   const taken = takeFromStore(planet.rawStock, resourceKey, requested);
   if (taken <= 0) {
-    reject(report, action, "planet raw stock is empty for this resource");
+    reject(report, action, "В Складе десятины нет этого ресурса");
     return;
   }
 
   const moved = addToFleetInventory(fleet, resourceKey, taken);
   if (moved <= 0) {
     addToStore(planet.rawStock, resourceKey, taken);
-    reject(report, action, "fleet has no free capacity");
+    reject(report, action, "У флота нет свободной вместимости");
     return;
   }
 
@@ -394,7 +393,7 @@ function applyTakeStock(
     actionId: action.id,
     planetId: planet.id,
     kind: "TAKE_STOCK",
-    details: `${fleet.id} took ${moved} ${resourceKey} from raw stock`,
+    details: `Флот ${fleet.id} получил ${moved} ${resourceKey} из Склада десятины`,
   });
 }
 
@@ -405,11 +404,11 @@ function applyRaidStock(
   report: PlanetReport,
 ): void {
   if (isImperialPlayer(state, action.playerId)) {
-    reject(report, action, "raid stock is only for non-imperial players");
+    reject(report, action, "Грабёж доступен только неимперским игрокам");
     return;
   }
   if (!state.players[action.playerId]?.canTakePlanetResources) {
-    reject(report, action, "player is not allowed to take planet resources");
+    reject(report, action, "Игроку запрещено забирать ресурсы планеты");
     return;
   }
 
@@ -422,32 +421,32 @@ function applyRaidStock(
     (otherFleet) => otherFleet.domain === "GROUND",
   );
   if (hasGroundUnits) {
-    reject(report, action, "cannot raid while ground units are present");
+    reject(report, action, "Грабёж невозможен, пока в гексе есть наземные юниты");
     return;
   }
 
   const resourceKey = action.payload.resourceKey;
   if (!isRawResourceKey(resourceKey)) {
-    reject(report, action, "resourceKey must be a raw resource");
+    reject(report, action, "resourceKey должен указывать RAW-ресурс");
     return;
   }
 
   const requested = parseAmount(action.payload.amount);
   if (requested <= 0) {
-    reject(report, action, "amount must be positive");
+    reject(report, action, "Количество должно быть положительным");
     return;
   }
 
   const taken = takeFromStore(planet.shop.resources, resourceKey, requested);
   if (taken <= 0) {
-    reject(report, action, "planet Shop is empty for this resource");
+    reject(report, action, "В Магазине планеты нет этого ресурса");
     return;
   }
 
   const moved = addToFleetInventory(fleet, resourceKey, taken);
   if (moved <= 0) {
     addToStore(planet.shop.resources, resourceKey, taken);
-    reject(report, action, "fleet has no free capacity");
+    reject(report, action, "У флота нет свободной вместимости");
     return;
   }
 
@@ -459,7 +458,7 @@ function applyRaidStock(
     actionId: action.id,
     planetId: planet.id,
     kind: "RAID_STOCK",
-    details: `${fleet.id} raided ${moved} ${resourceKey} from Shop`,
+    details: `Флот ${fleet.id} награбил ${moved} ${resourceKey} из Магазина`,
   });
 }
 
@@ -476,27 +475,27 @@ function applyTakeFromStorage(
 
   const resourceKey = action.payload.resourceKey;
   if (!isResourceKey(resourceKey)) {
-    reject(report, action, "resourceKey is required");
+    reject(report, action, "Требуется resourceKey");
     return;
   }
 
   const requested = parseAmount(action.payload.amount);
   if (requested <= 0) {
-    reject(report, action, "amount must be positive");
+    reject(report, action, "Количество должно быть положительным");
     return;
   }
 
   const productStorage = getPlayerProductStorage(planet, action.playerId);
   const taken = takeFromStore(productStorage, resourceKey, requested);
   if (taken <= 0) {
-    reject(report, action, "planet product storage is empty for this resource");
+    reject(report, action, "В складе продуктов планеты нет этого ресурса");
     return;
   }
 
   const moved = addToFleetInventory(fleet, resourceKey, taken);
   if (moved <= 0) {
     addToStore(productStorage, resourceKey, taken);
-    reject(report, action, "fleet has no free capacity");
+    reject(report, action, "У флота нет свободной вместимости");
     return;
   }
 
@@ -508,7 +507,7 @@ function applyTakeFromStorage(
     actionId: action.id,
     planetId: planet.id,
     kind: "TAKE_FROM_STORAGE",
-    details: `${fleet.id} took ${moved} ${resourceKey} from product storage`,
+    details: `Флот ${fleet.id} получил ${moved} ${resourceKey} из склада продуктов`,
   });
 }
 
@@ -525,19 +524,19 @@ function applyDepositToStorage(
 
   const resourceKey = action.payload.resourceKey;
   if (!isResourceKey(resourceKey)) {
-    reject(report, action, "resourceKey is required");
+    reject(report, action, "Требуется resourceKey");
     return;
   }
 
   const requested = parseAmount(action.payload.amount);
   if (requested <= 0) {
-    reject(report, action, "amount must be positive");
+    reject(report, action, "Количество должно быть положительным");
     return;
   }
 
   const moved = removeFromFleetInventory(fleet, resourceKey, requested);
   if (moved <= 0) {
-    reject(report, action, "fleet does not have this resource in inventory");
+    reject(report, action, "В инвентаре флота нет этого ресурса");
     return;
   }
 
@@ -547,7 +546,7 @@ function applyDepositToStorage(
     actionId: action.id,
     planetId: planet.id,
     kind: "DEPOSIT_TO_STORAGE",
-    details: `${fleet.id} deposited ${moved} ${resourceKey} to product storage`,
+    details: `Флот ${fleet.id} поместил ${moved} ${resourceKey} в склад продуктов`,
   });
 }
 
@@ -559,25 +558,25 @@ function applyCreateProduct(
 ): void {
   const fleets = playerFleetsOnPlanet(state, planet, action.playerId);
   if (fleets.length === 0) {
-    reject(report, action, "player must have a fleet in planet hex");
+    reject(report, action, "Флот игрока должен находиться в гексе планеты");
     return;
   }
 
   const productKey = action.payload.productKey;
   if (!isProductResourceKey(productKey)) {
-    reject(report, action, "productKey is invalid");
+    reject(report, action, "Недопустимый productKey");
     return;
   }
 
   const recipe = PRODUCT_RECIPES[productKey];
   if (!planet.worldTags.includes(recipe.requiredTag)) {
-    reject(report, action, `planet requires tag ${recipe.requiredTag}`);
+    reject(report, action, `Планете требуется тег ${recipe.requiredTag}`);
     return;
   }
 
   const requested = parseAmount(action.payload.amount);
   if (requested <= 0) {
-    reject(report, action, "amount must be positive");
+    reject(report, action, "Количество должно быть положительным");
     return;
   }
 
@@ -592,7 +591,7 @@ function applyCreateProduct(
     Math.floor(totalAvailable * conversionRate + 1e-9),
   );
   if (converted <= 0) {
-    reject(report, action, `not enough ${recipe.input} in fleets inventory`);
+    reject(report, action, `В инвентарях флотов недостаточно ${recipe.input}`);
     return;
   }
 
@@ -614,7 +613,7 @@ function applyCreateProduct(
     actionId: action.id,
     planetId: planet.id,
     kind: "CREATE_PRODUCT",
-    details: `converted ${inputRequired} ${recipe.input} into ${converted} ${productKey} (rate ${conversionRate})`,
+    details: `Преобразовано ${inputRequired} ${recipe.input} в ${converted} ${productKey} (коэффициент ${conversionRate})`,
   });
 }
 
@@ -625,9 +624,9 @@ export function applyImmediatePlanetAction(
   const report: PlanetReport = { events: [] };
   const planet = state.planets[action.payload.planetId];
   if (!planet) {
-    reject(report, action, "planet not found");
+    reject(report, action, "Планета не найдена");
   } else if (!state.players[action.playerId]) {
-    reject(report, action, "player not found");
+    reject(report, action, "Игрок не найден");
   } else {
     switch (action.payload.kind) {
       case "TAKE_STOCK":
@@ -646,7 +645,7 @@ export function applyImmediatePlanetAction(
         applyCreateProduct(state, action, planet, report);
         break;
       default:
-        reject(report, action, `${action.payload.kind} is not an immediate economy action`);
+        reject(report, action, `${action.payload.kind} не является немедленным экономическим действием`);
     }
   }
 
@@ -654,7 +653,7 @@ export function applyImmediatePlanetAction(
   const lastEvent = report.events[report.events.length - 1];
   return {
     ok: !rejected && Boolean(lastEvent),
-    message: rejected?.details ?? lastEvent?.details ?? "Economy action had no effect",
+    message: rejected?.details ?? lastEvent?.details ?? "Экономическое действие не дало результата",
     report,
   };
 }
@@ -667,23 +666,23 @@ function applyRaiseMorale(
   usedPlayers: Set<number>,
 ): void {
   if (!isImperialPlayer(state, action.playerId)) {
-    reject(report, action, "raise morale is only for imperial players");
+    reject(report, action, "Поднимать мораль могут только имперские игроки");
     return;
   }
 
   if (!playerHasFaction(state, action.playerId, ECCLESIARCHY_FACTION_ID)) {
-    reject(report, action, "raise morale requires Ecclesiarchy faction");
+    reject(report, action, "Для поднятия морали требуется фракция Экклезиархии");
     return;
   }
 
   if (usedPlayers.has(action.playerId)) {
-    reject(report, action, "player already raised morale this turn");
+    reject(report, action, "Игрок уже поднимал мораль в этом ходу");
     return;
   }
 
   const fleets = playerFleetsOnPlanet(state, planet, action.playerId);
   if (fleets.length === 0) {
-    reject(report, action, "player must have a fleet in planet hex");
+    reject(report, action, "Флот игрока должен находиться в гексе планеты");
     return;
   }
 
@@ -694,7 +693,7 @@ function applyRaiseMorale(
     actionId: action.id,
     planetId: planet.id,
     kind: "RAISE_MORALE",
-    details: `morale increased to ${planet.morale}`,
+    details: `Мораль повышена до ${planet.morale}`,
   });
 }
 
@@ -705,24 +704,24 @@ function applyScheduleInformant(
   report: PlanetReport,
 ): void {
   if (!isImperialPlayer(state, action.playerId)) {
-    reject(report, action, "informant action is only for imperial players");
+    reject(report, action, "Действие с осведомителем доступно только имперским игрокам");
     return;
   }
 
   if (!playerHasFaction(state, action.playerId, INQUISITION_FACTION_ID)) {
-    reject(report, action, "informant action requires Inquisition faction");
+    reject(report, action, "Для осведомителя требуется фракция Инквизиции");
     return;
   }
 
   const fleets = playerFleetsOnPlanet(state, planet, action.playerId);
   if (fleets.length === 0) {
-    reject(report, action, "player must have a fleet in planet hex");
+    reject(report, action, "Флот игрока должен находиться в гексе планеты");
     return;
   }
 
   const category = action.payload.infoCategory;
   if (!category) {
-    reject(report, action, "infoCategory is required");
+    reject(report, action, "Требуется infoCategory");
     return;
   }
 
@@ -737,7 +736,7 @@ function applyScheduleInformant(
     actionId: action.id,
     planetId: planet.id,
     kind: "SCHEDULE_INFORMANT",
-    details: `${category} informant scheduled for turn ${state.turnNumber + 1}`,
+    details: `Осведомитель ${category} назначен на ход ${state.turnNumber + 1}`,
   });
 }
 
@@ -763,7 +762,7 @@ function applyScheduleTithe(
   _planet: Planet,
   report: PlanetReport,
 ): void {
-  reject(report, action, "tithe levels are configured by the administrator");
+  reject(report, action, "Уровни десятины изменяются через предложения Администратума");
 }
 
 function executePlanetAction(
@@ -774,12 +773,12 @@ function executePlanetAction(
 ): void {
   const planet = state.planets[action.payload.planetId];
   if (!planet) {
-    reject(report, action, "planet not found");
+    reject(report, action, "Планета не найдена");
     return;
   }
 
   if (!state.players[action.playerId]) {
-    reject(report, action, "player not found");
+    reject(report, action, "Игрок не найден");
     return;
   }
 
@@ -817,7 +816,7 @@ function executePlanetAction(
       return;
 
     default:
-      reject(report, action, `unsupported action kind ${action.payload.kind}`);
+      reject(report, action, `Неподдерживаемый тип действия ${action.payload.kind}`);
   }
 }
 

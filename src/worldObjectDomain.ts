@@ -8,6 +8,8 @@ import type { InfoCategory } from "./planetDomain";
 import type { Shop } from "./shopDomain";
 import type { GameState, HexCoord, PlayerProductStorages } from "./types";
 import type { UnitTag } from "./unitDomain";
+import type { WarpVisibility } from "./navigationDomain";
+import type { SecretStorage } from "./secretStorageDomain";
 
 export const STATION_CAPABILITIES = [
   "TAGS",
@@ -16,7 +18,6 @@ export const STATION_CAPABILITIES = [
   "PLAYER_STORAGE",
   "SHOP",
   "INFO_FRAGMENTS",
-  "OVERVIEW",
   "FLEET_COMBAT_POWER",
   "ARMY_COMBAT_POWER",
 ] as const;
@@ -41,7 +42,10 @@ export interface Station {
   itemStorageByPlayerId: PlayerItemInventories;
   shop: Shop;
   infoFragments: Partial<Record<InfoCategory, number>>;
-  overviewRange: number;
+  ownerFactionId: number | null;
+  warpVisibility: WarpVisibility;
+  secretStorage?: SecretStorage;
+  secretStorageAvailable?: boolean;
   fleetCombatPower: number;
   armyCombatPower: number;
 }

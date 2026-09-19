@@ -66,6 +66,7 @@ export interface ApiRouteHandlers {
   ) => Promise<void>;
   handleAddItem: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleDeleteArtifact: (req: IncomingMessage, res: ServerResponse, id: string) => void;
+  handleUpdateArtifact: (req: IncomingMessage, res: ServerResponse, id: string) => Promise<void>;
   handleListAudit: (req: IncomingMessage, res: ServerResponse) => void;
   handleListTurnSnapshots: (req: IncomingMessage, res: ServerResponse) => void;
   handleRollbackTurnSnapshot: (
@@ -74,6 +75,10 @@ export interface ApiRouteHandlers {
     snapshotId: string,
   ) => void;
   handleAdminEndTurn: (req: IncomingMessage, res: ServerResponse) => void;
+  handleListUnitVariants: (req: IncomingMessage, res: ServerResponse) => void;
+  handleAddUnitVariant: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  handleUpdateUnitVariant: (req: IncomingMessage, res: ServerResponse, id: string) => Promise<void>;
+  handleDeleteUnitVariant: (req: IncomingMessage, res: ServerResponse, id: string) => void;
 }
 
 export async function handleApiRequest(
@@ -194,6 +199,12 @@ export async function handleApiRequest(
     await handlers.handleAddArmy(req, res);
     return;
   }
+  if (path === "/api/admin/unit-variants" && method === "GET") {
+    handlers.handleListUnitVariants(req, res); return;
+  }
+  if (path === "/api/admin/unit-variants" && method === "POST") {
+    await handlers.handleAddUnitVariant(req, res); return;
+  }
 
   if (path === "/api/admin/relations" && method === "GET") {
     handlers.handleListRelations(req, res);
@@ -268,6 +279,13 @@ export async function handleApiRequest(
   if (stationMatch && method === "DELETE") {
     handlers.handleDeleteStation(req, res, decodeURIComponent(stationMatch[1])); return;
   }
+  const unitVariantMatch = path.match(/^\/api\/admin\/unit-variants\/([^/]+)$/);
+  if (unitVariantMatch && method === "PUT") {
+    await handlers.handleUpdateUnitVariant(req, res, decodeURIComponent(unitVariantMatch[1])); return;
+  }
+  if (unitVariantMatch && method === "DELETE") {
+    handlers.handleDeleteUnitVariant(req, res, decodeURIComponent(unitVariantMatch[1])); return;
+  }
   if (stationMatch && method === "PUT") {
     await handlers.handleUpdateStation(req, res, decodeURIComponent(stationMatch[1])); return;
   }
@@ -278,6 +296,9 @@ export async function handleApiRequest(
   const artifactMatch = path.match(/^\/api\/admin\/artifacts\/([^/]+)$/);
   if (artifactMatch && method === "DELETE") {
     handlers.handleDeleteArtifact(req, res, decodeURIComponent(artifactMatch[1])); return;
+  }
+  if (artifactMatch && method === "PUT") {
+    await handlers.handleUpdateArtifact(req, res, decodeURIComponent(artifactMatch[1])); return;
   }
   const rollbackMatch = path.match(/^\/api\/admin\/turn-snapshots\/([^/]+)\/rollback$/);
   if (rollbackMatch && method === "POST") {

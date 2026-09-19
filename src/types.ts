@@ -21,6 +21,9 @@ import type { Shop } from "./shopDomain";
 import type { TurnTimerState } from "./turnTimerDomain";
 import type { UnitTag } from "./unitDomain";
 import type { Anomaly, Shipwreck, Station } from "./worldObjectDomain";
+import type { SecretStorage } from "./secretStorageDomain";
+import type { UnitVariant } from "./unitVariantDomain";
+import type { WarpVisibility } from "./navigationDomain";
 
 export interface HexCoord {
   q: number;
@@ -66,12 +69,14 @@ export interface Planet {
   resourceProduction: number;
   influenceValue: number;
   visionRange: number;
-  overviewRange: number;
   rawStock: ResourceStore;
   productStorageByPlayerId: PlayerProductStorages;
   itemStorageByPlayerId: PlayerItemInventories;
   shop: Shop;
   infoFragments: IntelFragmentMap;
+  secretStorage?: SecretStorage;
+  /** Personalized projection marker; the storage contents and verifier remain server-side. */
+  secretStorageAvailable?: boolean;
 }
 
 export type PlayerAlignment = "IMPERIAL" | "NON_IMPERIAL";
@@ -81,7 +86,8 @@ export interface Faction {
   code: string;
   name: string;
   description?: string;
-  isNavigator: boolean;
+  isChaos: boolean;
+  isAdministratum: boolean;
 }
 
 export interface SystemSettings {
@@ -101,6 +107,9 @@ export interface Player {
   alignment: PlayerAlignment;
   factionId: number;
   intelFragments: IntelFragmentMap;
+  manualNavigator: boolean;
+  /** Computed server-side and present in client projections; never persisted as authority. */
+  effectiveNavigator?: boolean;
 }
 
 export type FleetStance = "ATTACK" | "DEFENSE";
@@ -115,8 +124,8 @@ export interface Fleet {
   influence: number;
   movementPoints: number;
   maxMovementPoints: number;
-  /** A positive value makes a Navigator faction unit a navigation source. */
-  navigatorRange: number;
+  isNavigator: boolean;
+  warpVisibility: WarpVisibility;
   visionRange: number;
   shareVisionWithAllies: boolean;
   capacity: number;
@@ -125,6 +134,7 @@ export interface Fleet {
   inventory: ResourceStore;
   itemInventory: ItemInventory;
   tags: UnitTag[];
+  unitVariantId?: EntityId;
   /** Present only in personalized client projections. */
   confidence?: "EXACT" | "ESTIMATED";
   /** Set only for a GROUND army currently embarked on a SPACE fleet. */
@@ -144,6 +154,19 @@ export interface PendingPlanetTitheChange {
   titheLevel: TitheLevel;
   requestedByPlayerId: EntityId;
   applyOnTurn: number;
+}
+
+export interface AdministratumWorldReport {
+  planetId: EntityId;
+  reportedAtTurn: number;
+  sequence: number;
+}
+
+export interface AdministratumTitheProposal {
+  planetId: EntityId;
+  playerId: EntityId;
+  requestedOnTurn: number;
+  titheLevel: TitheLevel;
 }
 
 export interface PendingPlanetInformantAction {
@@ -168,6 +191,7 @@ export interface GameState {
   anomalies: Record<string, Anomaly>;
   artifacts: Record<string, ArtifactInstance>;
   factions: Record<string, Faction>;
+  unitVariants: Record<string, UnitVariant>;
   nextIds: {
     player: number;
     faction: number;
@@ -179,6 +203,7 @@ export interface GameState {
     anomaly: number;
     artifact: number;
     audit: number;
+    unitVariant: number;
   };
   events: GameEvent[];
   audit: AuditEntry[];
@@ -188,13 +213,15 @@ export interface GameState {
   pendingTitheChanges: PendingPlanetTitheChange[];
   pendingInformantActions: PendingPlanetInformantAction[];
   pendingArmyTransportRequests: ArmyTransportRequest[];
+  administratumWorldReports: AdministratumWorldReport[];
+  administratumTitheProposals: AdministratumTitheProposal[];
 }
 
 
 export interface GameEvent {
   id: number;
   turnNumber: number;
-  kind: "COMBAT" | "MOVEMENT" | "DIPLOMACY" | "SYSTEM" | "DETECTION" | "SHOP" | "SHIPWRECK";
+  kind: "COMBAT" | "MOVEMENT" | "DIPLOMACY" | "SYSTEM" | "DETECTION" | "SHOP" | "SHIPWRECK" | "ADMINISTRATUM";
   message: string;
   playerIds: number[];
 }
@@ -318,6 +345,7 @@ export interface PlanetEvent {
   kind:
     | "PENDING_INFORMANT_APPLIED"
     | "PENDING_TITHE_APPLIED"
+    | "ADMINISTRATUM_TITHE_APPLIED"
     | "TURN_GENERATION"
     | "TAKE_STOCK"
     | "RAID_STOCK"
@@ -365,5 +393,10 @@ export interface TurnResolution {
   economy: EconomyReport;
   planet: PlanetReport;
   detection: DetectionResult[];
+  administratum: Array<{
+    planetId: number;
+    titheLevel: TitheLevel;
+    notifiedPlayerIds: number[];
+  }>;
   visibility: Record<string, PlayerVisibleState>;
 }

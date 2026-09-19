@@ -28,7 +28,6 @@ import {
 
 const ECCLESIARCHY_FACTION_ID = "ecclesiarchy";
 const INQUISITION_FACTION_ID = "inquisition";
-const ADMINISTRATUM_FACTION_ID = "administratum";
 
 function sortedActions(actions: Action[]): Action[] {
   return [...actions].sort((a, b) => a.id.localeCompare(b.id));
@@ -301,7 +300,7 @@ function validatePlanetAction(
       };
     }
 
-    if (state.factions[player.factionId]?.code !== ADMINISTRATUM_FACTION_ID) {
+    if (!state.factions[player.factionId]?.isAdministratum) {
       return {
         actionId: action.id,
         reason: "ADMINISTRATUM_SET_TITHE requires Administratum faction",

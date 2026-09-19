@@ -1,23 +1,47 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import test from "node:test";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { SYSTEM_KNOWLEDGE } from "../src/itemDomain";
+import { createPasswordVerifier, validateAllowedTypeKeys } from "../src/secretStorageDomain";
+import { parseSecretStorageUpdate } from "../src/server/admin/helpers";
+import { createUnitVariantAdminHandlers } from "../src/server/admin/unitVariants";
 import { normalizeGameState } from "../src/server/normalization";
+import { createRealtimeController } from "../src/server/realtime";
 import { createInitialGameState } from "../src/server/seed";
 import { buildStateForSession } from "../src/server/visibility";
+import {
+  proposeTithe,
+  reportWorld,
+  resolveAdministratumTitheProposals,
+} from "../src/systems/administratumSystem";
+import {
+  armyCapacityUsed,
+  carrierCapacityUsed,
+  requestArmyEmbark,
+  respondArmyEmbark,
+} from "../src/systems/armyTransportSystem";
+import { registerArtifactEffect } from "../src/systems/artifactEffectRegistry";
 import { appendAudit } from "../src/systems/auditSystem";
 import { detectObjectsForFleetAtCurrentHex } from "../src/systems/detectionSystem";
 import { getProcessedCommandResult, rememberProcessedCommand } from "../src/systems/idempotencySystem";
 import { copyKnowledge, transferArtifact } from "../src/systems/itemSystem";
 import { executeMovement } from "../src/systems/movementSystem";
 import { convertFuelToMovement } from "../src/systems/movementPointSystem";
-import { collectVisibleWarpTileKeysForPlayer } from "../src/systems/navigatorSystem";
+import {
+  collectNavigatorVisionSources,
+  collectVisibleWarpTileKeysForPlayer,
+  isEffectiveNavigator,
+} from "../src/systems/navigatorSystem";
 import { applyImmediatePlanetAction, applyPlanetSystems } from "../src/systems/planetSystem";
 import { applyImmediateResourceTransfer } from "../src/systems/resourceTransferSystem";
+import { openSecretStorage } from "../src/systems/secretStorageSystem";
 import {
   addArtifactToShipwreck,
   addKnowledgeToShipwreck,
   addStackableResourceToShipwreck,
+  salvageDestroyedUnits,
 } from "../src/systems/shipwreckSystem";
 import { tradeWithShop } from "../src/systems/shopSystem";
 import { recalcVisibility } from "../src/systems/fogOfWarSystem";
@@ -27,6 +51,28 @@ import type { GameState, MoveFleetAction, PlanetAction } from "../src/types";
 import { getObjectsAtHex, type Station } from "../src/worldObjectDomain";
 
 const makeState = (): GameState => createInitialGameState();
+
+function jsonRequest(body: unknown = {}): IncomingMessage {
+  return Readable.from([JSON.stringify(body)]) as unknown as IncomingMessage;
+}
+
+function jsonResponse(): {
+  response: ServerResponse;
+  read: () => { status: number; body: unknown };
+} {
+  let body: unknown;
+  const response = {
+    statusCode: 200,
+    setHeader() {},
+    end(chunk?: string) {
+      body = chunk ? JSON.parse(chunk) : undefined;
+    },
+  } as unknown as ServerResponse;
+  return {
+    response,
+    read: () => ({ status: response.statusCode, body }),
+  };
+}
 
 test("movement spends destination warp cost and stops before an unaffordable hex", () => {
   const game = makeState();
@@ -67,14 +113,118 @@ test("FUEL conversion respects owner, phase, inventory and maximum movement poin
   assert.equal(fleet.inventory.FUEL, 2);
 });
 
-test("navigator visibility exposes warp only inside active source union", () => {
+test("navigator trait is derived independently from warp visibility", () => {
   const game = makeState();
   const fleet = game.fleets[1];
-  game.factions[game.players[1].factionId].isNavigator = true;
-  fleet.navigatorRange = 1;
+  game.players[1].manualNavigator = false;
+  fleet.isNavigator = false;
+  fleet.warpVisibility = null;
+  assert.equal(isEffectiveNavigator(game, 1), false);
+
+  game.players[1].manualNavigator = true;
+  assert.equal(isEffectiveNavigator(game, 1), true);
+  assert.equal(collectVisibleWarpTileKeysForPlayer(game, 1).size, 0);
+  fleet.isNavigator = true;
+  fleet.isNavigator = false;
+  assert.equal(isEffectiveNavigator(game, 1), true);
+  game.players[1].manualNavigator = false;
+
+  fleet.warpVisibility = 3;
+  assert.equal(isEffectiveNavigator(game, 1), false);
+  fleet.warpVisibility = null;
+
+  fleet.isNavigator = true;
+  game.players[1].manualNavigator = true;
+  game.players[1].manualNavigator = false;
+  assert.equal(isEffectiveNavigator(game, 1), true);
+  fleet.isNavigator = false;
+  game.artifacts.navigator = {
+    id: "navigator",
+    definitionCode: "NAVIGATOR",
+    name: "Navigator",
+    owner: { kind: "FLEET", fleetId: fleet.id },
+    configuration: {},
+    consumable: false,
+    isNavigator: true,
+    warpVisibility: null,
+  };
+  fleet.itemInventory.artifactIds.push("navigator");
+  assert.equal(isEffectiveNavigator(game, 1), true);
+  delete game.artifacts.navigator;
+  fleet.itemInventory.artifactIds = [];
+  assert.equal(isEffectiveNavigator(game, 1), false);
+});
+
+test("warp visibility uses source union, supports zero, stations and no ally sharing", () => {
+  const game = makeState();
+  const fleet = game.fleets[1];
+  fleet.isNavigator = true;
+  fleet.warpVisibility = 1;
   const allowed = collectVisibleWarpTileKeysForPlayer(game, 1);
   assert.ok(allowed.size > 0);
   assert.ok(allowed.size < game.map.tiles.length);
+
+  fleet.warpVisibility = null;
+  assert.equal(collectVisibleWarpTileKeysForPlayer(game, 1).size, 0);
+  const rangeSizes = ([0, 1, 2, 3] as const).map((range) => {
+    fleet.warpVisibility = range;
+    return collectVisibleWarpTileKeysForPlayer(game, 1).size;
+  });
+  assert.ok(rangeSizes.every((size, index) => index === 0 || size > rangeSizes[index - 1]!));
+
+  fleet.warpVisibility = 0;
+  assert.deepEqual(collectVisibleWarpTileKeysForPlayer(game, 1), new Set([
+    `${fleet.position.q},${fleet.position.r}`,
+  ]));
+  fleet.warpVisibility = 1;
+
+  game.players[1].alliances = [2];
+  game.players[2].alliances = [1];
+  assert.equal(collectVisibleWarpTileKeysForPlayer(game, 2).size, 0);
+
+  const itemHolder = game.fleets[2];
+  game.artifacts.warpBeacon = {
+    id: "warpBeacon", definitionCode: "WARP_BEACON", name: "Warp beacon",
+    owner: { kind: "FLEET", fleetId: itemHolder.id },
+    configuration: {}, consumable: false, isNavigator: false, warpVisibility: 3,
+  };
+  itemHolder.itemInventory.artifactIds.push("warpBeacon");
+  assert.ok(collectNavigatorVisionSources(game).some((source) =>
+    source.position.q === itemHolder.position.q && source.position.r === itemHolder.position.r
+      && source.range === 3
+  ));
+
+  const chaosFleet = game.fleets[3];
+  game.factions[game.players[2].factionId].isChaos = true;
+  chaosFleet.isNavigator = false;
+  chaosFleet.warpVisibility = 0;
+  assert.deepEqual(collectVisibleWarpTileKeysForPlayer(game, 2), new Set([
+    `${chaosFleet.position.q},${chaosFleet.position.r}`,
+  ]));
+  assert.equal(isEffectiveNavigator(game, 2), false);
+
+  const stationPosition = game.map.tiles.find((tile) =>
+    Math.max(
+      Math.abs(tile.q - fleet.position.q),
+      Math.abs(tile.r - fleet.position.r),
+      Math.abs((tile.q + tile.r) - (fleet.position.q + fleet.position.r)),
+    ) > 2
+  );
+  assert.ok(stationPosition);
+  game.stations[1] = {
+    id: 1, name: "Navis station", position: stationPosition,
+    capabilities: [], tags: [], resourceGeneration: {}, rawStock: {},
+    productStorageByPlayerId: {}, itemStorageByPlayerId: {},
+    shop: { resources: {}, items: { artifactIds: [], knowledge: [] }, disappearingItems: [] },
+    infoFragments: {}, ownerFactionId: game.players[1].factionId, warpVisibility: 2,
+    fleetCombatPower: 0, armyCombatPower: 0,
+  };
+  const union = collectVisibleWarpTileKeysForPlayer(game, 1);
+  assert.ok(union.size > allowed.size);
+  assert.ok(collectNavigatorVisionSources(game).some((source) =>
+    source.position.q === stationPosition.q && source.position.r === stationPosition.r
+  ));
+
   const payload = buildStateForSession(
     { token: "nav", username: "p1", role: "player", playerId: 1, expiresAt: Date.now() + 1000 },
     game,
@@ -82,7 +232,7 @@ test("navigator visibility exposes warp only inside active source union", () => 
   for (const tile of payload.map.tiles) {
     assert.equal(
       Object.hasOwn(tile, "warpDisturbanceLevel"),
-      allowed.has(`${tile.q},${tile.r}`),
+      union.has(`${tile.q},${tile.r}`),
     );
   }
 });
@@ -91,18 +241,31 @@ test("legacy snapshot normalization supplies new fields", () => {
   const legacy = makeState() as GameState & Record<string, unknown>;
   for (const key of [
     "stations", "shipwrecks", "anomalies", "artifacts", "audit",
-    "detection", "processedCommands", "turnTimer", "systemSettings",
+    "detection", "processedCommands", "turnTimer", "systemSettings", "unitVariants",
+    "administratumWorldReports", "administratumTitheProposals",
   ]) delete legacy[key];
   for (const fleet of Object.values(legacy.fleets)) {
     (fleet as typeof fleet & { actionPoints?: number }).actionPoints = fleet.movementPoints;
     delete (fleet as Partial<typeof fleet>).movementPoints;
     delete (fleet as Partial<typeof fleet>).maxMovementPoints;
     delete (fleet as Partial<typeof fleet>).navigatorRange;
+    delete (fleet as Partial<typeof fleet>).warpVisibility;
     delete (fleet as Partial<typeof fleet>).itemInventory;
     delete (fleet as Partial<typeof fleet>).tags;
   }
   for (const tile of legacy.map.tiles) delete (tile as Partial<typeof tile>).warpDisturbanceLevel;
-  for (const faction of Object.values(legacy.factions)) delete (faction as Partial<typeof faction>).isNavigator;
+  const legacyFaction = legacy.factions[legacy.players[1].factionId] as typeof legacy.factions[number] & {
+    isNavigator?: boolean;
+  };
+  legacyFaction.isNavigator = true;
+  const legacyNavigatorFleet = legacy.fleets[1] as typeof legacy.fleets[number] & {
+    navigatorRange?: number;
+  };
+  legacyNavigatorFleet.navigatorRange = 2;
+  delete (legacyNavigatorFleet as Partial<typeof legacyNavigatorFleet>).isNavigator;
+  for (const player of Object.values(legacy.players)) {
+    delete (player as Partial<typeof player>).manualNavigator;
+  }
   for (const planet of Object.values(legacy.planets)) {
     delete (planet as Partial<typeof planet>).shop;
     delete (planet as Partial<typeof planet>).itemStorageByPlayerId;
@@ -114,9 +277,56 @@ test("legacy snapshot normalization supplies new fields", () => {
   assert.equal(normalized.systemSettings.baseFleetMovementPoints, 1);
   assert.equal(normalized.fleets[1].movementPoints, 3);
   assert.equal(normalized.fleets[1].maxMovementPoints, 3);
+  assert.equal(normalized.players[1].manualNavigator, true);
+  assert.equal(normalized.fleets[1].isNavigator, true);
+  assert.equal(normalized.fleets[1].warpVisibility, 2);
+  assert.deepEqual(normalized.unitVariants, {});
+  assert.deepEqual(normalized.administratumWorldReports, []);
   assert.ok(normalized.map.tiles.every((tile) => tile.warpDisturbanceLevel >= 1));
   assert.deepEqual(normalized.planets[1].shop.resources, {});
   assert.ok(normalized.turnTimer.turnEndsAt > normalized.turnTimer.turnStartedAt);
+});
+
+test("new gameplay fields survive a JSON snapshot roundtrip", () => {
+  const game = makeState();
+  const player = game.players[1];
+  const faction = game.factions[player.factionId];
+  const fleet = game.fleets[1];
+  const planet = game.planets[1];
+
+  player.manualNavigator = true;
+  faction.isChaos = true;
+  faction.isAdministratum = true;
+  game.unitVariants[7] = {
+    id: 7,
+    name: "Void cruiser",
+    domain: "SPACE",
+    description: "Persistence fixture",
+  };
+  fleet.isNavigator = true;
+  fleet.warpVisibility = 2;
+  fleet.unitVariantId = 7;
+  planet.secretStorage = {
+    enabled: true,
+    passwordVerifier: createPasswordVerifier("Тайный пароль"),
+    allowedTypeKeys: ["ORE"],
+    stackableInventory: { ORE: 6 },
+    itemInventory: { artifactIds: [], knowledge: [] },
+  };
+  assert.equal(reportWorld(game, player.id, planet.id).ok, true);
+  assert.equal(proposeTithe(game, player.id, planet.id, "DECUMA_PRIMA").ok, true);
+
+  const restored = normalizeGameState(JSON.parse(JSON.stringify(game)) as GameState);
+  assert.equal(restored.players[player.id].manualNavigator, true);
+  assert.equal(restored.factions[faction.id].isChaos, true);
+  assert.equal(restored.factions[faction.id].isAdministratum, true);
+  assert.deepEqual(restored.unitVariants[7], game.unitVariants[7]);
+  assert.equal(restored.fleets[fleet.id].isNavigator, true);
+  assert.equal(restored.fleets[fleet.id].warpVisibility, 2);
+  assert.equal(restored.fleets[fleet.id].unitVariantId, 7);
+  assert.deepEqual(restored.planets[planet.id].secretStorage, planet.secretStorage);
+  assert.deepEqual(restored.administratumWorldReports, game.administratumWorldReports);
+  assert.deepEqual(restored.administratumTitheProposals, game.administratumTitheProposals);
 });
 
 test("generation uses raw stock before tithe and Shop after tithe", () => {
@@ -167,7 +377,7 @@ test("Shop accepts mixed category payment and rejects DEC-016 path", () => {
   fleet.inventory = { ORE: 3, PROMETHIUM: 5, FOOD_RAW: 2, PARTS: 10 };
   planet.shop.resources = { PROVISIONS: 3, ORE: 2 };
   const success = tradeWithShop(game, { role: "player", playerId: 1 }, {
-    commandId: "shop-mixed-1", shop: { kind: "PLANET", id: 1 }, fleetId: 1,
+    shop: { kind: "PLANET", id: 1 }, fleetId: 1,
     receive: { resourceKey: "PROVISIONS", amount: 1 },
     payment: { ORE: 3, PROMETHIUM: 5, FOOD_RAW: 2 },
   });
@@ -175,11 +385,11 @@ test("Shop accepts mixed category payment and rejects DEC-016 path", () => {
   assert.equal(fleet.inventory.PROVISIONS, 1);
   assert.equal(planet.shop.resources.PROVISIONS, 2);
   assert.equal(tradeWithShop(game, { role: "player", playerId: 1 }, {
-    commandId: "shop-short-1", shop: { kind: "PLANET", id: 1 }, fleetId: 1,
+    shop: { kind: "PLANET", id: 1 }, fleetId: 1,
     receive: { resourceKey: "PROVISIONS", amount: 1 }, payment: { ORE: 9 },
   }).ok, false);
   const unsupported = tradeWithShop(game, { role: "player", playerId: 1 }, {
-    commandId: "shop-dec016-1", shop: { kind: "PLANET", id: 1 }, fleetId: 1,
+    shop: { kind: "PLANET", id: 1 }, fleetId: 1,
     receive: { resourceKey: "ORE", amount: 1 }, payment: { PARTS: 2 },
   });
   assert.equal(unsupported.ok, false);
@@ -213,6 +423,238 @@ test("Knowledge copies and Artifact transfer stays atomic and unique", () => {
   assert.deepEqual(target.itemInventory.artifactIds, ["relic"]);
 });
 
+test("Secret Storage is case-sensitive, validates concrete type keys and stays hidden", () => {
+  const game = makeState();
+  const planet = game.planets[1];
+  planet.secretStorage = {
+    enabled: true,
+    passwordVerifier: createPasswordVerifier("Terra-Alpha"),
+    allowedTypeKeys: ["ORE", "ARTIFACT:RELIC", `KNOWLEDGE:${SYSTEM_KNOWLEDGE.EXACT_AUSPEX}`],
+    stackableInventory: { ORE: 4 },
+    itemInventory: { artifactIds: [], knowledge: [SYSTEM_KNOWLEDGE.EXACT_AUSPEX] },
+  };
+  planet.secretStorage.enabled = false;
+  assert.equal(openSecretStorage(game, { kind: "PLANET", id: planet.id }, "Terra-Alpha").ok, false);
+  planet.secretStorage.enabled = true;
+  assert.equal(openSecretStorage(game, { kind: "PLANET", id: planet.id }, "terra-alpha").ok, false);
+  const opened = openSecretStorage(game, { kind: "PLANET", id: planet.id }, "Terra-Alpha");
+  assert.equal(opened.ok, true);
+  assert.deepEqual(opened.contents?.stackableInventory, { ORE: 4 });
+
+  assert.equal(validateAllowedTypeKeys([]), null);
+  assert.equal(validateAllowedTypeKeys(["ORE", "ORE"]), null);
+  assert.equal(validateAllowedTypeKeys(["ORE", "FOOD_RAW", "FUEL", "PARTS"]), null);
+  assert.deepEqual(validateAllowedTypeKeys(["ORE", "ARTIFACT:RELIC"]), ["ORE", "ARTIFACT:RELIC"]);
+  assert.equal(parseSecretStorageUpdate(game, {
+    enabled: true,
+    password: "x",
+    allowedTypeKeys: ["ORE"],
+    stackableInventory: { FOOD_RAW: 1 },
+  }).ok, false);
+
+  const observer = game.fleets[1];
+  observer.position = { ...planet.position };
+  detectObjectsForFleetAtCurrentHex(game, observer.id, () => 0);
+  const payload = buildStateForSession(
+    { token: "secret", username: "p1", role: "player", playerId: 1, expiresAt: Date.now() + 1000 },
+    game,
+  );
+  assert.equal(payload.planets[planet.id]?.secretStorageAvailable, true);
+  assert.equal(payload.planets[planet.id]?.secretStorage, undefined);
+  assert.equal(JSON.stringify(payload).includes(planet.secretStorage.passwordVerifier.digest), false);
+
+  game.artifacts.relic = {
+    id: "relic", definitionCode: "RELIC", name: "Relic",
+    owner: { kind: "PLANET_SECRET", planetId: planet.id },
+    configuration: {}, consumable: false, isNavigator: false, warpVisibility: null,
+  };
+  planet.secretStorage.itemInventory.artifactIds.push("relic");
+  game.fleets[1].itemInventory.artifactIds.push("relic");
+  normalizeGameState(game);
+  assert.deepEqual(game.planets[planet.id].secretStorage?.itemInventory.artifactIds, ["relic"]);
+  assert.equal(game.fleets[1].itemInventory.artifactIds.includes("relic"), false);
+});
+
+test("failed Secret Storage password is audited once and replay is idempotent", () => {
+  const game = makeState();
+  game.planets[1].secretStorage = {
+    enabled: true,
+    passwordVerifier: createPasswordVerifier("Верный пароль"),
+    allowedTypeKeys: ["ORE"],
+    stackableInventory: {},
+    itemInventory: { artifactIds: [], knowledge: [] },
+  };
+  const sent: string[] = [];
+  const socket = {
+    readyState: 1,
+    send(payload: string) { sent.push(payload); },
+  } as unknown as import("ws").WebSocket;
+  const context = {
+    socket,
+    session: {
+      token: "secret-session",
+      username: "p1",
+      role: "player" as const,
+      playerId: 1,
+      expiresAt: Date.now() + 1000,
+    },
+  };
+  let persisted = 0;
+  const controller = createRealtimeController({
+    state: game,
+    pendingActions: new Map(),
+    pendingAllianceProposals: new Set(),
+    readyPlayers: new Set(),
+    clients: new Map(),
+    persistDatabase: () => { persisted += 1; },
+  });
+  const command = {
+    type: "openSecretStorage" as const,
+    commandId: "wrong-secret-password-1",
+    target: { kind: "PLANET" as const, id: 1 },
+    password: "Неверный пароль",
+  };
+  controller.handleClientMessage(context, command);
+  controller.handleClientMessage(context, command);
+  assert.equal(game.audit.filter((entry) => entry.operation === "SECRET_STORAGE_AUTH_FAILED").length, 1);
+  assert.ok(persisted >= 1);
+  assert.equal(JSON.parse(sent.at(-1)!).duplicate, true);
+
+  game.planets[1].secretStorage.passwordVerifier = createPasswordVerifier("Correct secret");
+  const successfulCommand = {
+    ...command,
+    commandId: "successful-secret-password-1",
+    password: "Correct secret",
+  };
+  controller.handleClientMessage(context, successfulCommand);
+  assert.ok(JSON.parse(sent.at(-1)!).storage);
+  controller.handleClientMessage(context, { ...successfulCommand, password: "Wrong replay" });
+  const rejectedReplay = JSON.parse(sent.at(-1)!);
+  assert.equal(rejectedReplay.ok, false);
+  assert.equal(rejectedReplay.storage, undefined);
+  assert.equal(rejectedReplay.duplicate, true);
+});
+
+test("Administratum registry is ordered/idempotent and proposals replace, conflict or apply", () => {
+  const game = makeState();
+  const administratumFactionId = game.players[1].factionId;
+  game.factions[administratumFactionId].isAdministratum = true;
+  game.players[2].factionId = administratumFactionId;
+  const outsider = game.players[3];
+  assert.ok(outsider);
+  assert.equal(reportWorld(game, outsider.id, 3).ok, true);
+  assert.equal(proposeTithe(game, outsider.id, 3, "DECUMA_PRIMA").ok, false);
+
+  assert.equal(reportWorld(game, 1, 2).ok, true);
+  assert.equal(reportWorld(game, 1, 1).ok, true);
+  assert.equal(reportWorld(game, 2, 2).ok, true);
+  assert.deepEqual(game.administratumWorldReports.map((entry) => entry.planetId), [3, 2, 1]);
+  const outsiderProjection = buildStateForSession(
+    { token: "outsider", username: "p3", role: "player", playerId: 3, expiresAt: Date.now() + 1000 },
+    game,
+  );
+  const administratumProjection = buildStateForSession(
+    { token: "adept", username: "p1", role: "player", playerId: 1, expiresAt: Date.now() + 1000 },
+    game,
+  );
+  assert.deepEqual(outsiderProjection.administratumWorldReports, []);
+  assert.equal(administratumProjection.administratumWorldReports.length, 3);
+  assert.equal(proposeTithe(game, 1, 999, "DECUMA_PRIMA").ok, false);
+  assert.equal(proposeTithe(game, 1, 1, "INVALID").ok, false);
+
+  assert.equal(proposeTithe(game, 1, 1, "DECUMA_PRIMA").ok, true);
+  assert.equal(proposeTithe(game, 1, 1, "DECUMA_SECUNDUS").ok, true);
+  assert.equal(game.administratumTitheProposals.length, 1);
+  assert.equal(proposeTithe(game, 2, 1, "DECUMA_TERTIUS").ok, true);
+  assert.deepEqual(resolveAdministratumTitheProposals(game), []);
+
+  assert.equal(proposeTithe(game, 1, 1, "SOLUTIO_PRIMA").ok, true);
+  assert.equal(proposeTithe(game, 2, 1, "SOLUTIO_PRIMA").ok, true);
+  const planet = game.planets[1];
+  assert.notEqual(planet.maxTitheLevel, "SOLUTIO_PRIMA");
+  game.fleets[1].position = { ...planet.position };
+  const applied = resolveAdministratumTitheProposals(game);
+  assert.equal(applied[0]?.titheLevel, "SOLUTIO_PRIMA");
+  assert.ok(applied[0]?.notifiedPlayerIds.includes(1));
+  assert.equal(planet.maxTitheLevel, "SOLUTIO_PRIMA");
+  assert.deepEqual(game.administratumWorldReports.map((entry) => entry.planetId), [3, 2, 1]);
+});
+
+test("UnitVariant normalization preserves matching assignments and clears mismatches", () => {
+  const game = makeState();
+  game.unitVariants[1] = { id: 1, name: "Cruiser", domain: "SPACE" };
+  game.fleets[1].unitVariantId = 1;
+  const army = structuredClone(game.fleets[1]);
+  army.id = 99;
+  army.domain = "GROUND";
+  army.unitVariantId = 1;
+  game.fleets[army.id] = army;
+  const normalized = normalizeGameState(game);
+  assert.equal(normalized.fleets[1].unitVariantId, 1);
+  assert.equal(normalized.fleets[army.id].unitVariantId, undefined);
+});
+
+test("UnitVariant admin CRUD rejects a cross-domain update and safely clears references", async () => {
+  const game = makeState();
+  let persisted = 0;
+  let broadcasts = 0;
+  const handlers = createUnitVariantAdminHandlers({
+    state: game,
+    accounts: new Map(),
+    pendingActions: new Map(),
+    pendingAllianceProposals: new Set(),
+    readyPlayers: new Set(),
+    requireAdmin: () => ({
+      token: "admin", username: "gm", role: "admin", expiresAt: Date.now() + 1000,
+    }),
+    ensurePlanningPhase: () => true,
+    persistDatabase: () => { persisted += 1; },
+    broadcastState: () => { broadcasts += 1; },
+    removeSessionsForPlayer: () => {},
+    listTurnSnapshots: () => [],
+    rollbackTurnSnapshot: () => false,
+    auditAdminMutation: (_req, input) => appendAudit(game, {
+      actor: { kind: "ADMIN", account: "gm" },
+      ...input,
+    }),
+  });
+
+  const createdResponse = jsonResponse();
+  await handlers.handleAddUnitVariant(
+    jsonRequest({ name: "Cruiser", domain: "SPACE", description: "line ship" }),
+    createdResponse.response,
+  );
+  assert.equal(createdResponse.read().status, 201);
+  const variantId = (createdResponse.read().body as { unitVariant: { id: number } }).unitVariant.id;
+  game.fleets[1].unitVariantId = variantId;
+
+  const rejectedResponse = jsonResponse();
+  await handlers.handleUpdateUnitVariant(
+    jsonRequest({ domain: "GROUND" }),
+    rejectedResponse.response,
+    String(variantId),
+  );
+  assert.equal(rejectedResponse.read().status, 409);
+  assert.equal(game.unitVariants[variantId].domain, "SPACE");
+
+  const updatedResponse = jsonResponse();
+  await handlers.handleUpdateUnitVariant(
+    jsonRequest({ name: "Heavy Cruiser" }),
+    updatedResponse.response,
+    String(variantId),
+  );
+  assert.equal(updatedResponse.read().status, 200);
+  assert.equal(game.unitVariants[variantId].name, "Heavy Cruiser");
+
+  const deletedResponse = jsonResponse();
+  handlers.handleDeleteUnitVariant(jsonRequest(), deletedResponse.response, String(variantId));
+  assert.equal(deletedResponse.read().status, 200);
+  assert.equal(game.unitVariants[variantId], undefined);
+  assert.equal(game.fleets[1].unitVariantId, undefined);
+  assert.equal(persisted, 3);
+  assert.equal(broadcasts, 3);
+});
+
 test("Shipwreck accepts Artifact/Knowledge and rejects stackables", () => {
   const wreck = {
     id: 1, position: { q: 1, r: 1 }, inventory: { artifactIds: [], knowledge: [] },
@@ -222,6 +664,33 @@ test("Shipwreck accepts Artifact/Knowledge and rejects stackables", () => {
   assert.equal(addKnowledgeToShipwreck(wreck, "LORE").ok, true);
   assert.equal(addStackableResourceToShipwreck().ok, false);
   assert.deepEqual(wreck.inventory, { artifactIds: ["a-1"], knowledge: ["LORE"] });
+});
+
+test("destroyed units aggregate into one shipwreck per batch and hex only", () => {
+  const game = makeState();
+  const first = structuredClone(game.fleets[1]);
+  const second = structuredClone(game.fleets[2]);
+  const third = structuredClone(game.fleets[3]);
+  first.position = { q: 2, r: 2 };
+  second.position = { q: 2, r: 2 };
+  third.position = { q: 3, r: 2 };
+  first.itemInventory = { artifactIds: ["a"], knowledge: ["LORE"] };
+  second.itemInventory = { artifactIds: ["b"], knowledge: ["LORE", "MAP"] };
+  third.itemInventory = { artifactIds: ["c"], knowledge: [] };
+  const firstBatch = salvageDestroyedUnits(game, [first, second, third]);
+  assert.equal(firstBatch.length, 2);
+  const combined = firstBatch.find((wreck) => wreck.position.q === 2 && wreck.position.r === 2);
+  assert.deepEqual(combined?.sourceUnitIds, [first.id, second.id].sort((a, b) => a - b));
+  assert.deepEqual(combined?.inventory.artifactIds, ["a", "b"]);
+  assert.deepEqual(combined?.inventory.knowledge, ["LORE", "MAP"]);
+
+  const later = structuredClone(game.fleets[1]);
+  later.id = 777;
+  later.position = { q: 2, r: 2 };
+  later.itemInventory = { artifactIds: ["later"], knowledge: [] };
+  const secondBatch = salvageDestroyedUnits(game, [later]);
+  assert.equal(secondBatch.length, 1);
+  assert.notEqual(secondBatch[0]?.id, combined?.id);
 });
 
 test("visibility is own-only until server Detection", () => {
@@ -262,6 +731,54 @@ test("Detection auto-reveals non-stealth objects and Exact Auspex is exact", () 
     ?.detected.some((entry) => entry.objectKind === "FLEET"));
 });
 
+test("SPACE and GROUND detection both roll d4 independently of health", () => {
+  const game = makeState();
+  const space = game.fleets[1];
+  const ground = game.fleets[2];
+  assert.equal(space.domain, "SPACE");
+  assert.equal(ground.domain, "GROUND");
+  space.health = 1;
+  ground.health = 100_000;
+  const spaceResult = detectObjectsForFleetAtCurrentHex(game, space.id, () => 0.9999);
+  const groundResult = detectObjectsForFleetAtCurrentHex(game, ground.id, () => 0);
+  assert.deepEqual({ die: spaceResult?.dieSize, roll: spaceResult?.roll }, { die: 4, roll: 4 });
+  assert.deepEqual({ die: groundResult?.dieSize, roll: groundResult?.roll }, { die: 4, roll: 1 });
+});
+
+test("army capacity rounds each army up and is rechecked on acceptance", () => {
+  const game = makeState();
+  const carrier = game.fleets[1];
+  carrier.capacity = 2;
+  const army = structuredClone(game.fleets[2]);
+  army.id = 90;
+  army.ownerPlayerId = carrier.ownerPlayerId;
+  army.domain = "GROUND";
+  army.health = 1001;
+  army.position = { ...carrier.position };
+  delete army.carrierFleetId;
+  game.fleets[army.id] = army;
+  assert.equal(armyCapacityUsed({ ...army, health: 1000 }), 1);
+  assert.equal(armyCapacityUsed(army), 2);
+  assert.equal(requestArmyEmbark(game, [], carrier.ownerPlayerId, army.id, carrier.id).ok, true);
+
+  const occupyingArmy = structuredClone(army);
+  occupyingArmy.id = 91;
+  occupyingArmy.health = 1000;
+  occupyingArmy.carrierFleetId = carrier.id;
+  game.fleets[occupyingArmy.id] = occupyingArmy;
+  assert.equal(carrierCapacityUsed(game, carrier.id), 1);
+  const response = respondArmyEmbark(
+    game,
+    [],
+    carrier.ownerPlayerId,
+    game.pendingArmyTransportRequests[0]!.id,
+    true,
+  );
+  assert.equal(response.ok, true);
+  assert.match(response.message, /capacity/i);
+  assert.equal(army.carrierFleetId, undefined);
+});
+
 test("getObjectsAtHex supports multiple objects of every category", () => {
   const game = makeState();
   const coord = { q: 4, r: 4 };
@@ -275,7 +792,8 @@ test("getObjectsAtHex supports multiple objects of every category", () => {
     id: 1, name: "S", position: coord, capabilities: ["SHOP", "TAGS"], tags: [],
     resourceGeneration: {}, rawStock: {}, productStorageByPlayerId: {}, itemStorageByPlayerId: {},
     shop: { resources: {}, items: { artifactIds: [], knowledge: [] }, disappearingItems: [] },
-    infoFragments: {}, overviewRange: 0, fleetCombatPower: 0, armyCombatPower: 0,
+    infoFragments: {}, ownerFactionId: null, warpVisibility: null,
+    fleetCombatPower: 0, armyCombatPower: 0,
   };
   game.stations[1] = station;
   game.shipwrecks[1] = { id: 1, position: coord, inventory: { artifactIds: [], knowledge: [] }, createdOnTurn: 1, sourceUnitIds: [] };
@@ -299,7 +817,7 @@ test("command id prevents a second Shop mutation and audit record", () => {
     const previous = getProcessedCommandResult(game, "player:1", commandId);
     if (previous) return previous;
     const result = tradeWithShop(game, { role: "player", playerId: 1 }, {
-      commandId, shop: { kind: "PLANET", id: 1 }, fleetId: 1,
+      shop: { kind: "PLANET", id: 1 }, fleetId: 1,
       receive: { resourceKey: "FOOD_RAW", amount: 1 }, payment: { ORE: 2 },
     });
     rememberProcessedCommand(game, "player:1", commandId, result);
@@ -310,6 +828,101 @@ test("command id prevents a second Shop mutation and audit record", () => {
   execute(); execute();
   assert.equal(fleet.inventory.FOOD_RAW, 1);
   assert.equal(game.audit.length, 1);
+});
+
+test("Shop realtime command reads top-level commandId and replays without a second trade", () => {
+  const game = makeState();
+  const planet = game.planets[1];
+  const fleet = game.fleets[1];
+  fleet.position = { ...planet.position };
+  fleet.inventory.ORE = 2;
+  planet.shop.resources.FOOD_RAW = 1;
+  const sent: string[] = [];
+  const socket = {
+    readyState: 1,
+    send(payload: string) { sent.push(payload); },
+  } as unknown as import("ws").WebSocket;
+  const context = {
+    socket,
+    session: {
+      token: "shop-session", username: "p1", role: "player" as const,
+      playerId: 1, expiresAt: Date.now() + 1000,
+    },
+  };
+  const controller = createRealtimeController({
+    state: game,
+    pendingActions: new Map(),
+    pendingAllianceProposals: new Set(),
+    readyPlayers: new Set(),
+    clients: new Map(),
+    persistDatabase: () => {},
+  });
+  const command = {
+    type: "shopTrade" as const,
+    commandId: "shop-top-level-1",
+    payload: {
+      shop: { kind: "PLANET" as const, id: planet.id },
+      fleetId: fleet.id,
+      receive: { resourceKey: "FOOD_RAW" as const, amount: 1 },
+      payment: { ORE: 2 },
+    },
+  };
+  controller.handleClientMessage(context, command);
+  controller.handleClientMessage(context, command);
+  assert.equal(fleet.inventory.ORE ?? 0, 0);
+  assert.equal(fleet.inventory.FOOD_RAW, 1);
+  assert.equal(game.audit.filter((entry) => entry.operation === "SHOP_TRADE").length, 1);
+  assert.equal(JSON.parse(sent.at(-1)!).duplicate, true);
+});
+
+test("consumable Artifact action executes once for a duplicate commandId", () => {
+  const game = makeState();
+  const fleet = game.fleets[1];
+  let uses = 0;
+  registerArtifactEffect("TEST_ONCE", () => {
+    uses += 1;
+    return { ok: true, message: "used" };
+  });
+  game.artifacts.once = {
+    id: "once",
+    definitionCode: "ONCE",
+    name: "One-shot",
+    owner: { kind: "FLEET", fleetId: fleet.id },
+    configuration: {},
+    useEffect: { effectCode: "TEST_ONCE", params: {} },
+    consumable: true,
+    isNavigator: false,
+    warpVisibility: null,
+  };
+  fleet.itemInventory.artifactIds.push("once");
+  const sent: string[] = [];
+  const socket = {
+    readyState: 1,
+    send(payload: string) { sent.push(payload); },
+  } as unknown as import("ws").WebSocket;
+  const context = {
+    socket,
+    session: {
+      token: "artifact-session", username: "p1", role: "player" as const,
+      playerId: 1, expiresAt: Date.now() + 1000,
+    },
+  };
+  const controller = createRealtimeController({
+    state: game,
+    pendingActions: new Map(),
+    pendingAllianceProposals: new Set(),
+    readyPlayers: new Set(),
+    clients: new Map(),
+    persistDatabase: () => {},
+  });
+  const command = { type: "artifactUse" as const, commandId: "artifact-once-1", artifactId: "once" };
+  controller.handleClientMessage(context, command);
+  controller.handleClientMessage(context, command);
+  assert.equal(uses, 1);
+  assert.equal(game.artifacts.once, undefined);
+  assert.equal(fleet.itemInventory.artifactIds.includes("once"), false);
+  assert.equal(game.audit.filter((entry) => entry.operation === "USE_ARTIFACT").length, 1);
+  assert.equal(JSON.parse(sent.at(-1)!).duplicate, true);
 });
 
 test("command id prevents a second resource transfer", () => {

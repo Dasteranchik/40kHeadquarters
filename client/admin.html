@@ -75,6 +75,10 @@
               <label for="addPlayerCanTakeResources">May take planet resources</label>
               <input id="addPlayerCanTakeResources" type="checkbox" />
             </div>
+            <div>
+              <label for="addPlayerManualNavigator">Навигатор (вручную)</label>
+              <input id="addPlayerManualNavigator" type="checkbox" />
+            </div>
           </div>
           <button id="addPlayerBtn">Add Player</button>
           <input id="playersSearch" placeholder="Quick search players..." />
@@ -95,10 +99,14 @@
             <div>
               <label for="addFactionDescription">Description</label>
               <input id="addFactionDescription" placeholder="description (optional)" />
-            <div>
-              <label for="addFactionNavigator">Навигаторы</label>
-              <input id="addFactionNavigator" type="checkbox" />
-            </div>
+              <div>
+                <label for="addFactionChaos">Хаос</label>
+                <input id="addFactionChaos" type="checkbox" />
+              </div>
+              <div>
+                <label for="addFactionAdministratum">Администратум</label>
+                <input id="addFactionAdministratum" type="checkbox" />
+              </div>
             </div>
           </div>
           <button id="addFactionBtn">Add Faction</button>
@@ -162,10 +170,6 @@
               <input id="addPlanetVision" type="number" placeholder="visionRange" value="1" />
             </div>
             <div>
-              <label for="addPlanetOverview">Overview Range</label>
-              <input id="addPlanetOverview" type="number" placeholder="overviewRange" value="1" />
-            </div>
-            <div>
               <label>Generated Resources</label>
               <div id="addPlanetGeneration" class="chip-selector" role="group"></div>
             </div>
@@ -217,10 +221,18 @@
               <label for="addFleetMaxMovement">Максимальные ОД</label>
               <input id="addFleetMaxMovement" type="number" min="1" value="3" />
             </div>
-            <div>
-              <label for="addFleetNavigatorRange">Дальность Навигатора</label>
-              <input id="addFleetNavigatorRange" type="number" min="0" value="0" />
-            </div>
+              <div>
+                <label for="addFleetNavigator">Trait Навигатор</label>
+                <input id="addFleetNavigator" type="checkbox" />
+              </div>
+              <div>
+                <label for="addFleetWarpVisibility">Warp Visibility</label>
+                <select id="addFleetWarpVisibility"><option value="">-</option><option>0</option><option>1</option><option>2</option><option>3</option></select>
+              </div>
+              <div>
+                <label for="addFleetVariant">Вид юнита</label>
+                <select id="addFleetVariant"><option value="">-</option></select>
+              </div>
             </div>
             <div>
               <label for="addFleetVision">Vision Range</label>
@@ -293,6 +305,10 @@
           <input id="armiesSearch" placeholder="Quick search armies..." />
           <div id="armiesList" class="list"></div>
         </section>
+            <div>
+              <label for="addArmyVariant">Вид юнита</label>
+              <select id="addArmyVariant"><option value="">-</option></select>
+            </div>
 
         <section id="relationsPanel" class="panel hidden">
           <h2>Relations</h2>
@@ -347,9 +363,18 @@
               <input id="extStationR" type="number" />
             </div>
             <div>
-              <label for="extStationOverview">Overview</label>
-              <input id="extStationOverview" type="number" min="0" value="0" />
+              <label for="extStationOwnerFaction">Фракция-владелец</label>
+              <select id="extStationOwnerFaction"><option value="">-</option></select>
             </div>
+            <div>
+              <label for="extStationWarpVisibility">Warp Visibility</label>
+              <select id="extStationWarpVisibility"><option value="">-</option><option>0</option><option>1</option><option>2</option><option>3</option></select>
+            </div>
+            <label><input id="extStationSecretEnabled" type="checkbox" /> Secret Storage</label>
+            <input id="extStationSecretPassword" type="password" placeholder="Новый пароль (пусто = не менять)" />
+            <input id="extStationSecretAllowed" value='["ORE"]' placeholder='["ORE","ARTIFACT:RELIC"]' />
+            <input id="extStationSecretStackable" value="{}" placeholder='{"ORE":5}' />
+            <input id="extStationSecretKnowledge" value="[]" placeholder='["LORE"]' />
             <div>
               <label for="extStationFleetPower">Fleet combat power (stored only)</label>
               <input id="extStationFleetPower" type="number" min="0" value="0" />
@@ -424,10 +449,10 @@
           <input id="extItemUseEffect" value="" placeholder='{"effectCode":"...","params":{}}' />
           <label for="extItemConsumable">Consumable Artifact</label>
           <input id="extItemConsumable" type="checkbox" />
-          <label for="extNavigatorRange">Дальность артефакта Навигатор</label>
-          <input id="extNavigatorRange" type="number" min="1" step="1" value="3" />
-          <label for="extNavigatorOrigin">Первоначальный игрок-Навигатор</label>
-          <select id="extNavigatorOrigin"></select>
+          <label for="extItemNavigator">Trait Навигатор</label>
+          <input id="extItemNavigator" type="checkbox" />
+          <label for="extItemWarpVisibility">Warp Visibility</label>
+          <select id="extItemWarpVisibility"><option value="">-</option><option>0</option><option>1</option><option>2</option><option>3</option></select>
 
           <button id="extAddItemBtn">Place Item</button>
           <div id="extArtifactsList" class="list"></div>
@@ -467,6 +492,17 @@
         <section class="panel hidden admin-extension">
           <h2>Turn Reliability</h2>
           <p id="extTimerLine">Timer: -</p>
+        <section class="panel hidden admin-extension">
+          <h2>Виды юнитов</h2>
+          <div class="grid add-grid">
+            <div><label for="extVariantName">Название</label><input id="extVariantName" /></div>
+            <div><label for="extVariantDomain">Домен</label><select id="extVariantDomain"><option value="SPACE">SPACE</option><option value="GROUND">GROUND</option></select></div>
+            <div><label for="extVariantDescription">Описание</label><input id="extVariantDescription" /></div>
+          </div>
+          <button id="extAddVariantBtn">Добавить вид</button>
+          <div id="extVariantsList" class="list"></div>
+        </section>
+
           <div class="row">
             <button id="extEndTurnBtn">Force End Turn</button>
             <button id="extReloadBtn" class="ghost">Reload</button>

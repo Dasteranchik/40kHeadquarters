@@ -22,18 +22,18 @@ import {
 import { Account } from "./contracts";
 import { defaultPlayerColor } from "../utils/playerColor";
 
-const DEFAULT_FACTIONS: Array<{ id: string; name: string; isNavigator?: boolean }> = [
+const DEFAULT_FACTIONS: Array<{ id: string; name: string; isChaos?: boolean; isAdministratum?: boolean }> = [
   { id: "astra_militarum", name: "Астра Милитарум" },
   { id: "battle_fleet", name: "Боевой Флот" },
   { id: "fleet", name: "Флот" },
   { id: "pirates", name: "Пираты" },
   { id: "rogue_traders", name: "Вольные Торговцы" },
   { id: "ecclesiarchy", name: "Эклезиархия" },
-  { id: "administratum", name: "Администратум" },
-  { id: "navis_nobilite", name: "Навигаторы", isNavigator: true },
+  { id: "administratum", name: "Администратум", isAdministratum: true },
+  { id: "navis_nobilite", name: "Навигаторы" },
   { id: "other_psykers", name: "другие псайкеры" },
   { id: "inquisition", name: "Инквизиция" },
-  { id: "chaos", name: "Хаоситы" },
+  { id: "chaos", name: "Хаоситы", isChaos: true },
   { id: "mechanicus", name: "Механикус" },
   { id: "dark_mechanicus", name: "Тёмные Механикус" },
 ];
@@ -46,7 +46,8 @@ function createDefaultFactions(): Record<string, Faction> {
       id,
       code: faction.id,
       name: faction.name,
-      isNavigator: faction.isNavigator === true,
+      isChaos: faction.isChaos === true,
+      isAdministratum: faction.isAdministratum === true,
     };
   });
 
@@ -90,6 +91,7 @@ function createPlayer(
     alignment,
     factionId,
     intelFragments: {},
+    manualNavigator: false,
   };
 }
 
@@ -122,7 +124,6 @@ function createPlanet(
     resourceProduction: perResource * outputs.length,
     influenceValue: 2,
     visionRange: 1,
-    overviewRange: 1,
     rawStock: {},
     productStorageByPlayerId: {},
     itemStorageByPlayerId: {},
@@ -149,7 +150,8 @@ function createFleet(
     influence,
     movementPoints: domain === "SPACE" ? 3 : 0,
     maxMovementPoints: domain === "SPACE" ? 3 : 0,
-    navigatorRange: 0,
+    isNavigator: false,
+    warpVisibility: null,
     visionRange: 2,
     shareVisionWithAllies: false,
     capacity: 10,
@@ -250,9 +252,12 @@ export function createInitialGameState(): GameState {
     shipwrecks: {},
     anomalies: {},
     artifacts: {},
+    unitVariants: {},
     pendingTitheChanges: [],
     pendingInformantActions: [],
     pendingArmyTransportRequests: [],
+    administratumWorldReports: [],
+    administratumTitheProposals: [],
     events: [],
     audit: [],
     detection: { recordsByPlayerId: {} },
@@ -273,6 +278,7 @@ export function createInitialGameState(): GameState {
       anomaly: 1,
       artifact: 1,
       audit: 1,
+      unitVariant: 1,
     },
   };
 }
