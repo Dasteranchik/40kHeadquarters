@@ -15,7 +15,7 @@ export interface AdminHandlerDeps {
   ensurePlanningPhase: (res: ServerResponse) => boolean;
   persistDatabase: () => void;
   broadcastState: () => void;
-  removeSessionsForPlayer: (playerId: number) => void;
+  removeSessionsForPlayer: (playerId: number, notify?: boolean) => void;
   listTurnSnapshots: () => TurnSnapshot[];
   rollbackTurnSnapshot: (snapshotId: string, account: string) => boolean;
   auditAdminMutation: (

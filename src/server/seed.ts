@@ -4,7 +4,8 @@
   RAW_OUTPUTS_BY_WORLD_TYPE,
   titheValue,
 } from "../planetDomain";
-import { DocumentSnapshot } from "../storage/documentDb";
+import type { DocumentSnapshot } from "../storage/documentDb";
+import { CURRENT_SCHEMA_VERSION } from "../storage/snapshot";
 import { createEmptyItemInventory } from "../itemDomain";
 import { createEmptyShop } from "../shopDomain";
 import { DEFAULT_TURN_DURATION_MS } from "../turnTimerDomain";
@@ -19,7 +20,6 @@ import {
   TerrainType,
   Tile,
 } from "../types";
-import { Account } from "./contracts";
 import { defaultPlayerColor } from "../utils/playerColor";
 
 const DEFAULT_FACTIONS: Array<{ id: string; name: string; isChaos?: boolean; isAdministratum?: boolean }> = [
@@ -283,34 +283,12 @@ export function createInitialGameState(): GameState {
   };
 }
 
-export function createInitialAccounts(gameState: GameState): Record<string, Account> {
-  const result: Record<string, Account> = {
-    admin: {
-      username: "admin",
-      password: "admin123",
-      role: "admin",
-      playerId: 1,
-    },
-  };
-
-  for (const player of Object.values(gameState.players)) {
-    const username = `p${player.id}`;
-    result[username] = {
-      username,
-      password: username,
-      role: "player",
-      playerId: player.id,
-    };
-  }
-
-  return result;
-}
-
 export function createInitialDocumentSnapshot(): DocumentSnapshot {
   const gameState = createInitialGameState();
   return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     gameState,
-    accounts: createInitialAccounts(gameState),
+    accounts: {},
     sessions: {},
     turnSnapshots: [],
   };

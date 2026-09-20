@@ -272,8 +272,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     for (const [actionId, action] of deps.pendingActions.entries()) {
       if (
         ((action.type === "MOVE_FLEET" || action.type === "SET_FLEET_STANCE") &&
-          action.payload.fleetId === fleetId) ||
-        (action.type === "PLANET_ACTION" && action.payload.fleetId === fleetId)
+          action.payload.fleetId === removedFleet.id) ||
+        (action.type === "PLANET_ACTION" && action.payload.fleetId === removedFleet.id)
       ) {
         deps.pendingActions.delete(actionId);
       }

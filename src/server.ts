@@ -12,15 +12,25 @@ import { createWorldObjectAdminHandlers } from "./server/admin/worldObjects";
 import { createSystemSettingsAdminHandlers } from "./server/admin/systemSettings";
 import { createUnitVariantAdminHandlers } from "./server/admin/unitVariants";
 import { Account, ClientContext, Session } from "./server/contracts";
+import { ensureBootstrapAdmin } from "./server/bootstrapAdmin";
+import { createGracefulShutdownController } from "./server/gracefulShutdown";
 import { normalizeGameState } from "./server/normalization";
+import {
+  createStructuredLogger,
+  handleHealthRequest,
+  serializeError,
+  type ServerMetrics,
+} from "./server/observability";
 import { createPublicApiHandlers } from "./server/publicApi";
 import { createRealtimeController } from "./server/realtime";
 import { handleApiRequest as routeApiRequest } from "./server/router";
 import { createInitialDocumentSnapshot } from "./server/seed";
 import { createSessionManager } from "./server/sessions";
+import { createStateTransactionManager } from "./server/stateTransaction";
 import { parseClientMessage, send, writeJson } from "./server/transport";
 import { buildPlanningForSession, buildStateForSession } from "./server/visibility";
-import { DbAccount, DbSession, DocumentDb, type TurnSnapshot, type TurnSnapshotPoint } from "./storage/documentDb";
+import { DbSession, DocumentDb, type TurnSnapshot, type TurnSnapshotPoint } from "./storage/documentDb";
+import { migrateDocumentSnapshot } from "./storage/migrations";
 import { Action } from "./types";
 import { createTurnTimerController, type TurnTimerController } from "./turn/turnTimer";
 import { detectObjectsForFleetAtCurrentHex } from "./systems/detectionSystem";
@@ -29,9 +39,25 @@ import { captureTurnSnapshotEntry, restorePlanningTurnSnapshot } from "./turn/tu
 
 const PORT = Number(process.env.PORT ?? 8080);
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24;
+const logger = createStructuredLogger();
+const metrics: ServerMetrics = {
+  wsConnections: 0,
+  commandErrorsTotal: 0,
+  persistenceFailuresTotal: 0,
+  lastResolutionDurationMs: null,
+  lastResolutionCompletedAt: null,
+};
+let persistenceHealthy = true;
+let serverReady = false;
 
-const db = new DocumentDb(createInitialDocumentSnapshot());
-const persisted = db.getSnapshot();
+let db: DocumentDb;
+try {
+  db = new DocumentDb(createInitialDocumentSnapshot());
+} catch (error) {
+  logger.error("database_load_failed", serializeError(error));
+  throw error;
+}
+const persisted = migrateDocumentSnapshot(db.getSnapshot());
 
 const state = normalizeGameState(persisted.gameState);
 const configuredTurnDurationMs = Number(process.env.TURN_DURATION_MS);
@@ -62,34 +88,17 @@ for (const account of Object.values(persisted.accounts)) {
   accounts.set(account.username, { ...account });
 }
 
-if (!accounts.has("admin")) {
-  accounts.set("admin", {
-    username: "admin",
-    password: "admin123",
-    role: "admin",
-    playerId: 1,
-  });
-}
+const adminBootstrapped = ensureBootstrapAdmin(accounts, {
+  username: process.env.BOOTSTRAP_ADMIN_USERNAME,
+  password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
+});
 
 let sessionManager: ReturnType<typeof createSessionManager>;
+let transactionManager: ReturnType<typeof createStateTransactionManager>;
 
 function persistDatabase(): void {
-  const storedAccounts: Record<string, DbAccount> = {};
-  for (const [username, account] of accounts.entries()) {
-    storedAccounts[username] = {
-      username: account.username,
-      password: account.password,
-      role: account.role,
-      playerId: account.playerId,
-    };
-  }
-
-  db.replace({
-    gameState: state,
-    accounts: storedAccounts,
-    sessions: sessionManager?.getSessions() ?? persisted.sessions ?? {},
-    turnSnapshots,
-  });
+  transactionManager.persistAndCommit();
+  persistenceHealthy = true;
 }
 
 const restoredSessions = Object.fromEntries(
@@ -108,7 +117,32 @@ sessionManager = createSessionManager(
   restoredSessions,
   persistDatabase,
 );
+transactionManager = createStateTransactionManager({
+  repository: db,
+  state,
+  accounts,
+  turnSnapshots,
+  pendingActions,
+  pendingAllianceProposals,
+  readyPlayers,
+  getSessions: sessionManager.getSessions,
+  restoreSessions: sessionManager.restoreSessions,
+  onPersistenceFailure: (error) => {
+    persistenceHealthy = false;
+    metrics.persistenceFailuresTotal += 1;
+    logger.error("persistence_failed", {
+      ...serializeError(error),
+      turnNumber: state.turnNumber,
+      phase: state.phase,
+    });
+  },
+});
 persistDatabase();
+if (adminBootstrapped) {
+  logger.info("bootstrap_admin_created", {
+    username: process.env.BOOTSTRAP_ADMIN_USERNAME,
+  });
+}
 
 function requireAdmin(req: IncomingMessage, res: ServerResponse): Session | null {
   return sessionManager.requireAdmin(req, res);
@@ -132,11 +166,33 @@ const realtime = createRealtimeController({
   persistDatabase,
   cancelTurnTimer: () => turnTimer?.cancel(),
   startNewPlanningTimer: () => {
-    turnTimer?.startNewPlanning();
+    turnTimer?.startNewPlanning(false, false);
     captureTurnSnapshot("START", state.turnNumber);
-    persistDatabase();
+    try {
+      persistDatabase();
+    } finally {
+      turnTimer?.restore();
+    }
   },
   captureTurnSnapshot,
+  onResolutionComplete: (durationMs, succeeded) => {
+    metrics.lastResolutionDurationMs = durationMs;
+    metrics.lastResolutionCompletedAt = new Date().toISOString();
+    logger.info("turn_resolution_completed", {
+      durationMs,
+      succeeded,
+      turnNumber: state.turnNumber,
+    });
+  },
+  onCommandError: ({ commandId, playerId, username, message }) => {
+    metrics.commandErrorsTotal += 1;
+    logger.warn("command_rejected", {
+      ...(commandId ? { commandId } : {}),
+      ...(playerId === undefined ? {} : { playerId }),
+      username,
+      message,
+    });
+  },
 });
 
 turnTimer = createTurnTimerController({
@@ -170,9 +226,13 @@ function rollbackTurnSnapshot(snapshotId: string, account: string): boolean {
     entityId: snapshotId,
     after: { turnNumber: state.turnNumber, point: snapshot.point },
   });
-  turnTimer?.startNewPlanning();
+  turnTimer?.startNewPlanning(false, false);
   captureTurnSnapshot("START", state.turnNumber);
-  persistDatabase();
+  try {
+    persistDatabase();
+  } finally {
+    turnTimer?.restore();
+  }
   realtime.broadcastState();
   return true;
 }
@@ -181,8 +241,8 @@ function broadcastState(): void {
   realtime.broadcastState();
 }
 
-function removeSessionsForPlayer(playerId: number): void {
-  sessionManager.removeSessionsForPlayer(playerId);
+function removeSessionsForPlayer(playerId: number, notify = true): void {
+  sessionManager.removeSessionsForPlayer(playerId, notify);
 }
 
 function auditAdminMutation(
@@ -253,13 +313,45 @@ const apiHandlers = {
   },
 };
 
+let shutdownController: ReturnType<typeof createGracefulShutdownController> | null = null;
 const httpServer = createServer((req, res) => {
-  void routeApiRequest(req, res, apiHandlers);
+  if (handleHealthRequest(req, res, {
+    isReady: () => serverReady,
+    isShuttingDown: () => shutdownController?.isShuttingDown() ?? false,
+    persistenceHealthy: () => persistenceHealthy,
+    metrics,
+  })) return;
+  if (shutdownController?.isShuttingDown()) {
+    writeJson(res, 503, { error: "Server is shutting down" });
+    return;
+  }
+  void routeApiRequest(req, res, apiHandlers).catch((error: unknown) => {
+    logger.error("http_request_failed", {
+      ...serializeError(error),
+      method: req.method,
+      path: new URL(req.url ?? "/", "http://localhost").pathname,
+    });
+    if (!res.headersSent) writeJson(res, persistenceHealthy ? 500 : 503, { error: "Request failed" });
+    else if (!res.writableEnded) res.end();
+  });
 });
 
 const wss = new WebSocketServer({ server: httpServer });
 
+shutdownController = createGracefulShutdownController({
+  httpServer,
+  webSocketServer: wss,
+  cancelTurnTimer: () => turnTimer?.cancel(),
+  persistFinalState: persistDatabase,
+  logger,
+});
+shutdownController.installSignalHandlers();
+
 wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
+  if (shutdownController?.isShuttingDown()) {
+    socket.close(1012, "Server shutting down");
+    return;
+  }
   const sessionFromRequest = sessionManager.getSessionFromRequest(request);
   const url = new URL(request.url ?? "/", "http://localhost");
   const tokenFromQuery = url.searchParams.get("token");
@@ -277,6 +369,12 @@ wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
   };
 
   clients.set(socket, context);
+  metrics.wsConnections = clients.size;
+  logger.info("ws_connection_opened", {
+    wsConnections: metrics.wsConnections,
+    username: session.username,
+    ...(session.playerId === undefined ? {} : { playerId: session.playerId }),
+  });
 
   send(socket, {
     type: "stateUpdate",
@@ -285,24 +383,51 @@ wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
   });
 
   socket.on("message", (raw: RawData) => {
+    if (shutdownController?.isShuttingDown()) return;
     const message = parseClientMessage(raw);
     if (!message) {
       return;
     }
 
-    realtime.handleClientMessage(context, message);
+    try {
+      realtime.handleClientMessage(context, message);
+    } catch (error) {
+      metrics.commandErrorsTotal += 1;
+      const commandId = "commandId" in message && typeof message.commandId === "string"
+        ? message.commandId
+        : undefined;
+      logger.error("command_failed", {
+        ...serializeError(error),
+        ...(commandId ? { commandId } : {}),
+        username: session.username,
+        ...(session.playerId === undefined ? {} : { playerId: session.playerId }),
+      });
+      send(socket, {
+        type: "operationResult",
+        ok: false,
+        message: persistenceHealthy ? "Command failed" : "Persistence unavailable",
+        ...(commandId ? { commandId } : {}),
+      });
+    }
   });
 
   socket.on("close", () => {
     clients.delete(socket);
+    metrics.wsConnections = clients.size;
+    logger.info("ws_connection_closed", { wsConnections: metrics.wsConnections });
   });
 
-  socket.on("error", () => {
+  socket.on("error", (error) => {
     clients.delete(socket);
+    metrics.wsConnections = clients.size;
+    logger.warn("ws_connection_error", {
+      ...serializeError(error),
+      wsConnections: metrics.wsConnections,
+    });
   });
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`[server] API + WS ready on http://localhost:${PORT}`);
-  console.log("[server] seed accounts loaded (admin, p1, p2, p3)");
+  serverReady = true;
+  logger.info("server_ready", { port: PORT });
 });

@@ -19,9 +19,7 @@ import {
 import { useArtifact } from "../systems/artifactEffectRegistry";
 import { appendAudit } from "../systems/auditSystem";
 import {
-  getProcessedCommandResult,
   isCommandId,
-  rememberProcessedCommand,
 } from "../systems/idempotencySystem";
 import { resolveTurn } from "../turn/resolveTurn";
 import { Action, GameState } from "../types";
@@ -38,6 +36,7 @@ import {
   buildResolutionForSession,
   buildStateForSession,
 } from "./visibility";
+import { createOperationResultManager } from "./realtime/operationResults";
 
 export interface RealtimeDeps {
   state: GameState;
@@ -49,6 +48,13 @@ export interface RealtimeDeps {
   cancelTurnTimer?: () => void;
   startNewPlanningTimer?: () => void;
   captureTurnSnapshot?: (point: TurnSnapshotPoint, turnNumber: number) => void;
+  onResolutionComplete?: (durationMs: number, succeeded: boolean) => void;
+  onCommandError?: (input: {
+    commandId?: string;
+    playerId?: number;
+    username: string;
+    message: string;
+  }) => void;
 }
 
 export interface RealtimeController {
@@ -60,6 +66,12 @@ export interface RealtimeController {
 
 export function createRealtimeController(deps: RealtimeDeps): RealtimeController {
   let resolutionInProgress = false;
+  const { sendOperationResult, duplicateResult, getPreviousResult, rememberResult } =
+    createOperationResultManager({
+      state: deps.state,
+      persistDatabase: deps.persistDatabase,
+      onCommandError: deps.onCommandError,
+    });
 
   function detectionKindLabel(kind: import("../detectionDomain").DetectionObjectKind): string {
     switch (kind) {
@@ -73,51 +85,6 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
         return exhaustive;
       }
     }
-  }
-
-  function sendOperationResult(
-    context: ClientContext,
-    ok: boolean,
-    message: string,
-    commandId?: string,
-    duplicate = false,
-  ): void {
-    send(context.socket, {
-      type: "operationResult",
-      ok,
-      message,
-      ...(commandId ? { commandId } : {}),
-      ...(duplicate ? { duplicate: true } : {}),
-    });
-  }
-
-  function actorKey(context: ClientContext): string {
-    return context.session.role === "admin"
-      ? `admin:${context.session.username}`
-      : `player:${context.session.playerId ?? "unknown"}`;
-  }
-
-  function duplicateResult(
-    context: ClientContext,
-    commandId: string,
-  ): { ok: boolean; message: string } | null {
-    const previous = getProcessedCommandResult(deps.state, actorKey(context), commandId);
-    if (!previous || typeof previous !== "object" || Array.isArray(previous)) return null;
-    const candidate = previous as { ok?: unknown; message?: unknown };
-    if (typeof candidate.ok !== "boolean" || typeof candidate.message !== "string") return null;
-    sendOperationResult(context, candidate.ok, candidate.message, commandId, true);
-    return { ok: candidate.ok, message: candidate.message };
-  }
-
-  function rememberResult(
-    context: ClientContext,
-    commandId: string,
-    result: { ok: boolean; message: string },
-  ): void {
-    rememberProcessedCommand(deps.state, actorKey(context), commandId, result);
-    // Persist rejected as well as successful results so reconnect/retry cannot
-    // turn the same logical command into a new operation after a restart.
-    deps.persistDatabase();
   }
 
   function broadcastState(): void {
@@ -140,6 +107,8 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
   ): boolean {
     if (resolutionInProgress || deps.state.phase !== "PLANNING") return false;
     resolutionInProgress = true;
+    const resolutionStartedAt = Date.now();
+    let resolutionSucceeded = false;
     try {
       deps.cancelTurnTimer?.();
     const ownerByFleetIdBeforeResolution = new Map<number, number>();
@@ -249,8 +218,8 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     deps.pendingActions.clear();
     deps.pendingAllianceProposals.clear();
     deps.readyPlayers.clear();
-    deps.persistDatabase();
-    deps.startNewPlanningTimer?.();
+    if (deps.startNewPlanningTimer) deps.startNewPlanningTimer();
+    else deps.persistDatabase();
 
     for (const context of deps.clients.values()) {
       send(context.socket, {
@@ -265,9 +234,11 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
     }
 
     broadcastState();
+    resolutionSucceeded = true;
     return true;
     } finally {
       resolutionInProgress = false;
+      deps.onResolutionComplete?.(Date.now() - resolutionStartedAt, resolutionSucceeded);
     }
   }
 
@@ -610,7 +581,7 @@ export function createRealtimeController(deps: RealtimeDeps): RealtimeController
       sendOperationResult(context, false, "Некорректный запрос секретного хранилища", message.commandId);
       return;
     }
-    const previous = getProcessedCommandResult(deps.state, actorKey(context), message.commandId);
+    const previous = getPreviousResult(context, message.commandId);
     if (previous && typeof previous === "object" && !Array.isArray(previous)) {
       const candidate = previous as {
         ok?: unknown;

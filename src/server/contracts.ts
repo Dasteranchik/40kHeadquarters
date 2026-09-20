@@ -22,7 +22,7 @@ export type Role = "admin" | "player";
 
 export interface Account {
   username: string;
-  password: string;
+  passwordHash: string;
   role: Role;
   playerId?: number;
 }
@@ -43,6 +43,11 @@ export interface ClientContext {
 export interface LoginRequest {
   username: string;
   password: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
 }
 
 export interface AddPlayerRequest {

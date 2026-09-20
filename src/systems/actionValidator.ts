@@ -131,7 +131,7 @@ function validateStanceAction(
 
 function playerHasFleetOnPlanet(
   state: GameState,
-  playerId: string,
+  playerId: number,
   planet: Planet,
 ): boolean {
   return Object.values(state.fleets).some(

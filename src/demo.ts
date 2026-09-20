@@ -9,19 +9,19 @@ state.phase = "PLANNING";
 const actions: Action[] = [
   {
     id: "a-001",
-    playerId: "p1",
+    playerId: 1,
     type: "DIPLOMACY",
     payload: {
-      targetPlayerId: "p2",
+      targetPlayerId: 2,
       action: "DECLARE_WAR",
     },
   },
   {
     id: "a-002",
-    playerId: "p1",
+    playerId: 1,
     type: "MOVE_FLEET",
     payload: {
-      fleetId: "f1",
+      fleetId: 1,
       path: [
         { q: 2, r: 1 },
         { q: 3, r: 1 },

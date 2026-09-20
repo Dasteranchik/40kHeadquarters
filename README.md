@@ -1,161 +1,411 @@
-﻿# 40kHeadquarters MVP (Core + Browser Client)
+# 40kHeadquarters
 
-Проект состоит из двух частей:
+MVP пошаговой стратегии на гексагональной карте во вселенной Warhammer 40,000.
+Сервер управляет симуляцией, фазами хода, видимостью, дипломатией и сохранением;
+браузер отвечает за интерфейс, PixiJS-карту, ввод приказов и отображение fog-of-war.
 
-- `src/` - сервер симуляции, REST API и WebSocket.
-- `client/` - браузерный клиент на Vite + PixiJS.
+## Технологический стек
 
-Данные игры хранятся в file-backed NoSQL snapshot: `data/db.json`.
+- сервер: TypeScript, `node:http`, `ws`;
+- клиент: Vite, PixiJS, vanilla TypeScript/DOM/CSS;
+- хранение: единый JSON snapshot `data/db.json`;
+- тесты: встроенный `node:test` через `tsx`.
+
+Express, React, SQL и ORM в проекте не используются.
 
 ## Быстрый запуск
 
-1. Установить зависимости:
+Требуются Node.js 20+ и npm.
+
+1. Установите зависимости:
 
 ```bash
 npm install
 ```
 
-2. Запустить сервер и клиент:
+2. При первом запуске задайте учётные данные администратора. Проект сам не
+   загружает `.env`, поэтому переменные должны быть установлены в терминале,
+   службе или конфигурации контейнера.
 
-```bash
+PowerShell:
+
+```powershell
+$env:BOOTSTRAP_ADMIN_USERNAME = "admin"
+$env:BOOTSTRAP_ADMIN_PASSWORD = "your-long-random-password"
 npm run dev:game
 ```
 
-3. Открыть в браузере:
+bash/zsh:
 
-- Игра: `http://localhost:5173/`
-- Админка: `http://localhost:5173/admin.html`
+```bash
+BOOTSTRAP_ADMIN_USERNAME=admin \
+BOOTSTRAP_ADMIN_PASSWORD='your-long-random-password' \
+npm run dev:game
+```
 
-## Архитектура сервера
+Пароль должен содержать от 12 до 256 символов. После успешного создания и
+сохранения первого администратора bootstrap-переменные для следующих запусков
+не требуются. Не храните реальный пароль в истории shell или репозитории.
 
-Сервер декомпозирован на модули:
+3. Откройте:
 
-- `src/server.ts` - orchestration, маршрутизация API/WS, связывание модулей.
-- `src/server/contracts.ts` - серверные типы/DTO (auth/admin payloads, session context).
-- `src/server/seed.ts` - начальный state и seed-аккаунты.
-- `src/server/transport.ts` - JSON/CORS/bearer/WS transport-хелперы.
-- `src/server/visibility.ts` - фильтрация видимости state/resolution для сессии.
-- `src/server/immediateDiplomacy.ts` - мгновенная дипломатия и pending alliance proposals.
+- игру: `http://localhost:5173/`;
+- панель администратора: `http://localhost:5173/admin.html`;
+- API и WebSocket: `http://localhost:8080` и `ws://localhost:8080`.
 
-Игровые системы (turn resolve) лежат в `src/systems/*` и `src/turn/resolveTurn.ts`.
+Новый seed содержит игровую карту, фракции, демонстрационных игроков и объекты,
+но не создаёт известных паролей или player-аккаунтов. Учётные данные игроков
+задаются администратором через панель управления.
 
-## Документная БД
+## Конфигурация сервера
 
-Используется snapshot-файл `data/db.json`.
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `PORT` | `8080` | Порт HTTP API и WebSocket |
+| `TURN_DURATION_MS` | `3600000` | Продолжительность фазы PLANNING в миллисекундах |
+| `BOOTSTRAP_ADMIN_USERNAME` | — | Логин первого администратора |
+| `BOOTSTRAP_ADMIN_PASSWORD` | — | Пароль первого администратора, минимум 12 символов |
 
-Хранится:
+Клиент по умолчанию подключается к порту `8080` на текущем hostname. Для
+отладки адреса можно передать query-параметрами:
 
-- `gameState` (карта, игроки, Юниты, Планеты, Станции, Кораблекрушения,
-  Аномалии, Магазины, обнаружение, таймер, idempotency и Audit)
-- `accounts` (логины/пароли/роли)
-- `sessions` (серверные сессии)
-- `turnSnapshots` (ограниченная история START/END снимков ходов для rollback)
+```text
+http://localhost:5173/?api=http://localhost:8080&ws=ws://localhost:8080
+```
 
-Старый `data/db.json` автоматически нормализуется: новые коллекции, теги,
-инвентари, Магазины, таймер, detection/audit/processed commands получают
-безопасные значения по умолчанию. Ручное удаление snapshot не требуется.
+Админка поддерживает параметр `api`.
 
-Сервер остаётся источником истины для симуляции и fog-of-war. Фазы идут только
-в порядке `PLANNING -> RESOLUTION -> UPDATE -> PLANNING`. PLANNING по умолчанию
-завершается через 60 минут; длительность задаётся серверной переменной
-`TURN_DURATION_MS`. Сохранённый deadline восстанавливается после перезапуска.
+## Игровой цикл и серверная авторитетность
 
-## Игровые сущности и механики
+Порядок фаз фиксирован и не меняется:
 
-- Один гекс может содержать несколько Планет, Станций, Кораблекрушений,
-  Аномалий, Флотов и Армий; общий серверный запрос выполняет
-  `getObjectsAtHex(state, coord)`.
-- `Tile.planetId` сохранён только как compatibility-field старого snapshot;
-  новые системы работают по координатам коллекций объектов.
-- Юниты и конфигурируемые объекты поддерживают `STEALTH`; Detection хранится
-  отдельно для каждого игрока. Собственные Юниты видны всегда, остальные —
-  только после обнаружения. `EXACT_AUSPEX` переключает оценочные параметры на
-  точные.
-- До выплаты десятины Планета генерирует ресурсы в `rawStock`, после выплаты —
-  в `shop.resources`. RAID берёт добычу из Магазина и не влияет на десятину.
-- Магазин принимает явный состав оплаты Юнита и поддерживает три утверждённых
-  направления обмена. `PRODUCT -> RAW` отклоняется до решения `DEC-016`.
-- Artifact — уникальный экземпляр с атомарным переносом и безопасным registry
-  эффектов; Knowledge копируется без дублей. При уничтожении Юнита эти предметы
-  попадают в Shipwreck, а RAW/PRODUCT уничтожаются.
-- Немедленные WebSocket-команды используют `commandId`; обработанные результаты
-  сохраняются в ограниченной истории. Административные и критичные предметные
-  операции фиксируются в отдельном persisted Audit Log.
+```text
+PLANNING -> RESOLUTION -> UPDATE -> PLANNING
+```
 
-## Авторизация
+В PLANNING игроки формируют приказы. Сервер проверяет действия, выполняет
+RESOLUTION, применяет UPDATE, создаёт снимки хода и запускает новый таймер.
+Сохранённый deadline восстанавливается после перезапуска.
 
-Если БД создаётся с нуля, доступны дефолтные аккаунты:
+Клиент не является источником игровых правил. Он получает персонализированную
+проекцию состояния, показывает доступные действия и отправляет команды серверу.
 
-- `admin / admin123` (role: `admin`)
-- `p1 / p1` (role: `player`, `playerId: p1`)
-- `p2 / p2`
-- `p3 / p3`
+## Карта, навигация и видимость
 
-После логина сервер выставляет `HttpOnly` session cookie, и клиент использует его для HTTP/API и WebSocket.
+- Стратегическая карта показывает доступную область, позволяет выбирать гекс и
+  планировать маршрут выбранного Юнита.
+- Тактическая карта показывает один гекс крупным планом. Переходы и прокладка
+  маршрутов за пределы этого гекса заблокированы. Объекты распределяются по
+  отдельным орбитам: Планеты, Армии, Станции, Кораблекрушения, Аномалии, Флоты.
+- Карта Навигатора является отдельным слоем. Она доступна администратору и
+  игроку с эффективным Навигатором и показывает только цвет варп-области и
+  значение ДВВ.
+- Варп-видимость вычисляется сервером из собственных источников игрока. Союз не
+  предоставляет глобальную варп-видимость.
+- Собственные Юниты видны всегда. Чужие и нейтральные объекты раскрываются через
+  Detection. Планеты и союзники не дают глобального обзора чужих Юнитов.
+- Администратор получает полную проекцию карты.
 
-## Admin API
+Один гекс может одновременно содержать несколько Планет, Станций,
+Кораблекрушений, Аномалий, Флотов и Армий. `Tile.planetId` оставлен только для
+совместимости старых snapshot; актуальные системы используют координаты
+коллекций объектов и `getObjectsAtHex(state, coord)`.
 
-### Auth
+## Основные игровые механики
 
+- SPACE-Юниты расходуют movement points с учётом стоимости входа в варп-гекс.
+  Топливо можно конвертировать в очки движения в пределах максимума Юнита.
+- GROUND-Юниты могут находиться на Планете или транспортироваться SPACE-Флотом
+  после подтверждения запроса и проверки вместимости.
+- До выплаты десятины Планета производит ресурсы в `rawStock`. После выплаты
+  новая генерация поступает в `shop.resources`.
+- `RAID_STOCK` забирает ресурсы из Магазина и не засчитывается в имперскую
+  десятину.
+- Магазин принимает выбранный состав оплаты из инвентаря Флота. Поддерживаются
+  утверждённые направления обмена; `PRODUCT -> RAW` остаётся запрещённым.
+- Artifact является уникальным экземпляром и переносится атомарно. Knowledge
+  копируется без дублей. Одноразовые Artifact actions защищены `commandId`.
+- При уничтожении Юнита Artifact и Knowledge переходят в Shipwreck; обычные
+  RAW/PRODUCT-ресурсы уничтожаются.
+- Secret Storage может быть настроен у Планеты или Станции. Пароль и содержимое
+  остаются на сервере и не попадают в обычную клиентскую проекцию.
+- Administratum ведёт реестр миров и обрабатывает предложения по изменению
+  десятины во время разрешения хода.
+
+## Авторизация и сессии
+
+Пароли не хранятся в открытом виде. Для них используется `scrypt` со случайной
+солью. Историческая пара `admin/admin123` при миграции удаляется и требует
+повторного bootstrap администратора.
+
+После входа сервер выдаёт cookie `hq_session` с атрибутами `HttpOnly`,
+`SameSite=Lax` и `Path=/`. Для API также принимается `Authorization: Bearer`.
+Сессии хранятся в snapshot и имеют срок жизни 24 часа.
+
+Смена собственного пароля:
+
+```http
+POST /api/account/password
+Content-Type: application/json
+
+{
+  "currentPassword": "current-password",
+  "newPassword": "new-long-password"
+}
+```
+
+Успешная смена пароля отзывает все сессии аккаунта. Смена логина или пароля
+игрока администратором также отзывает его сессии.
+
+## Хранение и надёжность
+
+Snapshot имеет текущую `schemaVersion: 3` и содержит:
+
+- `gameState` — карту, игровые сущности, события, Detection, Audit и историю
+  обработанных команд;
+- `accounts` — логины, роли и scrypt-хеши;
+- `sessions` — серверные сессии;
+- `turnSnapshots` — START/END-снимки ходов для административного rollback.
+
+### Атомарная запись
+
+`DocumentDb` сохраняет snapshot в той же директории по схеме:
+
+```text
+temporary file -> write -> fsync -> close -> atomic rename
+```
+
+Внутренний committed snapshot меняется только после успешной записи. Если файл
+существует, но содержит повреждённый JSON или неверную структуру, сервер
+завершает запуск с ошибкой и не заменяет его seed-данными.
+
+Перед ручным восстановлением сохраните копию повреждённого `data/db.json`.
+
+### Транзакции состояния
+
+Операции изменения состояния проходят единый серверный pipeline:
+
+```text
+working candidate -> command -> validation -> persist -> commit -> broadcast
+```
+
+Транзакция охватывает `GameState`, аккаунты, сессии, turn snapshots, pending
+actions, предложения союзов и ready-state игроков. Ошибка валидации или записи
+восстанавливает последний committed runtime; broadcast не выполняется.
+
+Игровое ядро зависит от интерфейса `GameRepository`. JSON-реализация находится
+в `src/storage/documentDb.ts`, поэтому формат хранения изолирован от use cases.
+
+### Версирование и миграции
+
+Snapshot без `schemaVersion` считается v1. Миграции выполняются последовательно:
+
+```text
+v1 -> v2 -> v3
+```
+
+v1 → v2 переносит legacy plaintext-пароли в scrypt-хеши и отзывает публичный
+`admin/admin123`. v2 → v3 добавляет актуальные коллекции sessions и turn
+snapshots. Snapshot из более новой, неизвестной серверу версии не загружается.
+
+`normalization.ts` остаётся compatibility-слоем для старых полей игрового
+состояния; нормализация инвентарей и магазинов вынесена в отдельный модуль.
+
+### Снимки и rollback
+
+Сервер хранит до 100 START/END-снимков. Rollback доступен только администратору,
+в текущей фазе PLANNING и только к снимку PLANNING. После восстановления:
+
+- pending actions, предложения союзов и ready-state очищаются;
+- создаётся новый START snapshot и deadline;
+- состояние сохраняется до рассылки клиентам;
+- Audit и `processedCommands` сохраняются из текущей ветки и не откатываются,
+  чтобы не стирать журнал и не допускать повтор старой команды.
+
+### Graceful shutdown
+
+На `SIGINT` и `SIGTERM` сервер:
+
+1. перестаёт принимать новые команды;
+2. останавливает таймер хода;
+3. сохраняет последнее состояние;
+4. закрывает WebSocket и HTTP server;
+5. пишет результат в structured log.
+
+## Идемпотентность команд
+
+Немедленные изменяющие состояние WebSocket-команды используют `commandId`.
+Сервер сохраняет до 1000 обработанных результатов и при повторе возвращает тот
+же результат с `duplicate: true`, не применяя операцию повторно.
+
+`commandId` обязателен для resource transfer, Shop trade, Army transport,
+управления ally vision, Secret Storage, Administratum actions, Artifact/Item
+actions, конвертации топлива и принудительного завершения хода.
+
+Обычные планируемые приказы `submitAction` и `removeAction` используют ID самого
+приказа и разрешаются в фазовом цикле.
+
+## Наблюдаемость
+
+Сервер пишет однострочные JSON-логи с `timestamp`, `level`, `event` и контекстом.
+Для ошибок команд по возможности добавляются `commandId`, `playerId` и username.
+
+- `GET /health` — liveness; возвращает `200`, пока процесс обслуживает HTTP.
+- `GET /ready` — readiness; возвращает `503` во время shutdown или после ошибки
+  persistence и `200` после успешного сохранения.
+
+Оба ответа включают:
+
+- текущее число WebSocket-соединений;
+- суммарное число ошибок команд;
+- суммарное число ошибок persistence;
+- длительность и время последнего RESOLUTION.
+
+Audit ограничен 5000 записями, игровой event log — 1000 событиями.
+
+## HTTP API
+
+### Public и auth
+
+- `GET /health`
+- `GET /ready`
 - `POST /api/login`
 - `GET /api/me`
+- `GET /api/state`
 - `POST /api/logout`
+- `POST /api/account/password`
 
-### Players
+Все остальные HTTP-маршруты требуют роль администратора.
 
-- `GET /api/admin/players`
-- `POST /api/admin/players`
-- `PUT /api/admin/players/:id`
-- `DELETE /api/admin/players/:id`
+### Игроки, фракции и отношения
 
-### Planets
+- `GET|POST /api/admin/players`
+- `PUT|DELETE /api/admin/players/:id`
+- `GET|POST /api/admin/factions`
+- `PUT|DELETE /api/admin/factions/:id`
+- `GET|POST|DELETE /api/admin/relations`
 
-- `GET /api/admin/planets`
-- `POST /api/admin/planets`
-- `PUT /api/admin/planets/:id`
-- `DELETE /api/admin/planets/:id`
+Для relation payload используется `type: "WAR" | "ALLIANCE"` и пара player ID.
 
-### Fleets
+### Планеты и Юниты
 
-- `GET /api/admin/fleets`
-- `POST /api/admin/fleets`
-- `PUT /api/admin/fleets/:id`
-- `DELETE /api/admin/fleets/:id`
+- `GET|POST /api/admin/planets`
+- `PUT|DELETE /api/admin/planets/:id`
+- `GET|POST /api/admin/fleets`
+- `PUT|DELETE /api/admin/fleets/:id`
+- `POST /api/admin/armies`
+- `GET|POST /api/admin/unit-variants`
+- `PUT|DELETE /api/admin/unit-variants/:id`
 
-### Relations (Wars / Alliances)
+`Fleet` сохранён в DTO и snapshot как compatibility-имя. В доменной типизации
+актуальная сущность называется `Unit`; Юнит различается по `domain: SPACE | GROUND`.
 
-- `GET /api/admin/relations`
-- `POST /api/admin/relations` (`type: "WAR" | "ALLIANCE"`)
-- `DELETE /api/admin/relations` (`type: "WAR" | "ALLIANCE"`)
-
-### World objects, Shop and reliability
+### Объекты мира, магазины и предметы
 
 - `GET|POST /api/admin/stations`
 - `PUT|DELETE /api/admin/stations/:id`
-- `GET /api/admin/shipwrecks`
+- `GET|POST /api/admin/shipwrecks`
 - `GET|POST /api/admin/anomalies`
-- `PUT /api/admin/shops/:PLANET|STATION/:id`
+- `PUT /api/admin/shops/PLANET/:id`
+- `PUT /api/admin/shops/STATION/:id`
 - `POST /api/admin/items`
-- `DELETE /api/admin/artifacts/:id`
+- `PUT|DELETE /api/admin/artifacts/:id`
+
+### Настройки и экономика
+
+- `GET|PUT /api/admin/product-conversion-rates`
+- `PUT /api/admin/system-settings`
+- `POST /api/admin/warp-disturbance/randomize`
+
+### Надёжность и управление ходом
+
 - `GET /api/admin/audit`
 - `GET /api/admin/turn-snapshots`
 - `POST /api/admin/turn-snapshots/:id/rollback`
 - `POST /api/admin/end-turn`
 
-Rollback разрешён только администратору, только из текущей фазы PLANNING и
-только к снимку, который сам находится в PLANNING. После восстановления pending
-команды очищаются, создаётся новый deadline и состояние рассылается клиентам.
-Persisted Audit и история обработанных `commandId` при этом не откатываются:
-это сохраняет журнал действий и блокирует поздний повтор старой команды.
+Изменяющие игровой мир административные операции разрешены только в подходящей
+фазе; сервер повторно проверяет payload и полномочия независимо от UI.
+
+## WebSocket protocol
+
+Основные входящие сообщения описаны в `src/api/ws.ts`:
+
+- планирование: `submitAction`, `removeAction`, `playerReady`;
+- завершение хода: `endTurn`;
+- ресурсы и экономика: `resourceTransfer`, `shopTrade`,
+  `convertFuelToMovement`;
+- транспорт Армий: `requestArmyEmbark`, `respondArmyEmbark`,
+  `disembarkArmy`;
+- предметы: `itemTransfer`, `artifactUse`, `openSecretStorage`;
+- Administratum: `reportWorld`, `proposeTithe`;
+- видимость: `setFleetAllyVision`.
+
+Сервер отправляет `stateUpdate`, `turnResolved`, `operationResult` и
+`secretStorageResult`. `stateUpdate` всегда фильтруется по сессии на сервере.
+
+## Структура проекта
+
+```text
+src/
+  api/ws.ts                       WebSocket DTO
+  server.ts                       composition root HTTP/WS
+  server/admin/                   административные use cases
+  server/realtime.ts              диспетчер WebSocket-команд
+  server/realtime/                idempotency/result handling
+  server/normalization.ts         compatibility-нормализация GameState
+  server/normalization/           нормализаторы отдельных feature
+  server/stateTransaction.ts      persist/commit/rollback boundary
+  server/observability.ts         JSON logs, health/readiness, metrics
+  storage/gameRepository.ts       абстракция persistence
+  storage/documentDb.ts           атомарная JSON-реализация
+  storage/snapshot.ts             schema v3
+  storage/migrations/             последовательные миграции
+  systems/                        чистые игровые системы
+  turn/                           разрешение хода, таймер и snapshots
+client/
+  index.html                      игровой интерфейс
+  admin.html                      панель администратора
+  src/main.ts                     orchestration игрового клиента
+  src/admin.ts                    orchestration админки
+  src/mapScene.ts                 Pixi render/input presentation
+  src/game/, src/map/, src/ui/    клиентские feature-модули
+test/
+  gameplay.test.ts                игровые правила
+  persistence.test.ts             atomic write, corruption, migrations, rollback
+```
 
 ## Скрипты
 
-- `npm run dev` - demo без браузера
-- `npm run dev:server` - API + WS сервер
-- `npm run dev:client` - браузерный клиент
-- `npm run dev:game` - сервер + клиент
-- `npm run check` - TypeScript check
-- `npm test` - тесты на встроенном `node:test` через `tsx`
-- `npm run build:core` - сборка server/core в `dist/`
-- `npm run build:client` - сборка клиента в `dist/client`
-- `npm run build` - полная сборка
+- `npm run dev` — консольный demo;
+- `npm run dev:server` — HTTP API и WebSocket server;
+- `npm run dev:client` — Vite client;
+- `npm run dev:game` — server и client одновременно;
+- `npm run check` — проверка TypeScript без emit;
+- `npm test` — gameplay и persistence tests;
+- `npm run build:core` — сборка server/core в `dist/`;
+- `npm run build:client` — сборка клиента в `dist/client/`;
+- `npm run build` — полная сборка;
+- `npm run start:server` — запуск собранного `dist/server.js`;
+- `npm run start` — запуск собранного console demo.
+
+## Проверка перед изменениями
+
+```bash
+npm run check
+npm test
+npm run build
+```
+
+## Ограничения MVP
+
+- `DocumentDb` использует синхронную файловую запись и рассчитан на один
+  серверный процесс. Несколько процессов не должны одновременно писать один
+  `data/db.json`.
+- Snapshot может быть крупным: сохраняется полное состояние, а не журнал
+  изменений.
+- Cookie пока не получает атрибут `Secure`; production-развёртывание должно
+  использовать TLS/reverse proxy и дополнительно проверить cookie/CORS policy.
+- CORS отражает присланный `Origin` для credentialed requests и не заменяет
+  сетевой allowlist reverse proxy.
+- SQLite/PostgreSQL пока не реализованы; для них предусмотрен `GameRepository`.

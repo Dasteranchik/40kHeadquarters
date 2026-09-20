@@ -17,7 +17,6 @@ import {
   TITHE_LEVEL_ORDER,
   type ResourceKey,
 } from "../../src/planetDomain";
-import type { Shop, ShopOwnerRef } from "../../src/shopDomain";
 import { getObjectsAtHex } from "../../src/worldObjectDomain";
 import {
   clearMapLayers,
@@ -64,6 +63,7 @@ import {
   type HudElements,
 } from "./ui/hud";
 import { createHexContextMenuController } from "./ui/contextMenu";
+import { selectedShop, shopOwnerKey, shopsAtFleet } from "./game/shopLocations";
 import type {
   Fleet,
   FleetStance,
@@ -838,51 +838,6 @@ function submitTransfer(): void {
   }
 }
 
-interface ShopAtFleet {
-  owner: ShopOwnerRef;
-  label: string;
-  shop: Shop;
-}
-
-function shopOwnerKey(owner: ShopOwnerRef): string {
-  return owner.kind + ":" + owner.id;
-}
-
-function shopsAtFleet(state: GameState, fleet: Fleet): ShopAtFleet[] {
-  const result: ShopAtFleet[] = [];
-  for (const planet of Object.values(state.planets)) {
-    if (planet.position.q === fleet.position.q && planet.position.r === fleet.position.r) {
-      result.push({
-        owner: { kind: "PLANET", id: planet.id },
-        label: "Planet " + planet.name + " (#" + planet.id + ")",
-        shop: planet.shop,
-      });
-    }
-  }
-  for (const station of Object.values(state.stations)) {
-    if (
-      station.capabilities.includes("SHOP")
-      && station.position.q === fleet.position.q
-      && station.position.r === fleet.position.r
-    ) {
-      result.push({
-        owner: { kind: "STATION", id: station.id },
-        label: "Station " + station.name + " (#" + station.id + ")",
-        shop: station.shop,
-      });
-    }
-  }
-  return result.sort((a, b) =>
-    a.owner.kind.localeCompare(b.owner.kind) || a.owner.id - b.owner.id
-  );
-}
-
-function selectedShop(state: GameState, fleet: Fleet): ShopAtFleet | null {
-  return shopsAtFleet(state, fleet).find(
-    (entry) => shopOwnerKey(entry.owner) === shopOwnerSelect.value,
-  ) ?? null;
-}
-
 function refreshDetectedObjects(state: GameState | null): void {
   if (!state) {
     detectedObjectsEl.textContent = "-";
@@ -948,7 +903,7 @@ function refreshShopControls(
     shopOwnerSelect.value = currentShop;
   }
 
-  const selected = selectedShop(state, selectedFleet);
+  const selected = selectedShop(state, selectedFleet, shopOwnerSelect.value);
   if (!selected) {
     shopPaymentDraftFleetId = null;
     shopPaymentListEl.replaceChildren();
@@ -1042,7 +997,7 @@ function submitShopTrade(): void {
   const state = runtime.gameState;
   const fleet = state ? getSelectedFleet(runtime, state) : null;
   if (!state || !fleet || state.phase !== "PLANNING") return;
-  const selected = selectedShop(state, fleet);
+  const selected = selectedShop(state, fleet, shopOwnerSelect.value);
   const amount = Math.trunc(Number(shopReceiveAmountInput.value));
   if (!selected || !Number.isFinite(amount) || amount <= 0) return;
   try {

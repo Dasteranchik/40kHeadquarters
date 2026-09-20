@@ -10,7 +10,7 @@ export interface TurnTimerScheduler {
 
 export interface TurnTimerController {
   restore: () => void;
-  startNewPlanning: () => void;
+  startNewPlanning: (persist?: boolean, schedule?: boolean) => void;
   cancel: () => void;
   getDeadline: () => TurnTimerState;
 }
@@ -66,7 +66,7 @@ export function createTurnTimerController(deps: TurnTimerDeps): TurnTimerControl
     scheduleExistingDeadline();
   }
 
-  function startNewPlanning(): void {
+  function startNewPlanning(persist = true, schedule = true): void {
     cancel();
     const startedAt = now();
     const durationMs = Math.max(
@@ -78,8 +78,8 @@ export function createTurnTimerController(deps: TurnTimerDeps): TurnTimerControl
       turnStartedAt: startedAt,
       turnEndsAt: startedAt + durationMs,
     };
-    deps.persist();
-    scheduleExistingDeadline();
+    if (persist) deps.persist();
+    if (schedule) scheduleExistingDeadline();
   }
 
   return {

@@ -2,7 +2,7 @@
 import { CombatReport, Fleet, FleetStance, GameState, Player } from "../types";
 import { salvageDestroyedUnits } from "./shipwreckSystem";
 
-function isAtWar(players: Record<string, Player>, a: string, b: string): boolean {
+function isAtWar(players: Record<string, Player>, a: number, b: number): boolean {
   if (a === b) {
     return false;
   }

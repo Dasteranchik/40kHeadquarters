@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from "http";
 
+import { hashPassword, validatePasswordPolicy } from "../../auth/password";
 import { Player } from "../../types";
 import { removeFromArray } from "../../utils/relations";
 import { defaultPlayerColor, isPlayerColor } from "../../utils/playerColor";
@@ -82,7 +83,17 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
 
     const id = deps.state.nextIds.player;
     const username = body.username ?? `p${id}`;
-    const password = body.password ?? `p${id}`;
+    const password = body.password;
+
+    if (typeof password !== "string") {
+      writeJson(res, 400, { error: "password is required" });
+      return;
+    }
+    const passwordError = validatePasswordPolicy(password);
+    if (passwordError) {
+      writeJson(res, 400, { error: passwordError });
+      return;
+    }
 
     if (!isValidId(username)) {
       writeJson(res, 400, { error: "Username must match [a-zA-Z0-9_-]{2,32}" });
@@ -114,7 +125,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     deps.state.players[player.id] = player;
     deps.accounts.set(username, {
       username,
-      password,
+      passwordHash: hashPassword(password),
       role: "player",
       playerId: player.id,
     });
@@ -171,7 +182,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
 
     deps.readyPlayers.delete(playerId);
     removeAccountsForPlayer(deps.accounts, playerId);
-    deps.removeSessionsForPlayer(playerId);
+    deps.removeSessionsForPlayer(playerId, false);
     clearAllianceProposalsForPlayer(deps.pendingAllianceProposals, playerId);
     deps.state.pendingInformantActions = deps.state.pendingInformantActions.filter(
       (entry) => entry.playerId !== playerId,
@@ -258,6 +269,13 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       writeJson(res, 400, { error: "password must be a string" });
       return;
     }
+    if (body.password !== undefined) {
+      const passwordError = validatePasswordPolicy(body.password);
+      if (passwordError) {
+        writeJson(res, 400, { error: passwordError });
+        return;
+      }
+    }
 
     if (body.alignment !== undefined && !isPlayerAlignment(body.alignment)) {
       writeJson(res, 400, { error: "alignment must be IMPERIAL or NON_IMPERIAL" });
@@ -325,9 +343,13 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
         return;
       }
 
+      if (body.password === undefined) {
+        writeJson(res, 409, { error: "Player account is missing; provide a new password" });
+        return;
+      }
       const fallback: Account = {
         username: fallbackUsername,
-        password: fallbackUsername,
+        passwordHash: hashPassword(body.password),
         role: "player",
         playerId,
       };
@@ -350,7 +372,9 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
     }
 
     const nextUsername = requestedUsername ?? currentUsername;
-    const nextPassword = body.password ?? currentAccount.password;
+    const nextPasswordHash = body.password === undefined
+      ? currentAccount.passwordHash
+      : hashPassword(body.password);
 
     if (nextUsername !== currentUsername) {
       deps.accounts.delete(currentUsername);
@@ -358,7 +382,7 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
 
     deps.accounts.set(nextUsername, {
       username: nextUsername,
-      password: nextPassword,
+      passwordHash: nextPasswordHash,
       role: "player",
       playerId,
     });
@@ -370,6 +394,9 @@ export function createPlayerAdminHandlers(deps: AdminHandlerDeps): PlayerAdminHa
       before: playerBeforeUpdate, after: player,
     });
 
+    if (body.password !== undefined || nextUsername !== currentUsername) {
+      deps.removeSessionsForPlayer(playerId, false);
+    }
     deps.persistDatabase();
     deps.broadcastState();
     writeJson(res, 200, {

@@ -7,6 +7,7 @@ export interface ApiRouteHandlers {
   handleMe: (req: IncomingMessage, res: ServerResponse) => void;
   handleState: (req: IncomingMessage, res: ServerResponse) => void;
   handleLogout: (req: IncomingMessage, res: ServerResponse) => void;
+  handleChangePassword: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleListPlayers: (req: IncomingMessage, res: ServerResponse) => void;
   handleAddPlayer: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleDeletePlayer: (req: IncomingMessage, res: ServerResponse, playerId: string) => void;
@@ -114,6 +115,11 @@ export async function handleApiRequest(
 
   if (path === "/api/logout" && method === "POST") {
     handlers.handleLogout(req, res);
+    return;
+  }
+
+  if (path === "/api/account/password" && method === "POST") {
+    await handlers.handleChangePassword(req, res);
     return;
   }
 

@@ -1,7 +1,8 @@
 import { IncomingMessage, ServerResponse } from "http";
 
 import { GameState } from "../types";
-import { Account, LoginRequest } from "./contracts";
+import { verifyPassword, hashPassword, validatePasswordPolicy } from "../auth/password";
+import { Account, ChangePasswordRequest, LoginRequest } from "./contracts";
 import { SessionManager } from "./sessions";
 import {
   clearSessionCookie,
@@ -23,6 +24,7 @@ export interface PublicApiHandlers {
   handleMe: (req: IncomingMessage, res: ServerResponse) => void;
   handleState: (req: IncomingMessage, res: ServerResponse) => void;
   handleLogout: (req: IncomingMessage, res: ServerResponse) => void;
+  handleChangePassword: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 }
 
 export function createPublicApiHandlers(deps: PublicApiDeps): PublicApiHandlers {
@@ -34,7 +36,7 @@ export function createPublicApiHandlers(deps: PublicApiDeps): PublicApiHandlers 
     }
 
     const account = deps.accounts.get(body.username);
-    if (!account || account.password !== body.password) {
+    if (!account || !verifyPassword(body.password, account.passwordHash)) {
       writeJson(res, 401, { error: "Invalid credentials" });
       return;
     }
@@ -88,10 +90,45 @@ export function createPublicApiHandlers(deps: PublicApiDeps): PublicApiHandlers 
     writeJson(res, 200, { ok: true });
   }
 
+  async function handleChangePassword(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
+    const session = deps.sessionManager.requireSession(req, res);
+    if (!session) return;
+    const body = await readJsonBody<ChangePasswordRequest>(req);
+    if (
+      !body
+      || typeof body.currentPassword !== "string"
+      || typeof body.newPassword !== "string"
+    ) {
+      writeJson(res, 400, { error: "Invalid password change payload" });
+      return;
+    }
+    const passwordError = validatePasswordPolicy(body.newPassword);
+    if (passwordError) {
+      writeJson(res, 400, { error: passwordError });
+      return;
+    }
+    const account = deps.accounts.get(session.username);
+    if (!account || !verifyPassword(body.currentPassword, account.passwordHash)) {
+      writeJson(res, 401, { error: "Invalid credentials" });
+      return;
+    }
+
+    account.passwordHash = hashPassword(body.newPassword);
+    // The current authenticated session guarantees this also persists the
+    // password change through the session manager's transactional callback.
+    deps.sessionManager.removeSessionsForUsername(account.username);
+    clearSessionCookie(res);
+    writeJson(res, 200, { ok: true, sessionsRevoked: true });
+  }
+
   return {
     handleLogin,
     handleMe,
     handleState,
     handleLogout,
+    handleChangePassword,
   };
 }

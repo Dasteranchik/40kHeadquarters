@@ -1,46 +1,35 @@
-﻿import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
 import * as path from "path";
 
-import { GameState } from "../types";
+import { CorruptDatabaseError, PersistenceError, type GameRepository } from "./gameRepository";
+import {
+  cloneSnapshot,
+  type DocumentSnapshot,
+} from "./snapshot";
 
-export type DbRole = "admin" | "player";
-
-export interface DbAccount {
-  username: string;
-  password: string;
-  role: DbRole;
-  playerId?: number;
-}
-
-export interface DbSession {
-  token: string;
-  username: string;
-  role: DbRole;
-  playerId?: number;
-  expiresAt: number;
-}
-
-export interface DocumentSnapshot {
-  gameState: GameState;
-  accounts: Record<string, DbAccount>;
-  sessions?: Record<string, DbSession>;
-  turnSnapshots?: TurnSnapshot[];
-}
-
-export type TurnSnapshotPoint = "START" | "END";
-
-export interface TurnSnapshot {
-  id: string;
-  turnNumber: number;
-  point: TurnSnapshotPoint;
-  timestamp: number;
-  gameState: GameState;
-}
+export type {
+  DbAccount,
+  DbRole,
+  DbSession,
+  DocumentSnapshot,
+  TurnSnapshot,
+  TurnSnapshotPoint,
+} from "./snapshot";
 
 const DEFAULT_DB_PATH = path.resolve(process.cwd(), "data", "db.json");
 
-function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+export interface AtomicFileWriter {
+  write(filePath: string, contents: string): void;
 }
 
 function ensureDirectory(filePath: string): void {
@@ -48,58 +37,113 @@ function ensureDirectory(filePath: string): void {
 }
 
 function isDocumentSnapshot(value: unknown): value is DocumentSnapshot {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<DocumentSnapshot>;
-  return Boolean(candidate.gameState && candidate.accounts);
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return Boolean(
+    candidate.gameState
+    && typeof candidate.gameState === "object"
+    && candidate.accounts
+    && typeof candidate.accounts === "object"
+  );
 }
 
-export class DocumentDb {
+export const atomicFileWriter: AtomicFileWriter = {
+  write(filePath: string, contents: string): void {
+    ensureDirectory(filePath);
+    const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    let fileDescriptor: number | null = null;
+    try {
+      fileDescriptor = openSync(temporaryPath, "wx", 0o600);
+      writeFileSync(fileDescriptor, contents, "utf8");
+      fsyncSync(fileDescriptor);
+      closeSync(fileDescriptor);
+      fileDescriptor = null;
+      renameSync(temporaryPath, filePath);
+
+      // Persist the renamed directory entry too. Windows may reject opening a
+      // directory as a file descriptor; the data file is already fsynced there.
+      try {
+        const directoryDescriptor = openSync(path.dirname(filePath), "r");
+        try {
+          fsyncSync(directoryDescriptor);
+        } finally {
+          closeSync(directoryDescriptor);
+        }
+      } catch {
+        // The required file fsync + atomic rename already succeeded. Directory
+        // fsync is a best-effort durability enhancement on supporting systems.
+      }
+    } catch (error) {
+      if (fileDescriptor !== null) {
+        try {
+          closeSync(fileDescriptor);
+        } catch {
+          // Preserve the original write failure.
+        }
+      }
+      if (existsSync(temporaryPath)) {
+        try {
+          unlinkSync(temporaryPath);
+        } catch {
+          // Preserve the original write failure.
+        }
+      }
+      throw new PersistenceError(`Could not atomically write ${filePath}`, { cause: error });
+    }
+  },
+};
+
+export class DocumentDb implements GameRepository {
   private readonly filePath: string;
+  private readonly writer: AtomicFileWriter;
   private snapshot: DocumentSnapshot;
 
-  constructor(seed: DocumentSnapshot, filePath: string = DEFAULT_DB_PATH) {
+  constructor(
+    seed: DocumentSnapshot,
+    filePath: string = DEFAULT_DB_PATH,
+    writer: AtomicFileWriter = atomicFileWriter,
+  ) {
     this.filePath = filePath;
+    this.writer = writer;
     this.snapshot = this.loadOrSeed(seed);
   }
 
   getSnapshot(): DocumentSnapshot {
-    return deepClone(this.snapshot);
+    return cloneSnapshot(this.snapshot);
   }
 
-  replace(snapshot: DocumentSnapshot): void {
-    this.snapshot = deepClone(snapshot);
-    this.writeSnapshot(this.snapshot);
+  replace(candidate: DocumentSnapshot): void {
+    const isolatedCandidate = cloneSnapshot(candidate);
+    this.writeSnapshot(isolatedCandidate);
+    this.snapshot = isolatedCandidate;
   }
 
   private loadOrSeed(seed: DocumentSnapshot): DocumentSnapshot {
     ensureDirectory(this.filePath);
-
     if (!existsSync(this.filePath)) {
-      const initial = deepClone(seed);
+      const initial = cloneSnapshot(seed);
       this.writeSnapshot(initial);
       return initial;
     }
 
+    let parsed: unknown;
     try {
-      const raw = readFileSync(this.filePath, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
-      if (isDocumentSnapshot(parsed)) {
-        return deepClone(parsed);
-      }
-    } catch {
-      // fall through to seed replacement below
+      parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as unknown;
+    } catch (error) {
+      throw new CorruptDatabaseError(
+        `Database ${this.filePath} contains invalid JSON; it was left unchanged`,
+        { cause: error },
+      );
     }
-
-    const fallback = deepClone(seed);
-    this.writeSnapshot(fallback);
-    return fallback;
+    if (!isDocumentSnapshot(parsed)) {
+      throw new CorruptDatabaseError(
+        `Database ${this.filePath} has an invalid snapshot shape; it was left unchanged`,
+      );
+    }
+    return cloneSnapshot(parsed);
   }
 
   private writeSnapshot(snapshot: DocumentSnapshot): void {
-    ensureDirectory(this.filePath);
-    writeFileSync(this.filePath, JSON.stringify(snapshot, null, 2), "utf8");
+    this.writer.write(this.filePath, JSON.stringify(snapshot, null, 2));
   }
 }

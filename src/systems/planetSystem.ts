@@ -151,19 +151,19 @@ function fleetsOnPlanet(state: GameState, planet: Planet): Fleet[] {
 function playerFleetsOnPlanet(
   state: GameState,
   planet: Planet,
-  playerId: string,
+  playerId: number,
 ): Fleet[] {
   return fleetsOnPlanet(state, planet).filter((fleet) => fleet.ownerPlayerId === playerId);
 }
 
-function isImperialPlayer(state: GameState, playerId: string): boolean {
+function isImperialPlayer(state: GameState, playerId: number): boolean {
   const player = state.players[playerId];
   return player?.alignment === "IMPERIAL";
 }
 
 function playerHasFaction(
   state: GameState,
-  playerId: string,
+  playerId: number,
   factionCode: string,
 ): boolean {
   const player = state.players[playerId];

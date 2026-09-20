@@ -11,8 +11,10 @@ export interface SessionManager {
   requireSession: (req: IncomingMessage, res: ServerResponse) => Session | null;
   requireAdmin: (req: IncomingMessage, res: ServerResponse) => Session | null;
   deleteSession: (token: string) => void;
-  removeSessionsForPlayer: (playerId: number) => void;
+  removeSessionsForPlayer: (playerId: number, notify?: boolean) => void;
+  removeSessionsForUsername: (username: string, notify?: boolean) => void;
   getSessions: () => Record<string, Session>;
+  restoreSessions: (sessions: Record<string, Session>) => void;
 }
 
 export function createSessionManager(
@@ -45,7 +47,12 @@ export function createSessionManager(
     };
 
     sessions.set(token, session);
-    onChanged();
+    try {
+      onChanged();
+    } catch (error) {
+      sessions.delete(token);
+      throw error;
+    }
     return session;
   }
 
@@ -97,21 +104,39 @@ export function createSessionManager(
   }
 
   function deleteSession(token: string): void {
-    if (sessions.delete(token)) {
+    const previous = sessions.get(token);
+    if (!sessions.delete(token)) return;
+    try {
       onChanged();
+    } catch (error) {
+      if (previous) sessions.set(token, previous);
+      throw error;
     }
   }
 
-  function removeSessionsForPlayer(playerId: number): void {
+  function removeSessionsForPlayer(playerId: number, notify = true): void {
+    removeSessions((session) => session.playerId === playerId, notify);
+  }
+
+  function removeSessionsForUsername(username: string, notify = true): void {
+    removeSessions((session) => session.username === username, notify);
+  }
+
+  function removeSessions(predicate: (session: Session) => boolean, notify: boolean): void {
+    const previous = getSessions();
     let changed = false;
     for (const [token, session] of sessions.entries()) {
-      if (session.playerId === playerId) {
+      if (predicate(session)) {
         sessions.delete(token);
         changed = true;
       }
     }
-    if (changed) {
+    if (!changed || !notify) return;
+    try {
       onChanged();
+    } catch (error) {
+      restoreSessions(previous);
+      throw error;
     }
   }
 
@@ -119,6 +144,13 @@ export function createSessionManager(
     return Object.fromEntries(
       [...sessions.entries()].map(([token, session]) => [token, { ...session }]),
     );
+  }
+
+  function restoreSessions(restored: Record<string, Session>): void {
+    sessions.clear();
+    for (const [token, session] of Object.entries(restored)) {
+      sessions.set(token, { ...session });
+    }
   }
 
   return {
@@ -129,6 +161,8 @@ export function createSessionManager(
     requireAdmin,
     deleteSession,
     removeSessionsForPlayer,
+    removeSessionsForUsername,
     getSessions,
+    restoreSessions,
   };
 }

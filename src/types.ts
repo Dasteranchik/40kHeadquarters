@@ -29,7 +29,7 @@ export interface HexCoord {
   q: number;
   r: number;
 }
-export type EntityId = any;
+export type EntityId = number;
 
 export type GamePhase = "PLANNING" | "RESOLUTION" | "UPDATE";
 
@@ -115,7 +115,7 @@ export interface Player {
 export type FleetStance = "ATTACK" | "DEFENSE";
 export type FleetDomain = "SPACE" | "GROUND";
 
-export interface Fleet {
+export interface Unit {
   id: number;
   ownerPlayerId: EntityId;
   position: HexCoord;
@@ -140,6 +140,9 @@ export interface Fleet {
   /** Set only for a GROUND army currently embarked on a SPACE fleet. */
   carrierFleetId?: EntityId;
 }
+
+/** @deprecated Use Unit. Kept as a snapshot/API compatibility alias. */
+export type Fleet = Unit;
 
 export interface ArmyTransportRequest {
   id: string;
@@ -308,8 +311,8 @@ export interface MovementExecution {
   fleetId: EntityId;
   from: HexCoord;
   to: HexCoord;
-  spentAP: number;
-  remainingAP: number;
+  spentMovementPoints: number;
+  remainingMovementPoints: number;
 }
 
 export interface MovementReport {

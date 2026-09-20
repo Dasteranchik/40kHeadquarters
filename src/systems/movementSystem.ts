@@ -45,8 +45,8 @@ export function executeMovement(
       fleetId: fleet.id,
       from,
       to: { ...fleet.position },
-      spentAP: spentMovementPoints,
-      remainingAP: fleet.movementPoints,
+      spentMovementPoints,
+      remainingMovementPoints: fleet.movementPoints,
     });
   }
 
