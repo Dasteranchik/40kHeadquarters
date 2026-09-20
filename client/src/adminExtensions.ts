@@ -61,6 +61,7 @@ const itemUseEffect = byId<HTMLInputElement>("extItemUseEffect");
 const itemConsumable = byId<HTMLInputElement>("extItemConsumable");
 const itemNavigator = byId<HTMLInputElement>("extItemNavigator");
 const itemWarpVisibility = byId<HTMLSelectElement>("extItemWarpVisibility");
+const itemOriginPlayer = byId<HTMLSelectElement>("extItemOriginPlayer");
 const variantName = byId<HTMLInputElement>("extVariantName");
 const variantDomain = byId<HTMLSelectElement>("extVariantDomain");
 const variantDescription = byId<HTMLInputElement>("extVariantDescription");
@@ -297,8 +298,24 @@ function renderShops(): void {
   syncShopFields();
 }
 
+function fillOriginPlayers(
+  select: HTMLSelectElement,
+  selectedPlayerId?: number,
+): void {
+  select.innerHTML = '<option value="">-</option>';
+  if (!state) return;
+  for (const player of Object.values(state.players).sort((a, b) => a.id - b.id)) {
+    const option = document.createElement("option");
+    option.value = String(player.id);
+    option.textContent = player.name + " (#" + player.id + ")";
+    option.selected = player.id === selectedPlayerId;
+    select.append(option);
+  }
+}
+
 function renderWorldObjects(): void {
   if (!state) return;
+  fillOriginPlayers(itemOriginPlayer, Number(itemOriginPlayer.value) || undefined);
   anomaliesList.textContent = JSON.stringify(Object.values(state.anomalies), null, 2);
   shipwrecksList.textContent = JSON.stringify(Object.values(state.shipwrecks), null, 2);
   artifactsList.innerHTML = "";
@@ -318,14 +335,18 @@ function renderWorldObjects(): void {
       option.selected = value === (artifact.warpVisibility === null ? "" : String(artifact.warpVisibility));
       warp.append(option);
     }
+    const origin = document.createElement("select");
+    fillOriginPlayers(origin, artifact.navigatorOriginPlayerId);
     row.append(text, document.createTextNode(" Навигатор "), navigator,
       document.createTextNode(" Warp "), warp,
+      document.createTextNode(" Origin Player "), origin,
       actionButton("Save", () => {
         void mutate("/api/admin/artifacts/" + encodeURIComponent(artifact.id), {
           method: "PUT",
           body: JSON.stringify({
             isNavigator: navigator.checked,
             warpVisibility: warp.value === "" ? null : Number(warp.value),
+            navigatorOriginPlayerId: origin.value === "" ? null : Number(origin.value),
           }),
         });
       }), actionButton("Delete", () => {
@@ -505,6 +526,7 @@ addItemBtn.addEventListener("click", () => {
           target,
           isNavigator: itemNavigator.checked,
           warpVisibility: itemWarpVisibility.value === "" ? null : Number(itemWarpVisibility.value),
+          navigatorOriginPlayerId: itemOriginPlayer.value === "" ? null : Number(itemOriginPlayer.value),
           ...(itemUseEffect.value.trim()
             ? { useEffect: parseJson(itemUseEffect.value) }
             : {}),

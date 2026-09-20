@@ -68,13 +68,20 @@ function artifactWarpSource(
   artifact: ArtifactInstance,
 ): NavigatorVisionSource | null {
   if (artifact.warpVisibility === null) return null;
-  const playerId = currentHolderPlayerId(state, artifact.owner);
   const position = locationPosition(state, artifact.owner);
-  if (!playerId || !state.players[playerId] || !position) return null;
+  if (!position) return null;
+  const currentHolderId = currentHolderPlayerId(state, artifact.owner);
+  const recipients = [...new Set([
+    ...(artifact.navigatorOriginPlayerId && state.players[artifact.navigatorOriginPlayerId]
+      ? [artifact.navigatorOriginPlayerId]
+      : []),
+    ...(currentHolderId && state.players[currentHolderId] ? [currentHolderId] : []),
+  ])];
+  if (recipients.length === 0) return null;
   return {
     position: { ...position },
     range: artifact.warpVisibility,
-    recipients: [playerId],
+    recipients,
   };
 }
 

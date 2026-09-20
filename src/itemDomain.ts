@@ -47,6 +47,8 @@ export interface ArtifactInstance {
   configuration: Record<string, JsonValue>;
   isNavigator: boolean;
   warpVisibility: WarpVisibility;
+  /** Stable Warp Visibility recipient; independent from the current holder. */
+  navigatorOriginPlayerId?: number;
   passiveEffect?: ArtifactEffect;
   useEffect?: ArtifactEffect;
   cooldownTurns?: number;

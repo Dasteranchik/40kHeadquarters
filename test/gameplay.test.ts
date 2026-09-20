@@ -7,6 +7,7 @@ import { SYSTEM_KNOWLEDGE } from "../src/itemDomain";
 import { createPasswordVerifier, validateAllowedTypeKeys } from "../src/secretStorageDomain";
 import { parseSecretStorageUpdate } from "../src/server/admin/helpers";
 import { createUnitVariantAdminHandlers } from "../src/server/admin/unitVariants";
+import { createWorldObjectAdminHandlers } from "../src/server/admin/worldObjects";
 import { normalizeGameState } from "../src/server/normalization";
 import { createRealtimeController } from "../src/server/realtime";
 import { createInitialGameState } from "../src/server/seed";
@@ -157,6 +158,16 @@ test("navigator trait is derived independently from warp visibility", () => {
 
 test("warp visibility uses source union, supports zero, stations and no ally sharing", () => {
   const game = makeState();
+  const noWarpPayload = buildStateForSession(
+    { token: "no-warp", username: "p1", role: "player", playerId: 1, expiresAt: Date.now() + 1000 },
+    game,
+  );
+  assert.ok(noWarpPayload.map.tiles.every((tile) => !Object.hasOwn(tile, "warpDisturbanceLevel")));
+  const adminPayload = buildStateForSession(
+    { token: "admin", username: "gm", role: "admin", expiresAt: Date.now() + 1000 },
+    game,
+  );
+  assert.ok(adminPayload.map.tiles.every((tile) => Number.isInteger(tile.warpDisturbanceLevel)));
   const fleet = game.fleets[1];
   fleet.isNavigator = true;
   fleet.warpVisibility = 1;
@@ -202,6 +213,17 @@ test("warp visibility uses source union, supports zero, stations and no ally sha
     `${chaosFleet.position.q},${chaosFleet.position.r}`,
   ]));
   assert.equal(isEffectiveNavigator(game, 2), false);
+  const chaosPayload = buildStateForSession(
+    { token: "chaos", username: "p2", role: "player", playerId: 2, expiresAt: Date.now() + 1000 },
+    game,
+  );
+  assert.equal(chaosPayload.players[2].effectiveNavigator, false);
+  for (const tile of chaosPayload.map.tiles) {
+    assert.equal(
+      Object.hasOwn(tile, "warpDisturbanceLevel"),
+      tile.q === chaosFleet.position.q && tile.r === chaosFleet.position.r,
+    );
+  }
 
   const stationPosition = game.map.tiles.find((tile) =>
     Math.max(
@@ -235,6 +257,48 @@ test("warp visibility uses source union, supports zero, stations and no ally sha
       union.has(`${tile.q},${tile.r}`),
     );
   }
+});
+
+test("Artifact Warp Visibility belongs to origin and current holder only", () => {
+  const game = makeState();
+  const originFleet = game.fleets[1];
+  const intermediateFleet = game.fleets[3];
+  const finalFleet = game.fleets[5];
+  game.artifacts.beacon = {
+    id: "beacon",
+    definitionCode: "WARP_BEACON",
+    name: "Warp beacon",
+    owner: { kind: "FLEET", fleetId: originFleet.id },
+    configuration: {},
+    isNavigator: false,
+    warpVisibility: 0,
+    navigatorOriginPlayerId: originFleet.ownerPlayerId,
+    consumable: false,
+  };
+  originFleet.itemInventory.artifactIds.push("beacon");
+
+  const beaconRecipients = (): number[] => {
+    const artifact = game.artifacts.beacon;
+    const holderPosition = artifact.owner.kind === "FLEET"
+      ? game.fleets[artifact.owner.fleetId].position
+      : null;
+    return collectNavigatorVisionSources(game)
+      .find((source) => holderPosition
+        && source.position.q === holderPosition.q
+        && source.position.r === holderPosition.r
+        && source.range === 0)?.recipients ?? [];
+  };
+
+  assert.deepEqual(beaconRecipients(), [1]);
+  assert.equal(transferArtifact(game, { role: "admin" }, "beacon",
+    { kind: "FLEET", fleetId: originFleet.id },
+    { kind: "FLEET", fleetId: intermediateFleet.id }).ok, true);
+  assert.deepEqual([...beaconRecipients()].sort((a, b) => a - b), [1, 2]);
+  assert.equal(transferArtifact(game, { role: "admin" }, "beacon",
+    { kind: "FLEET", fleetId: intermediateFleet.id },
+    { kind: "FLEET", fleetId: finalFleet.id }).ok, true);
+  assert.deepEqual([...beaconRecipients()].sort((a, b) => a - b), [1, 3]);
+  assert.equal(beaconRecipients().includes(2), false);
 });
 
 test("legacy snapshot normalization supplies new fields", () => {
@@ -327,6 +391,108 @@ test("new gameplay fields survive a JSON snapshot roundtrip", () => {
   assert.deepEqual(restored.planets[planet.id].secretStorage, planet.secretStorage);
   assert.deepEqual(restored.administratumWorldReports, game.administratumWorldReports);
   assert.deepEqual(restored.administratumTitheProposals, game.administratumTitheProposals);
+});
+
+test("Artifact origin normalization prefers valid top-level data and migrates legacy origin", () => {
+  const game = makeState();
+  const artifactBase = {
+    definitionCode: "WARP_BEACON",
+    name: "Warp beacon",
+    owner: { kind: "FLEET" as const, fleetId: 1 },
+    isNavigator: false,
+    consumable: false,
+  };
+  game.artifacts.legacy = {
+    ...artifactBase,
+    id: "legacy",
+    configuration: { navigatorOriginPlayerId: 2, navigatorRange: 1 },
+  } as unknown as GameState["artifacts"][string];
+  game.artifacts.current = {
+    ...artifactBase,
+    id: "current",
+    configuration: { navigatorOriginPlayerId: 2 },
+    navigatorOriginPlayerId: 3,
+    warpVisibility: 0,
+  };
+  game.artifacts.invalid = {
+    ...artifactBase,
+    id: "invalid",
+    configuration: { navigatorOriginPlayerId: 2 },
+    navigatorOriginPlayerId: 999,
+    warpVisibility: 1,
+  };
+
+  normalizeGameState(game);
+  assert.equal(game.artifacts.legacy.navigatorOriginPlayerId, 2);
+  assert.equal(game.artifacts.legacy.warpVisibility, 1);
+  assert.equal(game.artifacts.current.navigatorOriginPlayerId, 3);
+  assert.equal(game.artifacts.invalid.navigatorOriginPlayerId, undefined);
+});
+
+test("Warp Visibility Artifact admin API requires and updates a valid origin Player", async () => {
+  const game = makeState();
+  let persisted = 0;
+  let broadcasts = 0;
+  const handlers = createWorldObjectAdminHandlers({
+    state: game,
+    accounts: new Map(),
+    pendingActions: new Map(),
+    pendingAllianceProposals: new Set(),
+    readyPlayers: new Set(),
+    requireAdmin: () => ({
+      token: "admin", username: "gm", role: "admin", expiresAt: Date.now() + 1000,
+    }),
+    ensurePlanningPhase: () => true,
+    persistDatabase: () => { persisted += 1; },
+    broadcastState: () => { broadcasts += 1; },
+    removeSessionsForPlayer: () => {},
+    listTurnSnapshots: () => [],
+    rollbackTurnSnapshot: () => false,
+    auditAdminMutation: (_req, input) => appendAudit(game, {
+      actor: { kind: "ADMIN", account: "gm" },
+      ...input,
+    }),
+  });
+  const payload = {
+    kind: "ARTIFACT",
+    definitionCode: "WARP_BEACON",
+    name: "Warp beacon",
+    target: { kind: "FLEET", fleetId: 1 },
+    isNavigator: false,
+    warpVisibility: 1,
+  };
+
+  const missingOrigin = jsonResponse();
+  await handlers.handleAddItem(jsonRequest(payload), missingOrigin.response);
+  assert.equal(missingOrigin.read().status, 400);
+
+  const createdResponse = jsonResponse();
+  await handlers.handleAddItem(
+    jsonRequest({ ...payload, navigatorOriginPlayerId: 1 }),
+    createdResponse.response,
+  );
+  assert.equal(createdResponse.read().status, 201);
+  const artifact = (createdResponse.read().body as { artifact: GameState["artifacts"][string] }).artifact;
+  assert.equal(artifact.navigatorOriginPlayerId, 1);
+
+  const invalidUpdate = jsonResponse();
+  await handlers.handleUpdateArtifact(
+    jsonRequest({ navigatorOriginPlayerId: 999 }),
+    invalidUpdate.response,
+    artifact.id,
+  );
+  assert.equal(invalidUpdate.read().status, 400);
+
+  const validUpdate = jsonResponse();
+  await handlers.handleUpdateArtifact(
+    jsonRequest({ navigatorOriginPlayerId: 2 }),
+    validUpdate.response,
+    artifact.id,
+  );
+  assert.equal(validUpdate.read().status, 200);
+  assert.equal(game.artifacts[artifact.id].navigatorOriginPlayerId, 2);
+  assert.equal(persisted, 2);
+  assert.equal(broadcasts, 2);
 });
 
 test("generation uses raw stock before tithe and Shop after tithe", () => {

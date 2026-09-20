@@ -492,6 +492,19 @@ export function createWorldObjectAdminHandlers(
     if (!isWarpVisibility(warpVisibility)) {
       writeJson(res, 400, { error: "warpVisibility must be -, 0, 1, 2 or 3" }); return;
     }
+    const navigatorOriginPlayerId = body.navigatorOriginPlayerId === undefined
+      || body.navigatorOriginPlayerId === null
+      ? undefined
+      : body.navigatorOriginPlayerId;
+    if (navigatorOriginPlayerId !== undefined
+      && (!Number.isInteger(navigatorOriginPlayerId)
+        || Number(navigatorOriginPlayerId) <= 0
+        || !deps.state.players[Number(navigatorOriginPlayerId)])) {
+      writeJson(res, 400, { error: "navigatorOriginPlayerId must reference an existing Player" }); return;
+    }
+    if (warpVisibility !== null && navigatorOriginPlayerId === undefined) {
+      writeJson(res, 400, { error: "Warp Visibility Artifact requires navigatorOriginPlayerId" }); return;
+    }
     const inventory = resolveItemInventory(deps.state, target, true);
     if (!inventory) { writeJson(res, 400, { error: "Invalid target inventory" }); return; }
     const secretStorage = target.kind === "PLANET_SECRET"
@@ -511,6 +524,9 @@ export function createWorldObjectAdminHandlers(
       configuration: {},
       isNavigator: body.isNavigator === true,
       warpVisibility,
+      ...(navigatorOriginPlayerId !== undefined
+        ? { navigatorOriginPlayerId: Number(navigatorOriginPlayerId) }
+        : {}),
       consumable: body.consumable === true,
       ...(useEffect ? { useEffect } : {}),
     };
@@ -547,13 +563,36 @@ export function createWorldObjectAdminHandlers(
     if (!body
       || (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim()))
       || (body.isNavigator !== undefined && typeof body.isNavigator !== "boolean")
-      || (body.warpVisibility !== undefined && !isWarpVisibility(body.warpVisibility))) {
+      || (body.warpVisibility !== undefined && !isWarpVisibility(body.warpVisibility))
+      || (body.navigatorOriginPlayerId !== undefined
+        && body.navigatorOriginPlayerId !== null
+        && (!Number.isInteger(body.navigatorOriginPlayerId)
+          || Number(body.navigatorOriginPlayerId) <= 0))) {
       writeJson(res, 400, { error: "Invalid Artifact payload" }); return;
+    }
+    const nextWarpVisibility = body.warpVisibility === undefined
+      ? artifact.warpVisibility
+      : body.warpVisibility;
+    const nextOriginPlayerId = body.navigatorOriginPlayerId === undefined
+      ? artifact.navigatorOriginPlayerId
+      : body.navigatorOriginPlayerId === null
+        ? undefined
+        : Number(body.navigatorOriginPlayerId);
+    if (nextOriginPlayerId !== undefined && !deps.state.players[nextOriginPlayerId]) {
+      writeJson(res, 400, { error: "navigatorOriginPlayerId must reference an existing Player" }); return;
+    }
+    if ((body.warpVisibility !== undefined || body.navigatorOriginPlayerId !== undefined)
+      && nextWarpVisibility !== null && nextOriginPlayerId === undefined) {
+      writeJson(res, 400, { error: "Warp Visibility Artifact requires navigatorOriginPlayerId" }); return;
     }
     const before = structuredClone(artifact);
     if (typeof body.name === "string") artifact.name = body.name.trim();
     if (typeof body.isNavigator === "boolean") artifact.isNavigator = body.isNavigator;
     if (body.warpVisibility !== undefined) artifact.warpVisibility = body.warpVisibility;
+    if (body.navigatorOriginPlayerId !== undefined) {
+      if (nextOriginPlayerId === undefined) delete artifact.navigatorOriginPlayerId;
+      else artifact.navigatorOriginPlayerId = nextOriginPlayerId;
+    }
     appendAudit(deps.state, {
       actor: { kind: "ADMIN", account: session.username }, operation: "UPDATE_ARTIFACT",
       entityType: "ARTIFACT", entityId: id, before, after: artifact,

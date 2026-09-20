@@ -818,7 +818,10 @@ function normalizeJsonRecord(value: unknown): Record<string, JsonValue> {
   }
 }
 
-function normalizeArtifacts(value: unknown): Record<string, ArtifactInstance> {
+function normalizeArtifacts(
+  value: unknown,
+  players: GameState["players"],
+): Record<string, ArtifactInstance> {
   if (!value || typeof value !== "object") return {};
   const result: Record<string, ArtifactInstance> = {};
   for (const [id, raw] of Object.entries(value as Record<string, unknown>)) {
@@ -840,6 +843,16 @@ function normalizeArtifacts(value: unknown): Record<string, ArtifactInstance> {
           params: normalizeJsonRecord(candidate.useEffect.params),
         }
       : undefined;
+    const legacyOriginPlayerId = candidate.configuration?.navigatorOriginPlayerId;
+    const originCandidate = candidate.navigatorOriginPlayerId !== undefined
+      ? candidate.navigatorOriginPlayerId
+      : legacyOriginPlayerId;
+    const navigatorOriginPlayerId = typeof originCandidate === "number"
+      && Number.isInteger(originCandidate)
+      && originCandidate > 0
+      && Boolean(players[originCandidate])
+      ? originCandidate
+      : undefined;
     result[id] = {
       id,
       definitionCode: typeof candidate.definitionCode === "string" && candidate.definitionCode
@@ -854,6 +867,7 @@ function normalizeArtifacts(value: unknown): Record<string, ArtifactInstance> {
           ? candidate.warpVisibility
           : candidate.configuration?.navigatorRange,
       ),
+      ...(navigatorOriginPlayerId !== undefined ? { navigatorOriginPlayerId } : {}),
       ...(passiveEffect ? { passiveEffect } : {}),
       ...(useEffect ? { useEffect } : {}),
       ...(Number.isInteger(candidate.cooldownTurns) && Number(candidate.cooldownTurns) >= 0
@@ -1173,7 +1187,7 @@ export function normalizeGameState(state: GameState): GameState {
   }
   state.shipwrecks = normalizeShipwrecks(partialState.shipwrecks);
   state.anomalies = normalizeAnomalies(partialState.anomalies);
-  state.artifacts = normalizeArtifacts(partialState.artifacts);
+  state.artifacts = normalizeArtifacts(partialState.artifacts, state.players);
   state.unitVariants = normalizeUnitVariants(partialState.unitVariants);
   for (const fleet of Object.values(state.fleets)) {
     if (fleet.unitVariantId === undefined) continue;

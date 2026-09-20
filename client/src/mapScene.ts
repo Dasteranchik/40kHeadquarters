@@ -169,7 +169,7 @@ export function renderMapScene(params: RenderMapSceneParams): void {
   applyMapLayerScale(layers, hexScale);
   const labelSlots: TileLabelSlots = new Map();
   drawTerrain(renderedState, layers, tacticalCenter, strategicSelectedHex);
-  drawWarpLayer(renderedState, layers, navigatorLayerEnabled, textResolution);
+  drawWarpLayer(renderedState, layers, textResolution);
   if (navigatorLayerEnabled) {
     clearLayer(layers.planetLayer);
     clearLayer(layers.fleetLayer);
@@ -304,11 +304,9 @@ function drawTerrain(state: GameState, layers: MapLayers, tacticalCenter: HexCoo
 function drawWarpLayer(
   state: GameState,
   layers: MapLayers,
-  enabled: boolean,
   textResolution: number,
 ): void {
   clearLayer(layers.warpLayer);
-  if (!enabled) return;
   const colors = [0x4ade80, 0xa3e635, 0xfacc15, 0xfb923c, 0xef4444, 0x991b1b];
   for (const tile of state.map.tiles) {
     if (!Number.isInteger(tile.warpDisturbanceLevel)) continue;
