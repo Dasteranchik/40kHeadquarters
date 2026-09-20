@@ -38,6 +38,8 @@ import {
   selectedChipValues,
   toJsonCompact,
 } from "./admin/formControls";
+import { createAdminApiClient } from "./admin/apiClient";
+import { bindAdminMutationControls } from "./admin/mutationController";
 
 interface SessionInfo {
   username: string;
@@ -71,6 +73,7 @@ interface AdminState {
 
 const params = new URLSearchParams(window.location.search);
 const apiBase = params.get("api") ?? `http://${window.location.hostname}:8080`;
+const apiRequest = createAdminApiClient(apiBase);
 
 const statusLine = document.getElementById("statusLine") as HTMLParagraphElement;
 const authLine = document.getElementById("authLine") as HTMLParagraphElement;
@@ -91,84 +94,38 @@ const resourceConversionPanel = document.getElementById("resourceConversionPanel
 const resourceConversionRates = document.getElementById("resourceConversionRates") as HTMLDivElement;
 const saveResourceConversionBtn = document.getElementById("saveResourceConversionBtn") as HTMLButtonElement;
 
-const addPlayerId = document.getElementById("addPlayerId") as HTMLInputElement;
-const addPlayerName = document.getElementById("addPlayerName") as HTMLInputElement;
 const addPlayerColor = document.getElementById("addPlayerColor") as HTMLInputElement;
-const addPlayerUsername = document.getElementById("addPlayerUsername") as HTMLInputElement;
-const addPlayerPassword = document.getElementById("addPlayerPassword") as HTMLInputElement;
-const addPlayerAlignment = document.getElementById("addPlayerAlignment") as HTMLSelectElement;
 const addPlayerFaction = document.getElementById("addPlayerFaction") as HTMLSelectElement;
-const addPlayerCanTakeResources = document.getElementById("addPlayerCanTakeResources") as HTMLInputElement;
-const addPlayerManualNavigator = document.getElementById("addPlayerManualNavigator") as HTMLInputElement;
-const addPlayerBtn = document.getElementById("addPlayerBtn") as HTMLButtonElement;
 const playersSearch = document.getElementById("playersSearch") as HTMLInputElement;
 const playersList = document.getElementById("playersList") as HTMLDivElement;
 
-const addFactionId = document.getElementById("addFactionId") as HTMLInputElement;
-const addFactionName = document.getElementById("addFactionName") as HTMLInputElement;
-const addFactionDescription = document.getElementById("addFactionDescription") as HTMLInputElement;
-const addFactionChaos = document.getElementById("addFactionChaos") as HTMLInputElement;
-const addFactionAdministratum = document.getElementById("addFactionAdministratum") as HTMLInputElement;
-const addFactionBtn = document.getElementById("addFactionBtn") as HTMLButtonElement;
 const factionsSearch = document.getElementById("factionsSearch") as HTMLInputElement;
 const factionsList = document.getElementById("factionsList") as HTMLDivElement;
 
-const addPlanetId = document.getElementById("addPlanetId") as HTMLInputElement;
-const addPlanetName = document.getElementById("addPlanetName") as HTMLInputElement;
-const addPlanetQ = document.getElementById("addPlanetQ") as HTMLInputElement;
-const addPlanetR = document.getElementById("addPlanetR") as HTMLInputElement;
 const addPlanetWorldType = document.getElementById("addPlanetWorldType") as HTMLSelectElement;
 const addPlanetWorldTags = document.getElementById("addPlanetWorldTags") as HTMLDivElement;
-const addPlanetPopulation = document.getElementById("addPlanetPopulation") as HTMLInputElement;
-const addPlanetMorale = document.getElementById("addPlanetMorale") as HTMLInputElement;
 const addPlanetTitheLevel = document.getElementById("addPlanetTitheLevel") as HTMLSelectElement;
 const addPlanetMaxTitheLevel = document.getElementById("addPlanetMaxTitheLevel") as HTMLSelectElement;
 const addPlanetTithePaid = document.getElementById("addPlanetTithePaid") as HTMLInputElement;
-const addPlanetInf = document.getElementById("addPlanetInf") as HTMLInputElement;
-const addPlanetVision = document.getElementById("addPlanetVision") as HTMLInputElement;
 const addPlanetGeneration = document.getElementById("addPlanetGeneration") as HTMLDivElement;
 const addPlanetRawStock = document.getElementById("addPlanetRawStock") as HTMLDivElement;
-const addPlanetBtn = document.getElementById("addPlanetBtn") as HTMLButtonElement;
 const planetsSearch = document.getElementById("planetsSearch") as HTMLInputElement;
 const planetsList = document.getElementById("planetsList") as HTMLDivElement;
 
-const addFleetId = document.getElementById("addFleetId") as HTMLInputElement;
 const addFleetOwner = document.getElementById("addFleetOwner") as HTMLSelectElement;
-const addFleetQ = document.getElementById("addFleetQ") as HTMLInputElement;
-const addFleetR = document.getElementById("addFleetR") as HTMLInputElement;
-const addFleetPower = document.getElementById("addFleetPower") as HTMLInputElement;
-const addFleetHealth = document.getElementById("addFleetHealth") as HTMLInputElement;
-const addFleetInfluence = document.getElementById("addFleetInfluence") as HTMLInputElement;
-const addFleetAp = document.getElementById("addFleetAp") as HTMLInputElement;
-const addFleetMaxMovement = document.getElementById("addFleetMaxMovement") as HTMLInputElement;
-const addFleetNavigator = document.getElementById("addFleetNavigator") as HTMLInputElement;
-const addFleetWarpVisibility = document.getElementById("addFleetWarpVisibility") as HTMLSelectElement;
 const addFleetVariant = document.getElementById("addFleetVariant") as HTMLSelectElement;
-const addFleetVision = document.getElementById("addFleetVision") as HTMLInputElement;
-const addFleetCapacity = document.getElementById("addFleetCapacity") as HTMLInputElement;
-const addFleetStance = document.getElementById("addFleetStance") as HTMLSelectElement;
-const addFleetInventory = document.getElementById("addFleetInventory") as HTMLInputElement;
-const addFleetBtn = document.getElementById("addFleetBtn") as HTMLButtonElement;
 const addArmyBtn = document.getElementById("addArmyBtn") as HTMLButtonElement;
 const addArmyOwner = document.getElementById("addArmyOwner") as HTMLSelectElement;
 const addArmyDestinationKind = document.getElementById("addArmyDestinationKind") as HTMLSelectElement;
 const addArmyDestination = document.getElementById("addArmyDestination") as HTMLSelectElement;
-const addArmyPower = document.getElementById("addArmyPower") as HTMLInputElement;
-const addArmyHealth = document.getElementById("addArmyHealth") as HTMLInputElement;
-const addArmyInfluence = document.getElementById("addArmyInfluence") as HTMLInputElement;
-const addArmyVision = document.getElementById("addArmyVision") as HTMLInputElement;
-const addArmyStance = document.getElementById("addArmyStance") as HTMLSelectElement;
 const fleetsSearch = document.getElementById("fleetsSearch") as HTMLInputElement;
 const fleetsList = document.getElementById("fleetsList") as HTMLDivElement;
 const armiesSearch = document.getElementById("armiesSearch") as HTMLInputElement;
 const addArmyVariant = document.getElementById("addArmyVariant") as HTMLSelectElement;
 const armiesList = document.getElementById("armiesList") as HTMLDivElement;
 
-const relType = document.getElementById("relType") as HTMLSelectElement;
 const relPlayerA = document.getElementById("relPlayerA") as HTMLSelectElement;
 const relPlayerB = document.getElementById("relPlayerB") as HTMLSelectElement;
-const addRelationBtn = document.getElementById("addRelationBtn") as HTMLButtonElement;
-const removeRelationBtn = document.getElementById("removeRelationBtn") as HTMLButtonElement;
 const relationsSearch = document.getElementById("relationsSearch") as HTMLInputElement;
 const alliancesList = document.getElementById("alliancesList") as HTMLUListElement;
 const warsList = document.getElementById("warsList") as HTMLUListElement;
@@ -205,30 +162,6 @@ function setStatus(message: string): void {
 
 function appendEvent(message: string): void {
   eventsLog.prepend(document.createTextNode(`[${new Date().toLocaleTimeString()}] ${message}\n`));
-}
-
-function getAuthHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-  };
-}
-
-async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      ...getAuthHeaders(),
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) {
-    throw new Error(body.error ?? `HTTP ${response.status}`);
-  }
-
-  return body;
 }
 
 function setSession(session: SessionInfo | null): void {
@@ -437,10 +370,6 @@ function syncUnitVariantSelects(): void {
   };
   fill(addFleetVariant, "SPACE");
   fill(addArmyVariant, "GROUND");
-}
-
-function warpVisibilityFromSelect(select: HTMLSelectElement): null | 0 | 1 | 2 | 3 {
-  return select.value === "" ? null : Number(select.value) as 0 | 1 | 2 | 3;
 }
 
 async function loadAllData(): Promise<void> {
@@ -1083,174 +1012,6 @@ function renderAll(): void {
   renderResourceConversionRates();
 }
 
-async function addPlayer(): Promise<void> {
-  try {
-    await apiRequest("/api/admin/players", {
-      method: "POST",
-      body: JSON.stringify({
-        name: addPlayerName.value.trim(),
-        color: addPlayerColor.value,
-        alignment: addPlayerAlignment.value,
-        factionId: addPlayerFaction.value ? Number(addPlayerFaction.value) : undefined,
-        canTakePlanetResources: addPlayerCanTakeResources.checked,
-        manualNavigator: addPlayerManualNavigator.checked,
-        username: addPlayerUsername.value.trim() || undefined,
-        password: addPlayerPassword.value || undefined,
-      }),
-    });
-    appendEvent(`Player ${addPlayerName.value.trim()} created`);
-    await loadAllData();
-  } catch (error) {
-    appendEvent(`Player create failed: ${(error as Error).message}`);
-  }
-}
-
-async function addFaction(): Promise<void> {
-  try {
-    await apiRequest("/api/admin/factions", {
-      method: "POST",
-      body: JSON.stringify({
-        code: addFactionId.value.trim(),
-        name: addFactionName.value.trim(),
-        description: addFactionDescription.value.trim() || undefined,
-        isChaos: addFactionChaos.checked,
-        isAdministratum: addFactionAdministratum.checked,
-      }),
-    });
-    appendEvent(`Faction ${addFactionId.value.trim()} created`);
-    await loadAllData();
-  } catch (error) {
-    appendEvent(`Faction create failed: ${(error as Error).message}`);
-  }
-}
-
-async function addPlanet(): Promise<void> {
-  try {
-    const resourceGeneration = Object.fromEntries(
-      selectedChipValues(addPlanetGeneration).map((key) => [key, 1]),
-    );
-    await apiRequest("/api/admin/planets", {
-      method: "POST",
-      body: JSON.stringify({
-        name: addPlanetName.value.trim(),
-        id: addPlanetId.value.trim(),
-        q: Number(addPlanetQ.value),
-        r: Number(addPlanetR.value),
-        worldType: addPlanetWorldType.value,
-        worldTags: selectedChipValues(addPlanetWorldTags),
-        population: Number(addPlanetPopulation.value),
-        morale: Number(addPlanetMorale.value),
-        titheLevel: "ADEPTUS_NON",
-        maxTitheLevel: addPlanetMaxTitheLevel.value,
-        tithePaid: Number(addPlanetTithePaid.value),
-        titheContributions: {},
-        resourceGeneration,
-        rawStock: readResourceEditor(addPlanetRawStock),
-        productStorageByPlayerId: {},
-        influenceValue: Number(addPlanetInf.value),
-        visionRange: Number(addPlanetVision.value || "1"),
-      }),
-    });
-    appendEvent(`Planet ${addPlanetId.value.trim()} created`);
-    await loadAllData();
-  } catch (error) {
-    appendEvent(`Planet create failed: ${(error as Error).message}`);
-  }
-}
-
-async function addFleet(): Promise<void> {
-  try {
-    if (!addFleetOwner.value) {
-      throw new Error("Owner player is required");
-    }
-
-    const inventory = parseJsonObjectInput(addFleetInventory.value);
-
-    await apiRequest("/api/admin/fleets", {
-      method: "POST",
-      body: JSON.stringify({
-        id: addFleetId.value.trim(),
-        ownerPlayerId: Number(addFleetOwner.value),
-        q: Number(addFleetQ.value),
-        r: Number(addFleetR.value),
-        combatPower: Number(addFleetPower.value),
-        health: Number(addFleetHealth.value),
-        influence: Number(addFleetInfluence.value),
-        movementPoints: Number(addFleetAp.value),
-        visionRange: Number(addFleetVision.value),
-        capacity: Number(addFleetCapacity.value),
-        stance: addFleetStance.value,
-        domain: "SPACE",
-        maxMovementPoints: Number(addFleetMaxMovement.value),
-        isNavigator: addFleetNavigator.checked,
-        warpVisibility: warpVisibilityFromSelect(addFleetWarpVisibility),
-        unitVariantId: addFleetVariant.value ? Number(addFleetVariant.value) : null,
-        inventory,
-      }),
-    });
-    appendEvent("Fleet created");
-    await loadAllData();
-  } catch (error) {
-    appendEvent(`Fleet create failed: ${(error as Error).message}`);
-  }
-}
-
-async function addArmy(): Promise<void> {
-  try {
-    if (!addArmyOwner.value || !addArmyDestination.value) {
-      throw new Error("Army owner and destination are required");
-    }
-    const kind = addArmyDestinationKind.value === "FLEET" ? "FLEET" : "PLANET";
-    const destinationId = Number(addArmyDestination.value);
-    const destination = kind === "FLEET"
-      ? { kind, fleetId: destinationId }
-      : { kind, planetId: destinationId };
-    await apiRequest("/api/admin/armies", {
-      method: "POST",
-      body: JSON.stringify({
-        ownerPlayerId: Number(addArmyOwner.value),
-        destination,
-        combatPower: Number(addArmyPower.value),
-        health: Number(addArmyHealth.value),
-        influence: Number(addArmyInfluence.value),
-        visionRange: Number(addArmyVision.value),
-        stance: addArmyStance.value,
-        unitVariantId: addArmyVariant.value ? Number(addArmyVariant.value) : null,
-      }),
-    });
-    appendEvent("Army created");
-    await loadAllData();
-  } catch (error) {
-    appendEvent(`Army create failed: ${(error as Error).message}`);
-  }
-}
-
-async function mutateRelation(remove: boolean): Promise<void> {
-  if (!relPlayerA.value || !relPlayerB.value) {
-    appendEvent("Relation mutation failed: player ids are required");
-    return;
-  }
-
-  const payload = {
-    type: relType.value,
-    playerAId: Number(relPlayerA.value),
-    playerBId: Number(relPlayerB.value),
-  };
-
-  try {
-    await apiRequest("/api/admin/relations", {
-      method: remove ? "DELETE" : "POST",
-      body: JSON.stringify(payload),
-    });
-    appendEvent(
-      `Relation ${remove ? "removed" : "added"}: ${payload.playerAId}/${payload.playerBId} ${payload.type}`,
-    );
-    await loadAllData();
-  } catch (error) {
-    appendEvent(`Relation mutation failed: ${(error as Error).message}`);
-  }
-}
-
 async function login(): Promise<void> {
   const username = loginUser.value.trim();
   const password = loginPass.value;
@@ -1328,36 +1089,6 @@ logoutBtn.addEventListener("click", () => {
   void logout();
 });
 
-addPlayerBtn.addEventListener("click", () => {
-  void addPlayer();
-});
-
-addFactionBtn.addEventListener("click", () => {
-  void addFaction();
-});
-
-addPlanetBtn.addEventListener("click", () => {
-  void addPlanet();
-});
-
-addFleetBtn.addEventListener("click", () => {
-  void addFleet();
-});
-
-addArmyBtn.addEventListener("click", () => {
-  void addArmy();
-});
-
-addArmyDestinationKind.addEventListener("change", syncArmyDestinations);
-
-addRelationBtn.addEventListener("click", () => {
-  void mutateRelation(false);
-});
-
-removeRelationBtn.addEventListener("click", () => {
-  void mutateRelation(true);
-});
-
 saveResourceConversionBtn.addEventListener("click", () => {
   void saveResourceConversionRates();
 });
@@ -1384,6 +1115,13 @@ armiesSearch.addEventListener("input", () => {
 
 relationsSearch.addEventListener("input", () => {
   renderRelationsLists();
+});
+
+bindAdminMutationControls({
+  apiRequest,
+  reload: loadAllData,
+  appendEvent,
+  syncArmyDestinations,
 });
 
 initStaticSelects();

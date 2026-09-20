@@ -5,7 +5,6 @@ import { initLocalization } from "./i18n";
 
 import type {
   ClientMessage,
-  ResourceEndpointKind,
 } from "../../src/api/ws";
 import { areNeighbors, coordKey } from "../../src/hex";
 import {
@@ -13,9 +12,7 @@ import {
   PRODUCT_RECIPES,
   PRODUCT_RESOURCE_KEYS,
   RAW_RESOURCE_KEYS,
-  RESOURCE_KEYS,
   TITHE_LEVEL_ORDER,
-  type ResourceKey,
 } from "../../src/planetDomain";
 import { getObjectsAtHex } from "../../src/worldObjectDomain";
 import {
@@ -63,7 +60,8 @@ import {
   type HudElements,
 } from "./ui/hud";
 import { createHexContextMenuController } from "./ui/contextMenu";
-import { selectedShop, shopOwnerKey, shopsAtFleet } from "./game/shopLocations";
+import { createResourceTransferController } from "./ui/resourceTransferController";
+import { createShopTradeController } from "./ui/shopTradeController";
 import type {
   Fleet,
   FleetStance,
@@ -72,7 +70,6 @@ import type {
   Planet,
   PlanetAction,
   PlanetActionKind,
-  ResourceStore,
 } from "../../src/types";
 
 type Nullable<T> = T | null;
@@ -132,21 +129,6 @@ const warBtn = document.getElementById("warBtn") as HTMLButtonElement;
 const allyBtn = document.getElementById("allyBtn") as HTMLButtonElement;
 const readyBtn = document.getElementById("readyBtn") as HTMLButtonElement;
 const endTurnBtn = document.getElementById("endTurnBtn") as HTMLButtonElement;
-const transferModeSelect = document.getElementById("transferMode") as HTMLSelectElement;
-const transferTargetFleetSelect = document.getElementById(
-  "transferTargetFleet",
-) as HTMLSelectElement;
-const transferResourceSelect = document.getElementById(
-  "transferResource",
-) as HTMLSelectElement;
-const transferAmountInput = document.getElementById("transferAmount") as HTMLInputElement;
-const transferSubmitBtn = document.getElementById("transferSubmitBtn") as HTMLButtonElement;
-const shopOwnerSelect = document.getElementById("shopOwner") as HTMLSelectElement;
-const shopReceiveResourceSelect = document.getElementById("shopReceiveResource") as HTMLSelectElement;
-const shopReceiveAmountInput = document.getElementById("shopReceiveAmount") as HTMLInputElement;
-const shopPaymentListEl = document.getElementById("shopPaymentList") as HTMLDivElement;
-let shopPaymentDraftFleetId: string | null = null;
-const shopTradeBtn = document.getElementById("shopTradeBtn") as HTMLButtonElement;
 const fleetArtifactSelect = document.getElementById("fleetArtifact") as HTMLSelectElement;
 const artifactUseBtn = document.getElementById("artifactUseBtn") as HTMLButtonElement;
 const detectedObjectsEl = document.getElementById("detectedObjects") as HTMLPreElement;
@@ -334,6 +316,29 @@ const runtime: RuntimeState = {
   focusedUnitId: null,
 };
 
+const resourceTransferController = createResourceTransferController({
+  getContext: () => ({
+    state: runtime.gameState,
+    activePlayerId: activePlayerId(runtime),
+    selectedFleet: runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null,
+  }),
+  sendMessage,
+  nextCommandId: nextActionId,
+  appendEvent,
+  setStatus,
+});
+
+const shopTradeController = createShopTradeController({
+  getContext: () => ({
+    state: runtime.gameState,
+    selectedFleet: runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null,
+  }),
+  sendMessage,
+  nextCommandId: nextActionId,
+  appendEvent,
+  onShopChanged: refreshHud,
+});
+
 const mapCamera = createMapCameraController(
   app,
   mapLayers,
@@ -456,18 +461,6 @@ const hexContextMenu = createHexContextMenuController({
   },
 });
 
-type TransferMode =
-  | "FLEET_TO_FLEET"
-  | "FLEET_TO_PLANET_STORAGE"
-  | "PLANET_STORAGE_TO_FLEET";
-
-interface TransferModeSpec {
-  value: TransferMode;
-  label: string;
-  fromKind: ResourceEndpointKind;
-  toKind: ResourceEndpointKind;
-}
-
 function renderPlayerEvents(state: GameState | null): void {
   playerEventsListEl.innerHTML = "";
   const events = [...(state?.events ?? [])].sort((a, b) => b.id - a.id);
@@ -505,339 +498,6 @@ function selectMainView(view: "MAP" | "EVENTS"): void {
   }
 }
 
-const TRANSFER_MODES: TransferModeSpec[] = [
-  {
-    value: "FLEET_TO_FLEET",
-    label: "Fleet -> Fleet",
-    fromKind: "FLEET",
-    toKind: "FLEET",
-  },
-  {
-    value: "FLEET_TO_PLANET_STORAGE",
-    label: "Fleet -> Personal Planet Storage",
-    fromKind: "FLEET",
-    toKind: "PLANET_STORAGE",
-  },
-  {
-    value: "PLANET_STORAGE_TO_FLEET",
-    label: "Personal Planet Storage -> Fleet",
-    fromKind: "PLANET_STORAGE",
-    toKind: "FLEET",
-  },
-];
-
-function transferModeSpecFromValue(value: string): TransferModeSpec {
-  return (
-    TRANSFER_MODES.find((mode) => mode.value === value) ?? TRANSFER_MODES[0]
-  );
-}
-
-function ensureTransferModeOptions(): void {
-  if (transferModeSelect.options.length > 0) {
-    return;
-  }
-
-  for (const mode of TRANSFER_MODES) {
-    const option = document.createElement("option");
-    option.value = mode.value;
-    option.textContent = mode.label;
-    transferModeSelect.appendChild(option);
-  }
-}
-
-function selectedFleetPlanet(state: GameState, fleet: Fleet): Nullable<Planet> {
-  return Object.values(state.planets)
-    .filter((planet) =>
-      planet.position.q === fleet.position.q
-      && planet.position.r === fleet.position.r
-    )
-    .sort((a, b) => a.id - b.id)[0] ?? null;
-}
-
-function storeAmount(store: Fleet["inventory"], key: string): number {
-  const value = store[key as keyof typeof store];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return 0;
-  }
-
-  return Math.max(0, Math.trunc(value));
-}
-
-interface TransferAvailability {
-  key: (typeof RESOURCE_KEYS)[number];
-  maxAmount: number;
-}
-
-function fillResourceOptions(availability: TransferAvailability[]): void {
-  const keep = transferResourceSelect.value;
-  transferResourceSelect.innerHTML = "";
-
-  const appendGroup = (
-    label: string,
-    keys: readonly (typeof RESOURCE_KEYS)[number][],
-  ): void => {
-    const entries = keys
-      .map((key) => availability.find((entry) => entry.key === key))
-      .filter((entry): entry is TransferAvailability => Boolean(entry));
-    if (entries.length === 0) {
-      return;
-    }
-
-    const group = document.createElement("optgroup");
-    group.label = label;
-    for (const entry of entries) {
-      const option = document.createElement("option");
-      option.value = entry.key;
-      option.textContent = `${entry.key} (max ${entry.maxAmount})`;
-      group.appendChild(option);
-    }
-    transferResourceSelect.appendChild(group);
-  };
-
-  appendGroup("Raw Resources", RAW_RESOURCE_KEYS);
-  appendGroup("Products", PRODUCT_RESOURCE_KEYS);
-
-  if (availability.some((entry) => entry.key === keep)) {
-    transferResourceSelect.value = keep;
-  }
-}
-
-function fillTargetFleetOptions(
-  state: GameState,
-  selectedFleet: Fleet,
-  activePlayer: string | null,
-  includeSelectedFleet: boolean,
-): void {
-  const previous = transferTargetFleetSelect.value;
-  transferTargetFleetSelect.innerHTML = "";
-
-  const fleets = fleetsAtCoord(state, selectedFleet.position)
-    .filter((fleet) => includeSelectedFleet || fleet.id !== selectedFleet.id)
-    .filter((fleet) => (activePlayer ? fleet.ownerPlayerId === activePlayer : false))
-    .sort((a, b) => a.id - b.id);
-
-  for (const fleet of fleets) {
-    const option = document.createElement("option");
-    option.value = fleet.id;
-    option.textContent = `Fleet ${fleet.id} (${fleet.ownerPlayerId})`;
-    transferTargetFleetSelect.appendChild(option);
-  }
-
-  if (fleets.some((fleet) => String(fleet.id) === previous)) {
-    transferTargetFleetSelect.value = previous;
-  }
-}
-
-interface TransferContext {
-  mode: TransferModeSpec;
-  fromId: number;
-  fromStore: Fleet["inventory"];
-  toId: number;
-}
-
-function resolveTransferContext(
-  state: GameState,
-  selectedFleet: Fleet,
-): TransferContext | null {
-  const mode = transferModeSpecFromValue(transferModeSelect.value);
-  const planet = selectedFleetPlanet(state, selectedFleet);
-
-  if ((mode.fromKind !== "FLEET" || mode.toKind !== "FLEET") && !planet) {
-    return null;
-  }
-
-  const fromId = mode.fromKind === "FLEET" ? selectedFleet.id : planet!.id;
-  const fromStore =
-    mode.fromKind === "FLEET"
-      ? selectedFleet.inventory
-      : (planet!.productStorageByPlayerId[String(selectedFleet.ownerPlayerId)] ?? {});
-
-  if (mode.toKind === "FLEET") {
-    const toFleetId = transferTargetFleetSelect.value;
-    if (!toFleetId) {
-      return null;
-    }
-
-    const toFleet = state.fleets[toFleetId];
-    if (!toFleet) {
-      return null;
-    }
-
-    return {
-      mode,
-      fromId,
-      fromStore,
-      toId: toFleet.id,
-    };
-  }
-
-  return {
-    mode,
-    fromId,
-    fromStore,
-    toId: planet!.id,
-  };
-}
-
-function buildTransferAvailability(context: TransferContext): TransferAvailability[] {
-  const keys = RESOURCE_KEYS;
-
-  const availability: TransferAvailability[] = [];
-  for (const key of keys) {
-    const available = storeAmount(context.fromStore, key);
-    if (available <= 0) {
-      continue;
-    }
-
-    const maxAmount = available;
-    if (maxAmount <= 0) {
-      continue;
-    }
-
-    availability.push({
-      key,
-      maxAmount,
-    });
-  }
-
-  return availability;
-}
-
-function refreshTransferControls(
-  state: Nullable<GameState>,
-  selectedFleet: Nullable<Fleet>,
-): void {
-  ensureTransferModeOptions();
-  const activePlayer = activePlayerId(runtime);
-  const canControl = Boolean(state && selectedFleet && activePlayer && state.phase === "PLANNING");
-
-  transferModeSelect.disabled = !canControl;
-  transferAmountInput.disabled = true;
-  transferResourceSelect.disabled = true;
-  transferSubmitBtn.disabled = true;
-
-  if (!state || !selectedFleet || !activePlayer || state.phase !== "PLANNING") {
-    transferTargetFleetSelect.innerHTML = "";
-    transferTargetFleetSelect.disabled = true;
-    transferResourceSelect.innerHTML = "";
-    return;
-  }
-
-  const mode = transferModeSpecFromValue(transferModeSelect.value);
-  const needsPlanet = mode.fromKind !== "FLEET" || mode.toKind !== "FLEET";
-  const needsTargetFleet = mode.toKind === "FLEET";
-  const planet = selectedFleetPlanet(state, selectedFleet);
-
-  if (needsTargetFleet) {
-    fillTargetFleetOptions(
-      state,
-      selectedFleet,
-      activePlayer,
-      mode.fromKind === "PLANET_STORAGE",
-    );
-    transferTargetFleetSelect.disabled = transferTargetFleetSelect.options.length === 0;
-  } else {
-    transferTargetFleetSelect.innerHTML = "";
-    transferTargetFleetSelect.disabled = true;
-  }
-
-  const hasTargetFleet = !needsTargetFleet || Boolean(transferTargetFleetSelect.value);
-  const hasPlanet = !needsPlanet || Boolean(planet);
-  if (!hasTargetFleet || !hasPlanet) {
-    transferResourceSelect.innerHTML = "";
-    transferAmountInput.disabled = true;
-    transferResourceSelect.disabled = true;
-    transferSubmitBtn.disabled = true;
-    return;
-  }
-
-  const context = resolveTransferContext(state, selectedFleet);
-  if (!context) {
-    transferResourceSelect.innerHTML = "";
-    return;
-  }
-
-  const availability = buildTransferAvailability(context);
-  fillResourceOptions(availability);
-  transferResourceSelect.disabled = availability.length === 0;
-
-  const selectedResourceKey = transferResourceSelect.value;
-  const selectedEntry = availability.find((entry) => entry.key === selectedResourceKey) ?? null;
-  if (!selectedEntry) {
-    transferAmountInput.disabled = true;
-    transferSubmitBtn.disabled = true;
-    return;
-  }
-
-  const currentAmount = Math.trunc(Number(transferAmountInput.value));
-  const safeAmount = Number.isFinite(currentAmount) ? currentAmount : 1;
-  const clampedAmount = Math.max(1, Math.min(selectedEntry.maxAmount, safeAmount));
-  transferAmountInput.value = String(clampedAmount);
-  transferAmountInput.min = "1";
-  transferAmountInput.max = String(selectedEntry.maxAmount);
-  transferAmountInput.disabled = false;
-  transferSubmitBtn.disabled = false;
-}
-
-function submitTransfer(): void {
-  const state = runtime.gameState;
-  const activePlayer = activePlayerId(runtime);
-  if (!state || !activePlayer || state.phase !== "PLANNING") {
-    return;
-  }
-
-  const selectedFleet = getSelectedFleet(runtime, state);
-  if (!selectedFleet) {
-    appendEvent("Select a controllable fleet first");
-    return;
-  }
-
-  const context = resolveTransferContext(state, selectedFleet);
-  if (!context) {
-    appendEvent("Transfer endpoints are not available in current context");
-    return;
-  }
-
-  const availability = buildTransferAvailability(context);
-  const selectedEntry = availability.find(
-    (entry) => entry.key === transferResourceSelect.value,
-  );
-  if (!selectedEntry) {
-    appendEvent("No transferable resources available for current source/target");
-    return;
-  }
-
-  const amount = Math.trunc(Number(transferAmountInput.value));
-  if (!Number.isFinite(amount) || amount <= 0 || amount > selectedEntry.maxAmount) {
-    appendEvent(`Transfer amount must be within 1..${selectedEntry.maxAmount}`);
-    return;
-  }
-
-  const sent = sendMessage({
-    type: "resourceTransfer",
-    commandId: nextActionId("resource-transfer"),
-    payload: {
-      from: {
-        kind: context.mode.fromKind,
-        id: context.fromId,
-      },
-      to: {
-        kind: context.mode.toKind,
-        id: context.toId,
-      },
-      resourceKey: transferResourceSelect.value as (typeof RESOURCE_KEYS)[number],
-      amount,
-    },
-  });
-
-  if (sent) {
-    appendEvent(
-      `Transfer sent: ${context.mode.label}, ${amount} ${transferResourceSelect.value}`,
-    );
-    setStatus("Transferring resources...");
-  }
-}
-
 function refreshDetectedObjects(state: GameState | null): void {
   if (!state) {
     detectedObjectsEl.textContent = "-";
@@ -860,164 +520,23 @@ function refreshDetectedObjects(state: GameState | null): void {
   detectedObjectsEl.textContent = lines.join("\n") || "-";
 }
 
-function refreshShopControls(
+function refreshFleetArtifactControls(
   state: GameState | null,
   selectedFleet: Fleet | null,
 ): void {
-  const currentShop = shopOwnerSelect.value;
-  const currentResource = shopReceiveResourceSelect.value;
-  shopOwnerSelect.innerHTML = "";
-  shopReceiveResourceSelect.innerHTML = "";
   fleetArtifactSelect.innerHTML = "";
-  shopOwnerSelect.disabled = true;
-  shopReceiveResourceSelect.disabled = true;
-  shopReceiveAmountInput.disabled = true;
-  shopTradeBtn.disabled = true;
   artifactUseBtn.disabled = true;
-
-  if (!state || !selectedFleet) {
-    shopPaymentDraftFleetId = null;
-    shopPaymentListEl.replaceChildren();
-    shopPaymentListEl.textContent = "No resources available for payment";
-    return;
-  }
+  if (!state || !selectedFleet) return;
 
   for (const artifactId of selectedFleet.itemInventory.artifactIds) {
     const artifact = state.artifacts[artifactId];
     const option = document.createElement("option");
     option.value = artifactId;
-    option.textContent = artifact ? artifact.name + " (" + artifactId + ")" : artifactId;
+    option.textContent = artifact ? `${artifact.name} (${artifactId})` : artifactId;
     fleetArtifactSelect.append(option);
   }
   artifactUseBtn.disabled =
     state.phase !== "PLANNING" || fleetArtifactSelect.options.length === 0;
-
-  const shops = shopsAtFleet(state, selectedFleet);
-  for (const entry of shops) {
-    const option = document.createElement("option");
-    option.value = shopOwnerKey(entry.owner);
-    option.textContent = entry.label;
-    shopOwnerSelect.append(option);
-  }
-  if (shops.some((entry) => shopOwnerKey(entry.owner) === currentShop)) {
-    shopOwnerSelect.value = currentShop;
-  }
-
-  const selected = selectedShop(state, selectedFleet, shopOwnerSelect.value);
-  if (!selected) {
-    shopPaymentDraftFleetId = null;
-    shopPaymentListEl.replaceChildren();
-    return;
-  }
-  for (const key of RESOURCE_KEYS) {
-    const available = selected.shop.resources[key] ?? 0;
-    if (available <= 0) continue;
-    const option = document.createElement("option");
-    option.value = key;
-    option.textContent = key + " (available " + available + ")";
-    shopReceiveResourceSelect.append(option);
-  }
-  if (RESOURCE_KEYS.some((key) => key === currentResource)) {
-    shopReceiveResourceSelect.value = currentResource;
-  }
-  const canTrade =
-    state.phase === "PLANNING" && shopReceiveResourceSelect.options.length > 0;
-  shopOwnerSelect.disabled = state.phase !== "PLANNING";
-  shopReceiveResourceSelect.disabled = !canTrade;
-  shopReceiveAmountInput.disabled = !canTrade;
-  renderShopPaymentOptions(selectedFleet, canTrade);
-  shopTradeBtn.disabled = !canTrade;
-}
-
-function renderShopPaymentOptions(fleet: Fleet, enabled: boolean): void {
-  const preserveDraft = shopPaymentDraftFleetId === fleet.id;
-  const previousAmounts = new Map<string, string>();
-  for (const input of shopPaymentListEl.querySelectorAll<HTMLInputElement>(
-    "input[data-resource-key]",
-  )) {
-    const key = input.dataset.resourceKey;
-    if (key && preserveDraft) previousAmounts.set(key, input.value);
-  }
-  shopPaymentListEl.replaceChildren();
-  shopPaymentDraftFleetId = fleet.id;
-
-  let hasResources = false;
-  for (const key of RESOURCE_KEYS) {
-    const available = Math.floor(fleet.inventory[key] ?? 0);
-    if (available <= 0) continue;
-    hasResources = true;
-    const row = document.createElement("label");
-    row.className = "shop-payment-row";
-    const name = document.createElement("span");
-    name.textContent = key + ": " + available;
-    const amount = document.createElement("input");
-    amount.type = "number";
-    amount.min = "0";
-    amount.max = String(available);
-    amount.step = "1";
-    amount.dataset.resourceKey = key;
-    amount.disabled = !enabled;
-    const previous = Math.trunc(Number(previousAmounts.get(key) ?? "0"));
-    amount.value = String(
-      Number.isFinite(previous) ? Math.max(0, Math.min(previous, available)) : 0,
-    );
-    row.append(name, amount);
-    shopPaymentListEl.append(row);
-  }
-  if (!hasResources) shopPaymentListEl.textContent = "No resources available for payment";
-}
-
-function selectedShopPayment(): ResourceStore {
-  const payment: ResourceStore = {};
-  for (const input of shopPaymentListEl.querySelectorAll<HTMLInputElement>(
-    "input[data-resource-key]",
-  )) {
-    const key = input.dataset.resourceKey;
-    const value = Number(input.value);
-    if (
-      !key
-      || !RESOURCE_KEYS.includes(key as ResourceKey)
-      || !Number.isFinite(value)
-      || !Number.isInteger(value)
-      || value < 0
-      || value > Number(input.max)
-    ) {
-      throw new Error("Payment contains an invalid resource or amount");
-    }
-    if (value === 0) continue;
-    payment[key as ResourceKey] = value;
-  }
-  if (Object.keys(payment).length === 0) {
-    throw new Error("Select at least one payment resource");
-  }
-  return payment;
-}
-
-function submitShopTrade(): void {
-  const state = runtime.gameState;
-  const fleet = state ? getSelectedFleet(runtime, state) : null;
-  if (!state || !fleet || state.phase !== "PLANNING") return;
-  const selected = selectedShop(state, fleet, shopOwnerSelect.value);
-  const amount = Math.trunc(Number(shopReceiveAmountInput.value));
-  if (!selected || !Number.isFinite(amount) || amount <= 0) return;
-  try {
-    const commandId = nextActionId("shop");
-    sendMessage({
-      type: "shopTrade",
-      commandId,
-      payload: {
-        shop: selected.owner,
-        fleetId: fleet.id,
-        receive: {
-          resourceKey: shopReceiveResourceSelect.value as ResourceKey,
-          amount,
-        },
-        payment: selectedShopPayment(),
-      },
-    });
-  } catch (error) {
-    appendEvent("Shop trade rejected locally: " + (error as Error).message);
-  }
 }
 
 type RawResourceKey = (typeof RAW_RESOURCE_KEYS)[number];
@@ -1576,10 +1095,11 @@ function refreshHud(): void {
     hudElements.targetSelect.disabled = true;
     updateRelationsWindow(hudElements, null);
     updateStanceButtons(hudElements, null, null);
-    refreshTransferControls(null, null);
+    resourceTransferController.refresh();
     refreshPlanetActionControls(null, null);
     refreshArmyTransportControls(null, null);
-    refreshShopControls(null, null);
+    refreshFleetArtifactControls(null, null);
+    shopTradeController.refresh();
     refreshDetectedObjects(null);
     refreshSecretStorageControls(null);
     renderAdministratum(null, null);
@@ -1665,11 +1185,12 @@ function refreshHud(): void {
   renderAdminLists(hudElements, state, (path) => {
     void adminActions.adminDelete(path);
   });
-  refreshTransferControls(state, selected);
+  resourceTransferController.refresh();
   refreshPlanetActionControls(state, selected);
   refreshSecretStorageControls(state);
   renderAdministratum(state, playerId ? Number(playerId) : null);
-  refreshShopControls(state, selected);
+  refreshFleetArtifactControls(state, selected);
+  shopTradeController.refresh();
   refreshDetectedObjects(state);
   refreshTurnCountdown();
 }
@@ -2124,18 +1645,6 @@ resetFocusBtn.addEventListener("click", () => {
 resetRouteBtn.addEventListener("click", () => {
   orderActions.clearPath();
 });
-transferModeSelect.addEventListener("change", () => {
-  refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
-});
-transferAmountInput.addEventListener("input", () => {
-  refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
-});
-transferResourceSelect.addEventListener("change", () => {
-  refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
-});
-transferTargetFleetSelect.addEventListener("change", () => {
-  refreshTransferControls(runtime.gameState, runtime.gameState ? getSelectedFleet(runtime, runtime.gameState) : null);
-});
 armyEmbarkBtn.addEventListener("click", () => {
   const state = runtime.gameState;
   const army = state ? getSelectedFleet(runtime, state) : null;
@@ -2157,8 +1666,6 @@ armyDisembarkBtn.addEventListener("click", () => {
     armyId: army.id,
   });
 });
-shopOwnerSelect.addEventListener("change", refreshHud);
-shopTradeBtn.addEventListener("click", submitShopTrade);
 fuelToMovementBtn.addEventListener("click", () => {
   const state = runtime.gameState;
   const fleet = state ? getSelectedFleet(runtime, state) : null;
@@ -2180,9 +1687,6 @@ artifactUseBtn.addEventListener("click", () => {
     commandId: nextActionId("artifact-use"),
     artifactId: fleetArtifactSelect.value,
   });
-});
-transferSubmitBtn.addEventListener("click", () => {
-  submitTransfer();
 });
 planetRawResourceSelect.addEventListener("change", () => {
   refreshPlanetActionControls(

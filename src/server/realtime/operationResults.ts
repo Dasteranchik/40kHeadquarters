@@ -22,7 +22,26 @@ interface OperationResultManagerDeps {
   }) => void;
 }
 
-export function createOperationResultManager(deps: OperationResultManagerDeps) {
+export interface OperationResultManager {
+  sendOperationResult: (
+    context: ClientContext,
+    ok: boolean,
+    message: string,
+    commandId?: string,
+    duplicate?: boolean,
+  ) => void;
+  duplicateResult: (context: ClientContext, commandId: string) => OperationResult | null;
+  getPreviousResult: (context: ClientContext, commandId: string) => unknown;
+  rememberResult: (
+    context: ClientContext,
+    commandId: string,
+    result: OperationResult,
+  ) => void;
+}
+
+export function createOperationResultManager(
+  deps: OperationResultManagerDeps,
+): OperationResultManager {
   function actorKey(context: ClientContext): string {
     return context.session.role === "admin"
       ? `admin:${context.session.username}`
