@@ -356,6 +356,8 @@ const mapCamera = createMapCameraController(
     maxZoom: MAX_MAP_ZOOM,
     maxTextResolution: MAP_TEXT_MAX_RESOLUTION,
     renderResolution: RENDER_RESOLUTION,
+    canResetAtDefaultZoom: () =>
+      runtime.mapMode === "TACTICAL" && runtime.tacticalCenter !== null,
   },
 );
 const panGesture = createPanGestureState();
@@ -1310,7 +1312,7 @@ function handleCanvasPrimaryClick(
 ): void {
   const state = runtime.gameState;
   const playerId = activePlayerId(runtime);
-  if (!state || !playerId) {
+  if (!state || !runtime.session || (!playerId && !isAdmin(runtime))) {
     hexContextMenu.hide();
     return;
   }
@@ -1388,10 +1390,16 @@ function handleCanvasPrimaryClick(
     }
   }
 
-  const shouldOpenContextMenu =
-    unitCount > 1 && (ownFleetsHere.length > 0 || !selected);
+  const adminViewing = isAdmin(runtime);
+  const shouldOpenContextMenu = adminViewing
+    ? unitCount > 0
+    : unitCount > 1 && (ownFleetsHere.length > 0 || !selected);
 
   if (shouldOpenContextMenu) {
+    if (adminViewing && runtime.mapMode === "STRATEGIC") {
+      runtime.selectedStrategicHex = { ...clicked };
+      renderScene();
+    }
     hexContextMenu.open(state, clicked, clientX, clientY);
     return;
   }
@@ -1570,7 +1578,15 @@ bindMainEvents(
     onZoomIn: () => {
       mapCamera.applyMapZoom(mapCamera.getMapZoom() + BUTTON_ZOOM_STEP);
     },
-    onZoomReset: mapCamera.resetMapView,
+    onZoomReset: () => {
+      if (runtime.mapMode === "TACTICAL" && runtime.tacticalCenter) {
+        mapCamera.applyMapZoom(DEFAULT_MAP_ZOOM);
+        fitTacticalMap(runtime.tacticalCenter);
+        renderScene();
+        return;
+      }
+      mapCamera.resetMapView();
+    },
     isHexContextMenuOpen: hexContextMenu.isOpen,
     onEscape: () => {
       hexContextMenu.hide();
@@ -1613,13 +1629,14 @@ tacticalMapBtn.addEventListener("click", () => {
   runtime.mapMode = "TACTICAL";
   runtime.tacticalCenter = center;
   fitTacticalMap(center);
+  mapCamera.updateMapZoomUi();
   refreshHud();
   renderScene();
 });
 strategicMapBtn.addEventListener("click", () => {
   runtime.mapMode = "STRATEGIC";
-  mapCamera.applyMapZoom(runtime.strategicMapZoom);
   runtime.tacticalCenter = null;
+  mapCamera.applyMapZoom(runtime.strategicMapZoom);
   refreshHud();
   renderScene();
 });
@@ -1632,6 +1649,7 @@ resetFocusBtn.addEventListener("click", () => {
   runtime.focusedUnitId = null;
   runtime.mapMode = "STRATEGIC";
   runtime.tacticalCenter = null;
+  mapCamera.updateMapZoomUi();
   const state = runtime.gameState;
   if (state) {
     const point = toPixel({ q: (state.map.width - 1) / 2, r: (state.map.height - 1) / 2 });

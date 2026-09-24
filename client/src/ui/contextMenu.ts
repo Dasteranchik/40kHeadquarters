@@ -56,7 +56,7 @@ export function createHexContextMenuController(
   ): void {
     const playerId = deps.getActivePlayerId();
     const tile = deps.getTile(state, coord);
-    if (!playerId || !tile) {
+    if (!tile) {
       hide();
       return;
     }
@@ -92,7 +92,7 @@ export function createHexContextMenuController(
 
     let ownSelectableCount = 0;
     for (const fleet of fleets) {
-      const isOwn = fleet.ownerPlayerId === playerId;
+      const isOwn = playerId !== null && fleet.ownerPlayerId === Number(playerId);
       const isSelected = deps.getSelectedFleetId() === fleet.id;
       deps.elements.bodyEl.appendChild(
         createFleetRow(fleet, isOwn, isSelected, () => {
@@ -103,7 +103,7 @@ export function createHexContextMenuController(
       );
     }
 
-    if (ownSelectableCount === 0) {
+    if (playerId !== null && ownSelectableCount === 0) {
       const note = document.createElement("p");
       note.className = "hex-context-note";
       note.textContent = "No controllable fleets in this hex";
@@ -145,9 +145,10 @@ function position(
   elements.menuEl.style.top = `${top}px`;
 }
 
-function sortFleetsForMenu(fleets: Fleet[], playerId: string): Fleet[] {
+function sortFleetsForMenu(fleets: Fleet[], playerId: string | null): Fleet[] {
   return [...fleets].sort((a, b) => {
-    const ownOrder = Number(b.ownerPlayerId === playerId) - Number(a.ownerPlayerId === playerId);
+    const ownOrder = Number(playerId !== null && b.ownerPlayerId === Number(playerId))
+      - Number(playerId !== null && a.ownerPlayerId === Number(playerId));
     if (ownOrder !== 0) {
       return ownOrder;
     }

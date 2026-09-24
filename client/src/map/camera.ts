@@ -12,6 +12,7 @@ export interface MapCameraConfig {
   maxZoom: number;
   maxTextResolution: number;
   renderResolution: number;
+  canResetAtDefaultZoom?: () => boolean;
 }
 
 export interface MapCameraElements {
@@ -58,7 +59,9 @@ export function createMapCameraController(
     elements.zoomValueEl.textContent = `${zoomPercent}%`;
     elements.zoomOutBtn.disabled = runtime.mapZoom <= config.minZoom + 0.001;
     elements.zoomInBtn.disabled = runtime.mapZoom >= config.maxZoom - 0.001;
-    elements.zoomResetBtn.disabled = Math.abs(runtime.mapZoom - config.defaultZoom) < 0.001;
+    const alreadyAtDefaultZoom = Math.abs(runtime.mapZoom - config.defaultZoom) < 0.001;
+    elements.zoomResetBtn.disabled =
+      alreadyAtDefaultZoom && !config.canResetAtDefaultZoom?.();
   }
 
   function refreshMapTextQuality(): void {

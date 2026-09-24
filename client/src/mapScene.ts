@@ -169,7 +169,12 @@ export function renderMapScene(params: RenderMapSceneParams): void {
   applyMapLayerScale(layers, hexScale);
   const labelSlots: TileLabelSlots = new Map();
   drawTerrain(renderedState, layers, tacticalCenter, strategicSelectedHex);
-  drawWarpLayer(renderedState, layers, textResolution);
+  drawWarpLayer(
+    renderedState,
+    layers,
+    textResolution,
+    tacticalCenter !== null || navigatorLayerEnabled,
+  );
   if (navigatorLayerEnabled) {
     clearLayer(layers.planetLayer);
     clearLayer(layers.fleetLayer);
@@ -305,6 +310,7 @@ function drawWarpLayer(
   state: GameState,
   layers: MapLayers,
   textResolution: number,
+  showFullHex: boolean,
 ): void {
   clearLayer(layers.warpLayer);
   const colors = [0x4ade80, 0xa3e635, 0xfacc15, 0xfb923c, 0xef4444, 0x991b1b];
@@ -313,8 +319,24 @@ function drawWarpLayer(
     const level = tile.warpDisturbanceLevel;
     if (level < 1 || level > 6) continue;
     const center = toPixel(tile);
+    const color = colors[level - 1] ?? 0xffffff;
+
+    if (!showFullHex) {
+      const marker = new Graphics();
+      marker.lineStyle(1, 0x172033, 0.9);
+      marker.beginFill(color, 0.95);
+      marker.drawCircle(
+        center.x + HEX_SIZE * 0.34,
+        center.y + HEX_SIZE * 0.3,
+        HEX_SIZE * 0.13,
+      );
+      marker.endFill();
+      layers.warpLayer.addChild(marker);
+      continue;
+    }
+
     const overlay = new Graphics();
-    overlay.beginFill(colors[level - 1] ?? 0xffffff, 0.78);
+    overlay.beginFill(color, 0.78);
     overlay.drawPolygon(hexPolygon(center, HEX_SIZE - 2));
     overlay.endFill();
     layers.warpLayer.addChild(overlay);
