@@ -730,8 +730,8 @@ function renderPlanets(): void {
       createLabeledField("Secret Storage", secretEnabledInput),
       createLabeledField("Новый пароль", secretPasswordInput),
       createLabeledField("Разрешённые типы JSON", secretAllowedInput),
-      createLabeledField("Ресурсы Secret Storage JSON", secretStackableInput),
-      createLabeledField("Knowledge Secret Storage JSON", secretKnowledgeInput),
+      createLabeledField("Secret storage resources JSON", secretStackableInput),
+      createLabeledField("Secret storage knowledge JSON", secretKnowledgeInput),
     );
     item.appendChild(fields);
 
@@ -871,7 +871,7 @@ function renderFleetList(
       createLabeledField("Influence", influenceInput),
       createLabeledField("Очки движения", apInput),
       createLabeledField("Максимальные ОД", maxMovementInput),
-      createLabeledField("Trait Навигатор", navigatorInput),
+      createLabeledField("Navigator trait", navigatorInput),
       createLabeledField("Warp Visibility", warpVisibilitySelect),
       createLabeledField("Вид юнита", variantSelect),
       createLabeledField("Vision Range", visionInput),

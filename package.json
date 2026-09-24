@@ -13,7 +13,7 @@
     "start": "node dist/demo.js",
     "start:server": "node dist/server.js",
     "check": "tsc --noEmit",
-    "test": "tsx --test test/gameplay.test.ts test/persistence.test.ts"
+    "test": "tsx --test test/gameplay.test.ts test/persistence.test.ts test/i18n.test.ts"
   },
   "dependencies": {
     "pixi.js": "^7.4.3",

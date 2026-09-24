@@ -191,9 +191,179 @@ const messages = [
   ["planet product storage is empty for this resource", "На складе продукции планеты нет выбранного ресурса"],
 ] as const;
 
+// Text displayed to users; protocol identifiers remain unchanged in values and snapshots.
+const extraMessages: readonly (readonly [string, string])[] = [
+  ["40k Headquarters - Tactical View", "40k Штаб — тактическая карта"],
+  ["40k Headquarters - Admin", "40k Штаб — администрирование"],
+  ["40k Headquarters", "40k Штаб"], ["40k HQ Admin", "Администрирование 40k Штаба"],
+  ["Back To Game", "Вернуться в игру"], ["Ends", "Окончание"],
+  ["Use credentials configured on the server.", "Используйте учётные данные, настроенные на сервере."],
+  ["Use an admin account configured on the server.", "Используйте учётную запись администратора, настроенную на сервере."],
+  ["Query params:", "Параметры запроса:"], ["Admin page:", "Страница администратора:"],
+  ["Selected fleet: none", "Флот не выбран"], ["Planned path: 0 steps", "Маршрут не задан"],
+  ["Shop & Items", "Магазин и предметы"], ["Shop", "Магазин"],
+  ["A selected fleet can trade with a detected Shop in its hex.", "Выбранный флот может торговать с обнаруженным магазином в своём гексе."],
+  ["Receive", "Получить"], ["Trade", "Торговать"], ["Fleet Artifact", "Артефакт флота"],
+  ["Use Artifact", "Использовать артефакт"],
+  ["Artifact and Knowledge inventories are also shown in Unit Orders.", "Артефакты и знания также показаны в приказах юнитам."],
+  ["Detected Objects", "Обнаруженные объекты"], ["Planet: none", "Планета не выбрана"],
+  ["Report world", "Сообщить о мире"], ["Propose tithe", "Предложить десятину"],
+  ["Secret storage", "Секретное хранилище"], ["Object", "Объект"], ["Open", "Открыть"],
+  ["Administratum registry", "Реестр Администратума"],
+  ["Tactical map", "Тактическая карта"], ["Strategic map", "Стратегическая карта"],
+  ["Navigator map", "Карта Навигатора"], ["Reset focus", "Сбросить фокус"],
+  ["Clear route", "Сбросить маршрут"], ["Fuel to movement points", "Топливо в Очки движения"],
+  ["Use fuel", "Использовать топливо"], ["Main view", "Основной вид"],
+  ["Zoom out", "Уменьшить масштаб"], ["Zoom in", "Увеличить масштаб"],
+  ["Product Conversion", "Преобразование продуктов"],
+  ["Product output from one unit of its recipe resource.", "Выход продукта из одной единицы исходного ресурса."],
+  ["Save Conversion Rates", "Сохранить коэффициенты преобразования"],
+  ["Player ID (automatic)", "ID игрока (автоматически)"], ["Planet ID (automatic)", "ID планеты (автоматически)"],
+  ["Fleet ID (automatic)", "ID флота (автоматически)"], ["Faction Code", "Код фракции"],
+  ["Navigator (manual)", "Навигатор (вручную)"], ["Navigator", "Навигатор"],
+  ["Chaos", "Хаос"], ["Administratum", "Администратум"],
+  ["Movement points", "Очки движения"], ["Maximum movement points", "Максимальные ОД"],
+  ["Navigator trait", "Признак «Навигатор»"], ["Trait Навигатор", "Признак «Навигатор»"],
+  ["Warp Visibility", "Варп-видимость"],
+  ["Unit variant", "Вид юнита"], ["Stations", "Станции"],
+  ["Capabilities define which Station systems are active.", "Возможности определяют активные системы станции."],
+  ["Owner faction", "Фракция-владелец"], ["Secret Storage", "Секретное хранилище"],
+  ["Fleet combat power (stored only)", "Боевая мощь флота (только хранение)"],
+  ["Army combat power (stored only)", "Боевая мощь армии (только хранение)"],
+  ["Generation JSON", "Генерация JSON"], ["Raw stock JSON", "Сырьевые запасы JSON"],
+  ["Info fragments JSON", "Фрагменты информации JSON"], ["Capabilities", "Возможности"],
+  ["Create Station", "Создать станцию"], ["Cancel Edit", "Отменить редактирование"],
+  ["Planet / Station", "Планета / станция"], ["Resources JSON", "Ресурсы JSON"],
+  ["Disappearing items JSON", "Исчезающие предметы JSON"],
+  ["Knowledge codes JSON", "Коды знаний JSON"], ["Save Shop", "Сохранить магазин"],
+  ["System settings", "Системные параметры"],
+  ["Base fleet movement points", "Базовые Очки движения Флота"], ["Save", "Сохранить"],
+  ["Generate warp disturbance", "Сгенерировать ШВВ"],
+  ["Artifact & Knowledge Placement", "Размещение артефактов и знаний"],
+  ["Target inventory JSON", "Целевой инвентарь JSON"], ["Kind", "Вид"],
+  ["Knowledge / definition code", "Код знания / определения"],
+  ["Artifact name", "Название артефакта"],
+  ["Artifact useEffect JSON (optional)", "Эффект использования артефакта JSON (необязательно)"],
+  ["Consumable Artifact", "Расходуемый артефакт"],
+  ["Origin player for warp visibility", "Исходный игрок для варп-видимости"],
+  ["Origin Player для Warp Visibility", "Исходный игрок для варп-видимости"],
+  ["Place Item", "Разместить предмет"],
+  ["Anomalies & Shipwrecks", "Аномалии и кораблекрушения"],
+  ["Add Anomaly", "Добавить аномалию"], ["Anomalies", "Аномалии"],
+  ["Shipwrecks", "Кораблекрушения"], ["Turn Reliability", "Надёжность ходов"],
+  ["Timer: -", "Таймер: —"], ["Unit variants", "Виды юнитов"],
+  ["Name", "Название"], ["Domain", "Домен"], ["Description", "Описание"],
+  ["Add variant", "Добавить вид"], ["Force End Turn", "Принудительно завершить ход"],
+  ["Reload", "Обновить"], ["Safe Rollback Snapshots", "Снимки для безопасного отката"],
+  ["Persisted Audit", "Сохранённый журнал аудита"],
+  ["Edit", "Изменить"], ["Save", "Сохранить"], ["Rollback", "Откатить"], ["Saved", "Сохранено"],
+  ["Extension data loaded", "Дополнительные данные загружены"],
+  ["Enter a variant name", "Введите название вида"],
+  ["Domain must be SPACE or GROUND", "Среда должна быть SPACE или GROUND"],
+  ["Force end the turn?", "Завершить ход принудительно?"],
+  ["Generate new warp disturbance values for all hexes?", "Сгенерировать новые значения ШВВ для всех гексов?"],
+  ["Variant name", "Название вида"], ["Domain: SPACE or GROUND", "Среда: SPACE или GROUND"],
+  ["New password", "Новый пароль"], ["Allowed types JSON", "Разрешённые типы JSON"],
+  ["Secret storage resources JSON", "Ресурсы секретного хранилища JSON"],
+  ["Ресурсы Secret Storage JSON", "Ресурсы секретного хранилища JSON"],
+  ["Secret storage knowledge JSON", "Знания секретного хранилища JSON"],
+  ["Knowledge Secret Storage JSON", "Знания секретного хранилища JSON"],
+  ["assigned automatically", "назначается автоматически"],
+  ["login username (optional)", "имя пользователя (необязательно)"],
+  ["login password (optional)", "пароль (необязательно)"],
+  ["password (required, 12+ characters)", "пароль (обязательно, не менее 12 символов)"],
+  ["New password (leave blank to keep current)", "Новый пароль (пусто = не менять)"],
+  ["information/content reference", "ссылка на сведения/содержимое"],
+  ["population", "население"], ["morale", "мораль"], ["tithePaid", "выплаченная десятина"],
+  ["influenceValue", "значение влияния"], ["visionRange", "дальность видимости"],
+  ["combatPower", "боевая мощь"], ["health", "здоровье"], ["influence", "влияние"],
+  ["movementPoints", "очки движения"], ["capacity", "вместимость"],
+  ["resourceProduction", "производство ресурсов"],
+  ["ATTACK", "АТАКА"], ["DEFENSE", "ЗАЩИТА"], ["ALLIANCE", "СОЮЗ"], ["WAR", "ВОЙНА"],
+  ["NON_IMPERIAL", "НЕИМПЕРСКАЯ"], ["IMPERIAL", "ИМПЕРСКАЯ"],
+  ["SPACE", "КОСМОС"], ["GROUND", "ПОВЕРХНОСТЬ"],
+  ["STEALTH", "СКРЫТНОСТЬ"], ["KNOWLEDGE", "ЗНАНИЕ"], ["ARTIFACT", "АРТЕФАКТ"],
+  ["EXACT", "ТОЧНО"], ["ESTIMATED", "ПРИБЛИЗИТЕЛЬНО"],
+  ["PLANNING", "ПЛАНИРОВАНИЕ"], ["RESOLUTION", "РАЗРЕШЕНИЕ"], ["UPDATE", "ОБНОВЛЕНИЕ"],
+  ["shared", "общий"], ["private", "личный"], ["yes", "да"], ["no", "нет"],
+  ["PLANET", "ПЛАНЕТА"], ["STATION", "СТАНЦИЯ"], ["FLEET", "ФЛОТ"],
+  ["ARMY", "АРМИЯ"], ["SHIPWRECK", "КОРАБЛЕКРУШЕНИЕ"], ["ANOMALY", "АНОМАЛИЯ"],
+  ["MOVEMENT", "ПЕРЕМЕЩЕНИЕ"], ["COMBAT", "БОЙ"], ["DIPLOMACY", "ДИПЛОМАТИЯ"],
+  ["SYSTEM", "СИСТЕМА"], ["DETECTION", "ОБНАРУЖЕНИЕ"],
+  ["ADMINISTRATUM", "АДМИНИСТРАТУМ"],
+  ["FOOD_RAW", "ПИЩЕВОЕ СЫРЬЁ"], ["ORE", "РУДА"], ["PROMETHIUM", "ПРОМЕТИЙ"],
+  ["PEOPLE", "ЛЮДИ"], ["BLACK_STONE", "ЧЁРНЫЙ КАМЕНЬ"],
+  ["PROVISIONS", "ПРОВИЗИЯ"], ["PARTS", "ДЕТАЛИ"], ["FUEL", "ТОПЛИВО"],
+  ["SHIPS", "КОРАБЛИ"], ["WORKERS", "РАБОЧИЕ"], ["REGIMENTS", "ПОЛКИ"],
+  ["FOOD_PRODUCTION", "ПРОИЗВОДСТВО ПИЩИ"],
+  ["RESOURCE_GENERATION", "ГЕНЕРАЦИЯ РЕСУРСОВ"], ["RAW_STOCK", "СЫРЬЕВОЙ СКЛАД"],
+  ["INFO_FRAGMENTS", "ФРАГМЕНТЫ ИНФОРМАЦИИ"], ["TAGS", "ТЕГИ"],
+  ["MILITARY", "ВОЕННАЯ"], ["NAVAL", "ФЛОТСКАЯ"], ["ARISTOCRACY", "АРИСТОКРАТИЯ"],
+  ["PSYKANA", "ПСАЙКАНА"], ["FORBIDDEN", "ЗАПРЕТНОЕ"], ["TECH_SECRETS", "ТЕХНОЛОГИЧЕСКИЕ ТАЙНЫ"],
+  ["AGRI_WORLD", "АГРАРНЫЙ МИР"], ["MINING_WORLD", "ШАХТЁРСКИЙ МИР"],
+  ["FORGE_WORLD", "МИР-КУЗНЯ"], ["HIVE_WORLD", "МИР-УЛЕЙ"],
+  ["DEATH_WORLD", "МИР СМЕРТИ"], ["FEUDAL_WORLD", "ФЕОДАЛЬНЫЙ МИР"],
+  ["FERAL_WORLD", "ДИКИЙ МИР"], ["QUARRY_WORLD", "КАРЬЕРНЫЙ МИР"],
+  ["SHRINE_WORLD", "МИР-СВЯТЫНЯ"], ["INDUSTRIAL_WORLD", "ПРОМЫШЛЕННЫЙ МИР"],
+  ["CEMETERY_WORLD", "МИР-КЛАДБИЩЕ"], ["FORTRESS_WORLD", "МИР-КРЕПОСТЬ"],
+  ["GARDEN_WORLD", "МИР-САД"], ["PENAL_COLONY", "ШТРАФНАЯ КОЛОНИЯ"],
+  ["INDUSTRIAL_PRODUCTION", "ПРОМЫШЛЕННОЕ ПРОИЗВОДСТВО"],
+  ["REFINERY", "ПЕРЕРАБОТКА"], ["ASSEMBLY_SHIPYARDS", "СБОРОЧНЫЕ ВЕРФИ"],
+  ["LABOR_CAMP", "ТРУДОВОЙ ЛАГЕРЬ"], ["RECRUITMENT_CENTER", "ЦЕНТР ВЕРБОВКИ"],
+  ["PLAYER_STORAGE", "ХРАНИЛИЩЕ ИГРОКА"],
+  ["FLEET_COMBAT_POWER", "БОЕВАЯ МОЩЬ ФЛОТА"],
+  ["ARMY_COMBAT_POWER", "БОЕВАЯ МОЩЬ АРМИИ"],
+  ["Army", "Армия"], ["Station", "Станция"],
+  ["Warp", "Варп"], ["Origin Player", "Исходный игрок"],
+  ["Shipwreck", "Кораблекрушение"], ["Anomaly", "Аномалия"],
+  ["Hex", "Гекс"], ["Hex: -", "Гекс: —"],
+  ["Confidence", "Достоверность"], ["Tags", "Теги"], ["Owner", "Владелец"],
+  ["Allied Vision", "Обзор союзников"], ["Stance Pending", "Смена стойки ожидается"],
+  ["Artifacts", "Артефакты"], ["Knowledge", "Знания"],
+  ["Tithe", "Десятина"], ["Generated resources", "Генерируемые ресурсы"],
+  ["Actual production per turn", "Фактическое производство за ход"],
+  ["Raw Stock", "Сырьевой склад"], ["Info", "Информация"],
+  ["Vision", "Обзор"], ["Info Fragments JSON", "Фрагменты информации JSON"],
+  ["Planet", "Планета"], ["Fleet", "Флот"],
+  ["Player not found", "Игрок не найден"], ["Planet not found", "Планета не найдена"],
+  ["World already registered with the Administratum", "Мир уже зарегистрирован в Администратуме"],
+  ["World registered with the Administratum", "Мир зарегистрирован в Администратуме"],
+  ["Only the Administratum can propose a tithe", "Предлагать десятину может только Администратум"],
+  ["World is not yet registered with the Administratum", "Мир ещё не зарегистрирован в Администратуме"],
+  ["Invalid tithe level", "Недопустимый уровень десятины"],
+  ["Tithe proposal saved", "Предложение по десятине сохранено"],
+  ["Secret storage is disabled", "Секретное хранилище отключено"],
+  ["Incorrect secret storage password", "Неверный пароль секретного хранилища"],
+  ["Secret storage opened", "Секретное хранилище открыто"],
+  ["Fuel conversion is available only during planning", "Конвертация топлива доступна только в фазе планирования"],
+  ["Fuel amount must be a positive integer", "Количество топлива должно быть положительным целым числом"],
+  ["Fleet does not belong to player", "Флот не принадлежит игроку"],
+  ["Fleet lacks FUEL", "Во флоте недостаточно FUEL"],
+  ["Conversion would exceed the maximum movement points", "Конвертация превысит максимальное количество ОД"],
+  ["Fuel conversion requires a fleet owned by the player", "Для конвертации топлива требуется принадлежащий игроку флот"],
+  ["Carrier fleet has insufficient capacity", "У флота-перевозчика недостаточно вместимости"],
+  ["Embarkation request expired: carrier capacity is insufficient", "Запрос на погрузку устарел: у перевозчика недостаточно вместимости"],
+  ["Artifact type is not allowed in Secret Storage", "Этот тип артефакта запрещён в секретном хранилище"],
+  ["Knowledge type is not allowed in Secret Storage", "Этот тип знания запрещён в секретном хранилище"],
+  ["Shipwreck already contains artifact", "Кораблекрушение уже содержит артефакт"],
+  ["Artifact added to shipwreck", "Артефакт добавлен в кораблекрушение"],
+  ["Knowledge added to shipwreck", "Знание добавлено в кораблекрушение"],
+  ["Shipwrecks cannot contain RAW or PRODUCT resources", "Кораблекрушения не могут содержать сырьё или продукты"],
+  ["Admin", "Администратор"], ["PLAYER", "ИГРОК"], ["ADMIN", "АДМИНИСТРАТОР"],
+  ["RAW", "СЫРЬЁ"], ["PRODUCT", "ПРОДУКТ"],
+  ["START", "НАЧАЛО"], ["END", "КОНЕЦ"],
+  ["admin", "администратор"], ["player", "игрок"],
+  ["Login failed", "Ошибка входа"], ["Session restore failed", "Ошибка восстановления сеанса"],
+  ["Operation failed", "Ошибка операции"],
+  ["Extension load failed", "Ошибка загрузки дополнительных данных"],
+  ["Shop trade failed", "Ошибка торговли"],
+];
+const allMessages: readonly (readonly [string, string])[] = [...messages, ...extraMessages];
+
 const eventKindsRu: Readonly<Record<string, string>> = {
   MOVEMENT: "Перемещение", COMBAT: "Бой", DIPLOMACY: "Дипломатия",
   SYSTEM: "Система", DETECTION: "Обнаружение", SHOP: "Магазин", SHIPWRECK: "Кораблекрушение",
+  ADMINISTRATUM: "Администратум",
 };
 
 const objectKindsRu: Readonly<Record<string, string>> = {
@@ -237,28 +407,130 @@ let applying = false;
 const sourceByTextNode = new WeakMap<Text, string>();
 const sourcePlaceholder = new WeakMap<HTMLInputElement, string>();
 const sourceOptgroupLabel = new WeakMap<HTMLOptGroupElement, string>();
+const sourceAttributes = new WeakMap<Element, Map<string, string>>();
 const internalTextUpdates = new WeakSet<Text>();
 
 function exact(text: string, language: Locale): string {
-  for (const [en, ru] of messages) {
+  for (const [en, ru] of allMessages) {
     if (text === en || text === ru) return language === "ru" ? ru : en;
   }
   return text;
 }
 
+function localizeCodes(text: string, language: Locale): string {
+  return text.replace(/\b[A-Z][A-Z0-9_]{2,}\b/g, (code) => exact(code, language));
+}
+
+function englishFromRussian(text: string): string | null {
+  const patterns: Array<[RegExp, (...parts: string[]) => string]> = [
+    [/^#(\d+) · Ход (\d+) · (.+)$/, (id, turn, kind) =>
+      `#${id} · Turn ${turn} · ${Object.entries(eventKindsRu).find(([, value]) => value === kind)?.[0] ?? kind}`],
+    [/^Выбран (отряд|флот): (\d+) \(ОД (\d+)\/(\d+), (ATTACK|DEFENSE)(, pending)?\)$/, (kind, id, current, max, stance, pending) =>
+      `Selected ${kind === "отряд" ? "army" : "fleet"}: ${id} (MP ${current}/${max}, ${stance}${pending ? ", pending" : ""})`],
+    [/^Маршрут сокращён до (.+) \((\d+) шагов\)$/, (hex, steps) => `Route shortened to ${hex} (${steps} steps)`],
+    [/^Добавлена точка маршрута (.+) \((\d+) шагов\)$/, (hex, steps) => `Added waypoint ${hex} (${steps} steps)`],
+    [/^(\d+)\. (.+) · ход (\d+)(?: · предложения: (.+))?$/, (sequence, name, turn, proposals) =>
+      `${sequence}. ${name.replace(/^Мир #/, "World #")} · turn ${turn}${proposals ? ` · proposals: ${proposals}` : ""}`],
+    [/^(Флот|Армия|Юнит) (\d+) перемещён \[(.+)\] → \[(.+)\]$/, (kind, id, from, to) =>
+      `${exact(kind, "en")} ${id} moved [${from}] → [${to}]`],
+    [/^(Флот|Армия|Юнит) (\d+) получил ([\d.]+) урона и был уничтожен$/, (kind, id, damage) =>
+      `${exact(kind, "en")} ${id} received ${damage} damage and was destroyed`],
+    [/^(Флот|Армия|Юнит) (\d+) получил ([\d.]+) урона; ОЗ ([\d.-]+)$/, (kind, id, damage, hp) =>
+      `${exact(kind, "en")} ${id} received ${damage} damage; HP ${hp}`],
+    [/^Игроки (\d+) и (\d+) теперь находятся в состоянии войны$/, (a, b) => `Players ${a} and ${b} are now at war`],
+    [/^Игроки (\d+) и (\d+) заключили союз$/, (a, b) => `Players ${a} and ${b} formed an alliance`],
+    [/^Обнаружен объект: (планета|флот|станция|кораблекрушение|аномалия) (\d+) \((точно|оценочно)\)$/, (kind, id, confidence) =>
+      `Detected ${({ планета: "PLANET", флот: "FLEET", станция: "STATION", кораблекрушение: "SHIPWRECK", аномалия: "ANOMALY" } as Record<string, string>)[kind]} ${id} (${confidence === "точно" ? "EXACT" : "ESTIMATED"})`],
+    [/^Кораблекрушение (\d+) образовалось в \[(.+)\]$/, (id, position) => `Shipwreck ${id} formed at [${position}]`],
+    [/^Администратум изменил десятину мира (\d+): (.+)$/, (id, level) =>
+      `Administratum changed world ${id} tithe: ${level}`],
+    [/^(\d+) FUEL преобразовано в Очки движения$/, (amount) => `${amount} FUEL converted to movement points`],
+    [/^Обменено (\d+) ед\. ресурсов на (\d+) ([A-Z0-9_]+)$/, (paid, received, resource) =>
+      `Traded ${paid} resources for ${received} ${resource}`],
+    [/^Мир #(\d+) · ход (\d+)$/, (id, turn) => `World #${id} · turn ${turn}`],
+    [/^(.+) · ход (\d+)$/, (name, turn) => `${name} · turn ${turn}`],
+    [/^Крушение #(\d+)$/, (id) => `Shipwreck #${id}`],
+    [/^Аномалия #(\d+)$/, (id) => `Anomaly #${id}`],
+    [/^Армия #(\d+)$/, (id) => `Army #${id}`],
+    [/^Флот #(\d+)$/, (id) => `Fleet #${id}`],
+    [/^≈ Флот #(\d+)$/, (id) => `≈ Fleet #${id}`],
+    [/^Флот не выбран$/, () => "Selected fleet: none"],
+    [/^Маршрут не задан$/, () => "Planned path: 0 steps"],
+    [/^Выбран флот: (.+)$/, (value) => `Selected fleet: ${value}`],
+    [/^Выбрана армия: (.+)$/, (value) => `Selected army: ${value}`],
+    [/^Гекс: (.+)$/, (value) => `Hex: ${value}`],
+    [/^Игрок: (.+)$/, (value) => `Player: ${value}`],
+    [/^Планета: (.+)$/, (value) => `Planet: ${value}`],
+    [/^Маршрут: (\d+) шагов$/, (steps) => `Planned path: ${steps} steps`],
+    [/^Подтверждённый маршрут: (\d+) шагов$/, (steps) => `Submitted path: ${steps} steps`],
+    [/^Ошибка загрузки дополнительных данных: (.+)$/, (reason) => `Extension load failed: ${t(reason)}`],
+    [/^Ошибка операции: (.+)$/, (reason) => `Operation failed: ${t(reason)}`],
+    [/^Сохранить станцию #(\d+)$/, (id) => `Save Station #${id}`],
+    [/^Удалить станцию #(\d+)\?$/, (id) => `Delete Station #${id}?`],
+    [/^Удалить (.+)\?$/, (id) => `Delete ${id}?`],
+    [/^Откатиться к снимку (.+)\? Текущее состояние будет заменено\.$/, (id) =>
+      `Rollback to ${id}? Current live state will be replaced.`],
+    [/^([А-ЯЁA-Z_]+) \(макс\. ([\d.]+)\)$/, (resource, max) => `${exact(resource, "en")} (max ${max})`],
+    [/^([А-ЯЁA-Z_]+) \(доступно ([\d.]+)\)$/, (resource, amount) => `${exact(resource, "en")} (available ${amount})`],
+    [/^БМ (\d+) \| ОЗ (\d+)$/, (cp, hp) => `CP ${cp} | HP ${hp}`],
+    [/^(.+) \(вы\)$/, (label) => `${label} (you)`],
+    [/^Удалить вид (.+)\? Ссылки юнитов будут очищены\.$/, (name) =>
+      `Delete variant ${name}? Unit references will be cleared.`],
+    [/^Планета (.+) \(#(\d+)\)$/, (name, id) => `Planet ${name} (#${id})`],
+    [/^Станция (.+) \(#(\d+)\)$/, (name, id) => `Station ${name} (#${id})`],
+    [/^Планета (.+)$/, (value) => `Planet ${value}`],
+    [/^Станция (.+)$/, (value) => `Station ${value}`],
+    [/^Выбран отряд\/флот (\d+)$/, (id) => `Selected unit ${id}`],
+    [/^Фокус сброшен; камера возвращена к центру глобальной карты$/, () => "Focus reset; camera returned to the world map center"],
+    [/^Отправлена конвертация (.+) FUEL в ОД для флота (\d+)$/, (amount, id) =>
+      `Conversion of ${amount} FUEL to movement points sent for fleet ${id}`],
+    [/^Смена пароля: (.+)$/, (detail) => `Password change: ${detail}`],
+    [/^ОШИБКА: (.+)$/, (detail) => `ERROR: ${t(detail)}`],
+    [/^УСПЕХ: (.+)$/, (detail) => `OK: ${t(detail)}`],
+    [/^Таймер: (.+)$/, (value) => `Timer: ${value}`],
+    [/^Ход (\d+) до (.+) · (\d+) с осталось$/, (turn, deadline, seconds) =>
+      `Turn ${turn} deadline ${deadline} · ${seconds}s remaining`],
+    [/^Сохранить станцию #(\d+)$/, (id) => `Save Station #${id}`],
+    [/^Turn (\d+) (.+) · (.+)$/, (turn, point, date) => `Turn ${turn} ${point} · ${date}`],
+  ];
+  for (const [pattern, render] of patterns) {
+    const match = text.match(pattern);
+    if (match) return render(...match.slice(1));
+  }
+  const labelled = text.match(/^([^:]+): (.*)$/);
+  if (labelled) {
+    const label = exact(labelled[1], "en");
+    const value = t(labelled[2]);
+    if (label !== labelled[1] || value !== labelled[2]) return `${label}: ${value}`;
+  }
+  return null;
+}
+
 export function t(text: string): string {
   if (text.includes("\n")) return text.split("\n").map(t).join("\n");
-  const translated = exact(text, locale);
-  if (translated !== text) return translated;
-  if (locale === "en") return text;
   const timestamped = text.match(/^(\[[^\]]+\]\s*)(.+)$/);
   if (timestamped) return `${timestamped[1]}${t(timestamped[2])}`;
+  for (const [en, ru] of placeholders.values()) {
+    if (text === en || text === ru) return locale === "ru" ? ru : en;
+  }
+  const translated = exact(text, locale);
+  if (translated !== text) return translated;
+  if (locale === "en") return englishFromRussian(text) ?? text;
   const operationResult = text.match(/^(OK|ERROR): (.+)$/);
   if (operationResult) {
     return `${operationResult[1] === "OK" ? "УСПЕХ" : "ОШИБКА"}: ${t(operationResult[2])}`;
   }
 
   const patterns: Array<[RegExp, (...parts: string[]) => string]> = [
+    [/^Выбран (отряд|флот): (\d+) \(ОД (\d+)\/(\d+), (ATTACK|DEFENSE)(, pending)?\)$/, (kind, id, current, max, stance, pending) =>
+      `Выбран ${kind}: ${id} (ОД ${current}/${max}, ${t(stance)}${pending ? ", ожидает" : ""})`],
+    [/^Tithe: (.+); max (.+) \(cap ([\d.]+)\); delivered ([\d.]+)$/, (current, max, cap, delivered) =>
+      `Десятина: ${t(current)}; максимум ${t(max)} (лимит ${cap}); выплачено ${delivered}`],
+    [/^Logged as (.+) \((admin|player)\)$/, (name, role) =>
+      `Выполнен вход: ${name} (${t(role)})`],
+    [/^(.+) \((admin|player)\)$/, (name, role) => `${name} (${t(role)})`],
+    [/^(Planet|Station|Shipwreck|Anomaly) #(\d+) (.+)$/, (kind, id, rest) =>
+      `${t(kind)} #${id} ${rest}`],
     [/^#(\d+) · Turn (\d+) · ([A-Z_]+)$/, (id, turn, kind) =>
       `#${id} · Ход ${turn} · ${eventKindsRu[kind] ?? kind}`],
     [/^(Fleet|Army|Unit) (\d+) moved (\[[^\]]+\]) → (\[[^\]]+\])$/, (kind, id, from, to) =>
@@ -361,6 +633,28 @@ export function t(text: string): string {
     [/^State snapshot failed: (.+)$/, (reason) => `Не удалось загрузить снимок состояния: ${reason}`],
     [/^Logged in as (.+)$/, (username) => `Выполнен вход: ${username}`],
     [/^Player: (.+)$/, (value) => `Игрок: ${value}`], [/^Planet: (.+)$/, (value) => `Планета: ${value}`],
+    [/^([A-Z0-9_]+) \(max ([\d.]+)\)$/, (resource, max) => `${t(resource)} (макс. ${max})`],
+    [/^([A-Z0-9_]+) \(available ([\d.]+)\)$/, (resource, amount) => `${t(resource)} (доступно ${amount})`],
+    [/^([A-Z0-9_]+): ([\d.]+)$/, (resource, amount) => `${t(resource)}: ${amount}`],
+    [/^Shop trade failed: (.+)$/, (reason) => `Ошибка торговли: ${t(reason)}`],
+    [/^Extension load failed: (.+)$/, (reason) => `Ошибка загрузки дополнительных данных: ${t(reason)}`],
+    [/^Operation failed: (.+)$/, (reason) => `Ошибка операции: ${t(reason)}`],
+    [/^Save Station #(\d+)$/, (id) => `Сохранить станцию #${id}`],
+    [/^Delete Station #(\d+)\?$/, (id) => `Удалить станцию #${id}?`],
+    [/^Delete (.+)\?$/, (id) => `Удалить ${id}?`],
+    [/^Rollback to (.+)\? Current live state will be replaced\.$/, (id) =>
+      `Откатиться к снимку ${id}? Текущее состояние будет заменено.`],
+    [/^Turn (\d+) deadline (.+) · (\d+)s remaining$/, (turn, deadline, seconds) =>
+      `Ход ${turn} до ${deadline} · осталось ${seconds} с`],
+    [/^Turn (\d+) (START|END) · (.+)$/, (turn, point, date) =>
+      `Ход ${turn} ${point === "START" ? "начало" : "конец"} · ${date}`],
+    [/^Shipwreck #(\d+)$/, (id) => `Кораблекрушение #${id}`],
+    [/^Anomaly #(\d+)$/, (id) => `Аномалия #${id}`],
+    [/^CP (\d+) \| HP (\d+)$/, (cp, hp) => `БМ ${cp} | ОЗ ${hp}`],
+    [/^(.+) \(you\)$/, (label) => `${label} (вы)`],
+    [/^Hex: q=(-?\d+), r=(-?\d+)$/, (q, r) => `Гекс: q=${q}, r=${r}`],
+    [/^([A-Z0-9_]+) ← ([A-Z0-9_]+)$/, (output, input) => `${t(output)} ← ${t(input)}`],
+    [/^([A-Z0-9_]+) \(([\d.]+)\)$/, (resource, amount) => `${t(resource)} (${amount})`],
     [/^Hex: (.+)$/, (value) => `Гекс: ${value}`], [/^Hex (.+)$/, (value) => `Гекс ${value}`],
     [/^Logged as (.+)$/, (value) => `Выполнен вход: ${value}`], [/^Connected to (.+)$/, (value) => `Подключено к ${value}`],
     [/^Selected fleet: (.+)$/, (value) => `Выбран флот: ${value}`], [/^Selected army: (.+)$/, (value) => `Выбрана армия: ${value}`],
@@ -380,9 +674,22 @@ export function t(text: string): string {
   ];
   for (const [pattern, render] of patterns) {
     const match = text.match(pattern);
-    if (match) return render(...match.slice(1));
+    if (match) return localizeCodes(render(...match.slice(1)), "ru");
   }
-  return text;
+  const labelled = text.match(/^([^:]+): (.*)$/);
+  if (labelled) return `${exact(labelled[1], "ru")}: ${t(labelled[2])}`;
+  return localizeCodes(text, "ru");
+}
+
+// Useful for non-DOM renderers and for checking both catalog directions.
+export function translate(text: string, language: Locale): string {
+  const previous = locale;
+  locale = language;
+  try {
+    return t(text);
+  } finally {
+    locale = previous;
+  }
 }
 
 function translateTextNode(node: Text, refreshSource: boolean): void {
@@ -413,7 +720,21 @@ function translateElement(root: ParentNode, refreshSource = false): void {
     if (refreshSource || !sourcePlaceholder.has(input)) sourcePlaceholder.set(input, input.placeholder);
     const source = sourcePlaceholder.get(input) ?? input.placeholder;
     const pair = placeholders.get(source);
-    input.placeholder = pair ? pair[locale === "ru" ? 1 : 0] : source;
+    input.placeholder = pair ? pair[locale === "ru" ? 1 : 0] : t(source);
+  }
+
+  const attributed = root instanceof Element
+    ? [root, ...root.querySelectorAll<Element>("[title],[aria-label]")]
+    : [...root.querySelectorAll<Element>("[title],[aria-label]")];
+  for (const element of attributed) {
+    const sources = sourceAttributes.get(element) ?? new Map<string, string>();
+    for (const attribute of ["title", "aria-label"]) {
+      const value = element.getAttribute(attribute);
+      if (value === null) continue;
+      if (refreshSource || !sources.has(attribute)) sources.set(attribute, value);
+      element.setAttribute(attribute, t(sources.get(attribute) ?? value));
+    }
+    sourceAttributes.set(element, sources);
   }
 
   const groups = root instanceof HTMLOptGroupElement
@@ -431,11 +752,14 @@ function applyLocale(): void {
   applying = true;
   document.documentElement.lang = locale;
   translateElement(document);
+  document.title = t(document.title === "40k Штаб — тактическая карта" ? "40k Headquarters - Tactical View"
+    : document.title === "40k Штаб — администрирование" ? "40k Headquarters - Admin" : document.title);
   const button = document.getElementById("languageToggle");
   if (button) {
     button.textContent = locale === "en" ? "EN" : "RU";
     button.setAttribute("aria-label", locale === "en" ? "Switch to Russian" : "Переключить на английский");
   }
+  window.dispatchEvent(new Event("game-language-change"));
   applying = false;
 }
 

@@ -1782,5 +1782,9 @@ mapCamera.updateMapZoomUi();
 refreshHud();
 setHoveredHexInfo(null);
 renderScene();
+window.addEventListener("game-language-change", () => {
+  refreshHud();
+  renderScene();
+});
 window.setInterval(refreshTurnCountdown, 250);
 void networkSession.restoreSession();

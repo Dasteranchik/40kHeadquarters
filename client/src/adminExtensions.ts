@@ -1,4 +1,5 @@
 import type { AuditEntry } from "../../src/auditDomain";
+import { t } from "./i18n";
 import type { ShopOwnerRef } from "../../src/shopDomain";
 import type { GameState } from "../../src/types";
 import {
@@ -245,7 +246,7 @@ function renderStations(): void {
       text,
       actionButton("Edit", () => loadStationForEdit(station)),
       actionButton("Delete", () => {
-        if (!window.confirm("Delete Station #" + station.id + "?")) return;
+        if (!window.confirm(t("Delete Station #" + station.id + "?"))) return;
         void mutate("/api/admin/stations/" + station.id, { method: "DELETE" });
       }, true),
     );
@@ -350,7 +351,7 @@ function renderWorldObjects(): void {
           }),
         });
       }), actionButton("Delete", () => {
-      if (!window.confirm("Delete " + artifact.id + "?")) return;
+      if (!window.confirm(t("Delete " + artifact.id + "?"))) return;
       void mutate("/api/admin/artifacts/" + encodeURIComponent(artifact.id), { method: "DELETE" });
     }, true));
     artifactsList.append(row);
@@ -381,16 +382,16 @@ function renderVariants(): void {
     const text = document.createElement("span");
     text.textContent = `#${variant.id} ${variant.name} [${variant.domain}] ${variant.description ?? ""}`;
     row.append(text, actionButton("Изменить", () => {
-      const name = window.prompt("Название вида", variant.name);
+      const name = window.prompt(t("Название вида"), variant.name);
       if (name === null) return;
-      const domain = window.prompt("Среда: SPACE или GROUND", variant.domain);
+      const domain = window.prompt(t("Среда: SPACE или GROUND"), variant.domain);
       if (domain === null) return;
       const normalizedDomain = domain.trim().toUpperCase();
       if (normalizedDomain !== "SPACE" && normalizedDomain !== "GROUND") {
         statusLine.textContent = "Среда должна быть SPACE или GROUND";
         return;
       }
-      const description = window.prompt("Описание", variant.description ?? "");
+      const description = window.prompt(t("Описание"), variant.description ?? "");
       if (description === null) return;
       void mutate(`/api/admin/unit-variants/${variant.id}`, {
         method: "PUT",
@@ -401,7 +402,7 @@ function renderVariants(): void {
         }),
       });
     }), actionButton("Delete", () => {
-      if (!window.confirm(`Удалить вид ${variant.name}? Ссылки юнитов будут очищены.`)) return;
+      if (!window.confirm(t(`Удалить вид ${variant.name}? Ссылки юнитов будут очищены.`))) return;
       void mutate(`/api/admin/unit-variants/${variant.id}`, { method: "DELETE" });
     }, true));
     variantsList.append(row);
@@ -419,7 +420,7 @@ function renderSnapshots(): void {
       "Turn " + snapshot.turnNumber + " " + snapshot.point + " · "
       + new Date(snapshot.timestamp).toLocaleString();
     const rollback = actionButton("Rollback", () => {
-      if (!window.confirm("Rollback to " + snapshot.id + "? Current live state will be replaced.")) return;
+      if (!window.confirm(t("Rollback to " + snapshot.id + "? Current live state will be replaced."))) return;
       void mutate(
         "/api/admin/turn-snapshots/" + encodeURIComponent(snapshot.id) + "/rollback",
         { method: "POST" },
@@ -585,7 +586,7 @@ addShipwreckBtn.addEventListener("click", () => {
   }
 });
 endTurnBtn.addEventListener("click", () => {
-  if (!window.confirm("Завершить ход принудительно?")) return;
+  if (!window.confirm(t("Завершить ход принудительно?"))) return;
   void mutate("/api/admin/end-turn", { method: "POST" });
 });
 
@@ -597,7 +598,7 @@ saveSystemSettingsBtn.addEventListener("click", () => {
   });
 });
 randomizeWarpBtn.addEventListener("click", () => {
-  if (!window.confirm("Сгенерировать новые значения ШВВ для всех гексов?")) return;
+  if (!window.confirm(t("Сгенерировать новые значения ШВВ для всех гексов?"))) return;
   void mutate("/api/admin/warp-disturbance/randomize", { method: "POST" });
 });
 

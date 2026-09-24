@@ -4,6 +4,7 @@ import { coordKey, hexDistance } from "../../src/hex";
 import type { Fleet, GameState, HexCoord, TerrainType, Tile } from "../../src/types";
 import { defaultPlayerColor, playerColorToNumber } from "../../src/utils/playerColor";
 import { axialToPixel, HEX_DIRECTIONS, hexPolygon, pixelToAxial } from "./hexMath";
+import { t } from "./i18n";
 import { drawTacticalObjectOrbits } from "./tacticalObjects";
 
 export const HEX_SIZE = 30;
@@ -244,7 +245,7 @@ function applyMapLayerScale(layers: MapLayers, scale: number): void {
 }
 
 function createMapText(text: string, style: ConstructorParameters<typeof Text>[1], resolution: number): Text {
-  const label = new Text(text, style);
+  const label = new Text(t(text), style);
   label.resolution = resolution;
   label.roundPixels = true;
   return label;
@@ -387,7 +388,7 @@ function drawPlanets(
     layers.planetLayer.addChild(circle);
 
     const label = createMapText(
-      `${planet.name} | ${planet.worldType} +${planet.resourceProduction}`,
+      `${planet.name} | ${t(planet.worldType)} +${planet.resourceProduction}`,
       {
         fontFamily: "Chakra Petch",
         fontSize: 11,

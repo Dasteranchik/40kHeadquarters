@@ -2,6 +2,7 @@ import { Container, Graphics, Text } from "pixi.js";
 
 import type { Fleet, GameState } from "../../src/types";
 import { defaultPlayerColor, playerColorToNumber } from "../../src/utils/playerColor";
+import { t } from "./i18n";
 import type { PixelPoint } from "./hexMath";
 
 export interface TacticalObjectLayers {
@@ -208,7 +209,7 @@ function drawOrbit<T extends { id: number }>(
 
     drawMarker(item, marker);
     const spec = labelFor(item);
-    const label = new Text(spec.text, {
+    const label = new Text(t(spec.text), {
       fontFamily: "Chakra Petch",
       fontSize: 11,
       fill: spec.color,
