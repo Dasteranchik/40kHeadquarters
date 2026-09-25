@@ -56,6 +56,7 @@ export interface Shipwreck {
   inventory: ItemInventory;
   createdOnTurn: number;
   sourceUnitIds: number[];
+  tags?: UnitTag[];
 }
 
 export interface Anomaly {
@@ -63,6 +64,7 @@ export interface Anomaly {
   position: HexCoord;
   tags: UnitTag[];
   informationRef: string;
+  moraleLoss?: number;
 }
 
 export type WorldObject =

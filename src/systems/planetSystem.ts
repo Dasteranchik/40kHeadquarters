@@ -740,22 +740,6 @@ function applyScheduleInformant(
   });
 }
 
-function titheMoralePenalty(deltaCategories: number): number {
-  if (deltaCategories >= 8) {
-    return 3;
-  }
-
-  if (deltaCategories >= 4) {
-    return 2;
-  }
-
-  if (deltaCategories >= 1) {
-    return 1;
-  }
-
-  return 0;
-}
-
 function applyScheduleTithe(
   _state: GameState,
   action: PlanetAction,

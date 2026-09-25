@@ -1,6 +1,8 @@
 ﻿import { coordKey } from "../hex";
 import { CombatReport, Fleet, FleetStance, GameState, Player } from "../types";
 import { salvageDestroyedUnits } from "./shipwreckSystem";
+import { applyFormationDamage } from "./unitCompositionSystem";
+import { synchronizeUnitProjection } from "./unitEffectSystem";
 
 function isAtWar(players: Record<string, Player>, a: number, b: number): boolean {
   if (a === b) {
@@ -74,6 +76,7 @@ function hostileFleetsFor(
 }
 
 export function resolveCombat(state: GameState): CombatReport {
+  for (const unit of Object.values(state.fleets)) synchronizeUnitProjection(state, unit.id);
   const damageByFleetId = new Map<number, number>();
   const attackerIdsByFleetId = new Map<number, Set<number>>();
   const fleetsByTile = groupFleetsByTile(state);
@@ -131,15 +134,21 @@ export function resolveCombat(state: GameState): CombatReport {
       continue;
     }
 
-    fleet.health -= damage;
+    const hasFormations = (fleet.formationIds ?? []).length > 0;
+    const applied = hasFormations ? applyFormationDamage(state, fleetId, damage) : null;
+    if (!applied) {
+      // TODO(UNIT-VARIANT-MIGRATION): old Units without Formation instances
+      // retain their legacy combat pool until an explicit conversion exists.
+      fleet.health -= damage;
+    }
     damageEvents.push({
       fleetId,
       attackerFleetIds: [...(attackerIdsByFleetId.get(fleetId) ?? [])],
-      damage,
+      damage: applied?.actualLostHealth ?? damage,
       healthAfter: fleet.health,
     });
 
-    if (fleet.health <= 0) {
+    if (fleet.health <= 0 || (hasFormations && (fleet.formationIds ?? []).length === 0)) {
       destroyedFleetIds.push(fleetId);
     }
   }

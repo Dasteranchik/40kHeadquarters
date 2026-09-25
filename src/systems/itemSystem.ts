@@ -116,6 +116,9 @@ export function transferArtifact(
   ) {
     return { ok: false, changed: false, message: "Artifact is not owned by source inventory" };
   }
+  if (artifact.attachedUnitId !== undefined) {
+    return { ok: false, changed: false, message: "Attached Artifact cannot be transferred" };
+  }
   if (target.kind === "PLANET_SECRET") {
     const storage = state.planets[target.planetId]?.secretStorage;
     if (!storage || !secretStorageAllowsArtifact(storage, artifact.definitionCode)) {

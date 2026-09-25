@@ -76,13 +76,25 @@ export function salvageDestroyedUnits(state: GameState, units: Fleet[]): Shipwre
       inventory,
     );
     for (const unit of groupedUnits) {
+      // Formations do not survive Unit destruction. This also covers an army
+      // destroyed together with its carrier before its own HP were depleted.
+      for (const formationId of [...(unit.formationIds ?? []), ...(unit.itemInventory.productIds ?? [])]) {
+        delete state.formations?.[formationId];
+      }
+      unit.formationIds = [];
+      unit.itemInventory.productIds = [];
       unit.itemInventory.artifactIds = [];
       unit.itemInventory.knowledge = [];
+      unit.attachedArtifactIds = [];
+      unit.commanderArtifactId = null;
     }
     if (!shipwreck) continue;
     for (const artifactId of inventory.artifactIds) {
       const artifact = state.artifacts[artifactId];
-      if (artifact) artifact.owner = { kind: "SHIPWRECK", shipwreckId: shipwreck.id };
+      if (artifact) {
+        artifact.owner = { kind: "SHIPWRECK", shipwreckId: shipwreck.id };
+        delete artifact.attachedUnitId;
+      }
     }
     wrecks.push(shipwreck);
   }

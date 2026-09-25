@@ -39,9 +39,14 @@ export function normalizeItemInventory(value: unknown): ItemInventory {
   const knowledge = Array.isArray(candidate.knowledge)
     ? candidate.knowledge.filter(isKnowledgeCode)
     : [];
+  const productIds = Array.isArray(candidate.productIds)
+    ? candidate.productIds.filter((entry): entry is string =>
+        typeof entry === "string" && entry.length > 0)
+    : [];
   return {
     artifactIds: [...new Set(artifactIds)],
     knowledge: [...new Set(knowledge)],
+    productIds: [...new Set(productIds)],
   };
 }
 

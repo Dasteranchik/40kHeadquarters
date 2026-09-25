@@ -12,6 +12,7 @@ export interface DetectionRecord {
   detectedByUnitId: number;
   objectKind: DetectionObjectKind;
   objectId: number;
+  detectedHex?: { q: number; r: number };
   detectedAtTurn: number;
   confidence: DetectionConfidence;
 }

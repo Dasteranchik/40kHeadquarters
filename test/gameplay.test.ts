@@ -375,7 +375,7 @@ test("new gameplay fields survive a JSON snapshot roundtrip", () => {
     passwordVerifier: createPasswordVerifier("Тайный пароль"),
     allowedTypeKeys: ["ORE"],
     stackableInventory: { ORE: 6 },
-    itemInventory: { artifactIds: [], knowledge: [] },
+    itemInventory: { artifactIds: [], knowledge: [], productIds: [] },
   };
   assert.equal(reportWorld(game, player.id, planet.id).ok, true);
   assert.equal(proposeTithe(game, player.id, planet.id, "DECUMA_PRIMA").ok, true);
@@ -897,7 +897,7 @@ test("Detection auto-reveals non-stealth objects and Exact Auspex is exact", () 
     ?.detected.some((entry) => entry.objectKind === "FLEET"));
 });
 
-test("SPACE and GROUND detection both roll d4 independently of health", () => {
+test("only SPACE fleets detect, with a die sized to current health", () => {
   const game = makeState();
   const space = game.fleets[1];
   const ground = game.fleets[2];
@@ -907,8 +907,8 @@ test("SPACE and GROUND detection both roll d4 independently of health", () => {
   ground.health = 100_000;
   const spaceResult = detectObjectsForFleetAtCurrentHex(game, space.id, () => 0.9999);
   const groundResult = detectObjectsForFleetAtCurrentHex(game, ground.id, () => 0);
-  assert.deepEqual({ die: spaceResult?.dieSize, roll: spaceResult?.roll }, { die: 4, roll: 4 });
-  assert.deepEqual({ die: groundResult?.dieSize, roll: groundResult?.roll }, { die: 4, roll: 1 });
+  assert.deepEqual({ die: spaceResult?.dieSize, roll: spaceResult?.roll }, { die: 1, roll: 1 });
+  assert.equal(groundResult, null);
 });
 
 test("army capacity rounds each army up and is rechecked on acceptance", () => {

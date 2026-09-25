@@ -1,4 +1,5 @@
-import { calculateTitheProgress, isTitheLevel, type TitheLevel } from "../planetDomain";
+import { calculateTitheProgress, isTitheLevel, titheValue, type TitheLevel } from "../planetDomain";
+import { clampMorale } from "../moraleDomain";
 import type {
   AdministratumTitheProposal,
   AdministratumWorldReport,
@@ -95,7 +96,9 @@ export function resolveAdministratumTitheProposals(state: GameState): AppliedTit
     const titheLevel = proposals[0]?.titheLevel;
     const planet = state.planets[planetId];
     if (!planet || !titheLevel) continue;
+    const increase = Math.max(0, titheValue(titheLevel) - titheValue(planet.maxTitheLevel));
     planet.maxTitheLevel = titheLevel;
+    if (increase > 0) planet.morale = clampMorale(planet.morale - increase);
     const progress = calculateTitheProgress(titheLevel, planet.titheContributions);
     planet.titheLevel = progress.currentLevel;
     planet.tithePaid = progress.paid;

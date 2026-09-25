@@ -62,6 +62,7 @@ export interface AddPlayerRequest {
 }
 
 export interface AddPlanetRequest {
+  tags?: UnitTag[];
   name: string;
   q: number;
   r: number;
@@ -83,6 +84,8 @@ export interface AddPlanetRequest {
 }
 
 export interface AddFleetRequest {
+  name?: string;
+  morale?: number;
   ownerPlayerId: number;
   q: number;
   r: number;
@@ -103,6 +106,8 @@ export interface AddFleetRequest {
 }
 
 export interface AddArmyRequest {
+  name?: string;
+  morale?: number;
   ownerPlayerId: number;
   destination:
     | { kind: "PLANET"; planetId: number }
@@ -136,6 +141,7 @@ export interface UpdatePlayerRequest {
 }
 
 export interface UpdatePlanetRequest {
+  tags?: UnitTag[];
   name?: string;
   q?: number;
   r?: number;
@@ -158,6 +164,8 @@ export interface UpdatePlanetRequest {
 
 
 export interface UpdateFleetRequest {
+  name?: string;
+  morale?: number;
   ownerPlayerId?: number;
   q?: number;
   r?: number;

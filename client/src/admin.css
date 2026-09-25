@@ -330,6 +330,14 @@ ul {
   font-family: "Chakra Petch", monospace;
 }
 
+/* New Units are created with Formations and a Commander in the composition panel. */
+#fleetsPanel > .add-grid,
+#fleetsPanel > #addFleetBtn,
+#armiesPanel > .add-grid,
+#armiesPanel > #addArmyBtn {
+  display: none;
+}
+
 @media (max-width: 850px) {
   .relations-wrap {
     grid-template-columns: 1fr;

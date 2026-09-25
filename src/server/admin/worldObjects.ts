@@ -11,7 +11,6 @@ import {
 import { isResourceKey } from "../../planetDomain";
 import { createEmptyShop, type DisappearingItemRef, type ShopOwnerRef } from "../../shopDomain";
 import { appendAudit } from "../../systems/auditSystem";
-import { detectObjectsForFleetAtCurrentHex } from "../../systems/detectionSystem";
 import { resolveItemInventory } from "../../systems/itemSystem";
 import { isUnitTag } from "../../unitDomain";
 import {
@@ -71,14 +70,6 @@ function isPositionValid(deps: AdminHandlerDeps, q: unknown, r: unknown): q is n
     q: Math.trunc(Number(q)),
     r: Math.trunc(Number(r)),
   }));
-}
-
-function detectNewObjectsAtPosition(deps: AdminHandlerDeps, position: { q: number; r: number }): void {
-  for (const fleet of Object.values(deps.state.fleets)) {
-    if (fleet.position.q === position.q && fleet.position.r === position.r) {
-      detectObjectsForFleetAtCurrentHex(deps.state, fleet.id);
-    }
-  }
 }
 
 function parseCapabilities(value: unknown): Station["capabilities"] | null {
@@ -346,6 +337,12 @@ export function createWorldObjectAdminHandlers(
       ...(station.secretStorage?.itemInventory.artifactIds ?? []),
     ]);
     for (const artifactId of artifactIds) delete deps.state.artifacts[artifactId];
+    const formationIds = new Set<string>([
+      ...(station.shop.items.productIds ?? []),
+      ...Object.values(station.itemStorageByPlayerId).flatMap((items) => items.productIds ?? []),
+      ...(station.secretStorage?.itemInventory.productIds ?? []),
+    ]);
+    for (const formationId of formationIds) delete deps.state.formations?.[formationId];
     delete deps.state.stations[id];
     appendAudit(deps.state, {
       actor: { kind: "ADMIN", account: session.username }, operation: "DELETE_STATION",
@@ -364,7 +361,8 @@ export function createWorldObjectAdminHandlers(
     if (!session) return;
     const body = await readJsonBody<Record<string, unknown>>(req);
     const sourceUnitIds = parseSourceUnitIds(body?.sourceUnitIds ?? []);
-    if (!body || !isPositionValid(deps, body.q, body.r) || !sourceUnitIds) {
+    const tags = parseTags(body?.tags ?? []);
+    if (!body || !isPositionValid(deps, body.q, body.r) || !sourceUnitIds || !tags) {
       writeJson(res, 400, { error: "Invalid shipwreck payload" });
       return;
     }
@@ -379,9 +377,9 @@ export function createWorldObjectAdminHandlers(
       inventory: createEmptyItemInventory(),
       createdOnTurn: deps.state.turnNumber,
       sourceUnitIds,
+      tags,
     };
     deps.state.shipwrecks[shipwreck.id] = shipwreck;
-    detectNewObjectsAtPosition(deps, position);
     appendAudit(deps.state, {
       actor: { kind: "ADMIN", account: session.username }, operation: "CREATE_SHIPWRECK",
       entityType: "SHIPWRECK", entityId: shipwreck.id, after: shipwreck,
@@ -399,7 +397,8 @@ export function createWorldObjectAdminHandlers(
     if (!session) return;
     const body = await readJsonBody<Record<string, unknown>>(req);
     const tags = parseTags(body?.tags ?? []);
-    if (!body || !isPositionValid(deps, body.q, body.r) || !tags || typeof body.informationRef !== "string") {
+    if (!body || !isPositionValid(deps, body.q, body.r) || !tags || typeof body.informationRef !== "string"
+      || (body.moraleLoss !== undefined && (!Number.isFinite(body.moraleLoss) || Number(body.moraleLoss) < 0))) {
       writeJson(res, 400, { error: "Invalid anomaly payload" }); return;
     }
     const anomaly: Anomaly = {
@@ -407,9 +406,9 @@ export function createWorldObjectAdminHandlers(
       position: { q: Math.trunc(Number(body.q)), r: Math.trunc(Number(body.r)) },
       tags,
       informationRef: body.informationRef,
+      moraleLoss: Number(body.moraleLoss ?? 0),
     };
     deps.state.anomalies[anomaly.id] = anomaly;
-    detectNewObjectsAtPosition(deps, anomaly.position);
     appendAudit(deps.state, {
       actor: { kind: "ADMIN", account: session.username }, operation: "CREATE_ANOMALY",
       entityType: "ANOMALY", entityId: anomaly.id, after: anomaly,
@@ -489,6 +488,10 @@ export function createWorldObjectAdminHandlers(
       writeJson(res, 400, { error: "isNavigator must be boolean" }); return;
     }
     const warpVisibility = body.warpVisibility ?? null;
+    const itemKind = deps.state.itemKinds?.[body.definitionCode];
+    if (itemKind && itemKind.type !== "ARTIFACT") {
+      writeJson(res, 400, { error: "Item Kind is not an ARTIFACT" }); return;
+    }
     if (!isWarpVisibility(warpVisibility)) {
       writeJson(res, 400, { error: "warpVisibility must be -, 0, 1, 2 or 3" }); return;
     }
@@ -502,7 +505,8 @@ export function createWorldObjectAdminHandlers(
         || !deps.state.players[Number(navigatorOriginPlayerId)])) {
       writeJson(res, 400, { error: "navigatorOriginPlayerId must reference an existing Player" }); return;
     }
-    if (warpVisibility !== null && navigatorOriginPlayerId === undefined) {
+    const effectiveWarpVisibility = warpVisibility ?? itemKind?.warpVisibility ?? null;
+    if (effectiveWarpVisibility !== null && navigatorOriginPlayerId === undefined) {
       writeJson(res, 400, { error: "Warp Visibility Artifact requires navigatorOriginPlayerId" }); return;
     }
     const inventory = resolveItemInventory(deps.state, target, true);
@@ -518,12 +522,14 @@ export function createWorldObjectAdminHandlers(
     const id = `artifact-${deps.state.nextIds.artifact++}`;
     const artifact: ArtifactInstance = {
       id,
+      type: "ARTIFACT",
+      ...(itemKind ? { kind: itemKind.id, tags: [...itemKind.tags], effects: [...(itemKind.effects ?? [])] } : {}),
       definitionCode: body.definitionCode,
       name: body.name,
       owner: target,
       configuration: {},
-      isNavigator: body.isNavigator === true,
-      warpVisibility,
+      isNavigator: body.isNavigator === true || itemKind?.isNavigator === true,
+      warpVisibility: effectiveWarpVisibility,
       ...(navigatorOriginPlayerId !== undefined
         ? { navigatorOriginPlayerId: Number(navigatorOriginPlayerId) }
         : {}),
@@ -544,6 +550,9 @@ export function createWorldObjectAdminHandlers(
     if (!session) return;
     const artifact = deps.state.artifacts[id];
     if (!artifact) { writeJson(res, 404, { error: "Artifact not found" }); return; }
+    if (artifact.attachedUnitId !== undefined) {
+      writeJson(res, 409, { error: "Attached Artifact cannot be deleted" }); return;
+    }
     const inventory = resolveItemInventory(deps.state, artifact.owner);
     if (inventory) inventory.artifactIds = inventory.artifactIds.filter((entry) => entry !== id);
     delete deps.state.artifacts[id];

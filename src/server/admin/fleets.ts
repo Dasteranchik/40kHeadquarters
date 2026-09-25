@@ -3,7 +3,6 @@ import { IncomingMessage, ServerResponse } from "http";
 import { Fleet } from "../../types";
 import { createEmptyItemInventory } from "../../itemDomain";
 import { isUnitTag } from "../../unitDomain";
-import { detectObjectsForFleetAtCurrentHex } from "../../systems/detectionSystem";
 import {
   isFiniteNumber,
   isFleetDomain,
@@ -16,6 +15,7 @@ import { AdminHandlerDeps, requireAdminPlanning } from "./deps";
 import { getTileAt, parseResourceStore } from "./helpers";
 import { carrierCapacityUsed } from "../../systems/armyTransportSystem";
 import { isWarpVisibility } from "../../navigationDomain";
+import { synchronizeUnitProjection } from "../../systems/unitEffectSystem";
 
 export interface FleetAdminHandlers {
   handleAddArmy: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -42,21 +42,17 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       writeJson(res, 404, { error: "Owner player not found" });
       return;
     }
+    if ((body.name !== undefined && (typeof body.name !== "string" || !body.name.trim()))
+      || (body.morale !== undefined && (!Number.isFinite(body.morale) || body.morale < -100 || body.morale > 100))) {
+      writeJson(res, 400, { error: "Invalid Unit name or morale" }); return;
+    }
 
     if (body.stance !== undefined && !isFleetStance(body.stance)) {
       writeJson(res, 400, { error: "Stance must be ATTACK or DEFENSE" });
       return;
     }
-    if (body.unitVariantId !== undefined && body.unitVariantId !== null) {
-      if (!Number.isInteger(body.unitVariantId) || body.unitVariantId <= 0) {
-        writeJson(res, 400, { error: "unitVariantId must be a positive integer" });
-        return;
-      }
-      const variant = deps.state.unitVariants[body.unitVariantId];
-      if (!variant || variant.domain !== "GROUND") {
-        writeJson(res, 400, { error: "unitVariantId must reference a GROUND variant" });
-        return;
-      }
+    if (body.unitVariantId != null) {
+      writeJson(res, 400, { error: "unitVariantId is legacy and cannot be assigned to a new Unit" }); return;
     }
 
     let position: Fleet["position"];
@@ -95,6 +91,12 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
 
     const army: Fleet = {
       id: deps.state.nextIds.unit++,
+      name: body.name?.trim() || `Army ${deps.state.nextIds.unit - 1}`,
+      morale: body.morale ?? 0,
+      commanderArtifactId: null,
+      formationIds: [],
+      attachedArtifactIds: [],
+      assignedDoctrineIds: [],
       ownerPlayerId: body.ownerPlayerId,
       position,
       combatPower: Math.max(0, Math.trunc(body.combatPower ?? 10)),
@@ -112,9 +114,6 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       inventory: {},
       itemInventory: createEmptyItemInventory(),
       tags: [],
-      ...(body.unitVariantId === undefined || body.unitVariantId === null
-        ? {}
-        : { unitVariantId: body.unitVariantId }),
       ...(carrierFleetId === undefined ? {} : { carrierFleetId }),
     };
     deps.state.fleets[army.id] = army;
@@ -146,6 +145,10 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     if (!deps.state.players[body.ownerPlayerId]) {
       writeJson(res, 404, { error: "Owner player not found" });
       return;
+    }
+    if ((body.name !== undefined && (typeof body.name !== "string" || !body.name.trim()))
+      || (body.morale !== undefined && (!Number.isFinite(body.morale) || body.morale < -100 || body.morale > 100))) {
+      writeJson(res, 400, { error: "Invalid Unit name or morale" }); return;
     }
 
     const baseMovementPoints = deps.state.systemSettings.baseFleetMovementPoints;
@@ -179,16 +182,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       writeJson(res, 400, { error: "isNavigator must be boolean" });
       return;
     }
-    if (body.unitVariantId !== undefined && body.unitVariantId !== null) {
-      if (!Number.isInteger(body.unitVariantId) || body.unitVariantId <= 0) {
-        writeJson(res, 400, { error: "unitVariantId must be a positive integer" });
-        return;
-      }
-      const variant = deps.state.unitVariants[body.unitVariantId];
-      if (!variant || variant.domain !== "SPACE") {
-        writeJson(res, 400, { error: "unitVariantId must reference a SPACE variant" });
-        return;
-      }
+    if (body.unitVariantId != null) {
+      writeJson(res, 400, { error: "unitVariantId is legacy and cannot be assigned to a new Unit" }); return;
     }
 
     const parsedInventory =
@@ -218,6 +213,12 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     const movementPoints = requestedMovementPoints;
     const fleet: Fleet = {
       id: deps.state.nextIds.unit++,
+      name: body.name?.trim() || `Fleet ${deps.state.nextIds.unit - 1}`,
+      morale: body.morale ?? 0,
+      commanderArtifactId: null,
+      formationIds: [],
+      attachedArtifactIds: [],
+      assignedDoctrineIds: [],
       ownerPlayerId: body.ownerPlayerId,
       position,
       combatPower: Math.max(0, Math.trunc(body.combatPower ?? 10)),
@@ -235,13 +236,9 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       inventory: parsedInventory,
       itemInventory: createEmptyItemInventory(),
       tags: body.tags ? [...new Set(body.tags)] : [],
-      ...(body.unitVariantId === undefined || body.unitVariantId === null
-        ? {}
-        : { unitVariantId: body.unitVariantId }),
     };
 
     deps.state.fleets[fleet.id] = fleet;
-    detectObjectsForFleetAtCurrentHex(deps.state, fleet.id);
 
     deps.auditAdminMutation(req, {
       operation: "CREATE_FLEET", entityType: "FLEET", entityId: fleet.id, after: fleet,
@@ -264,6 +261,9 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     }
 
     for (const artifactId of removedFleet.itemInventory.artifactIds) delete deps.state.artifacts[artifactId];
+    for (const formationId of [...(removedFleet.formationIds ?? []), ...(removedFleet.itemInventory.productIds ?? [])]) {
+      delete deps.state.formations?.[formationId];
+    }
     delete deps.state.fleets[fleetId];
     for (const unit of Object.values(deps.state.fleets)) {
       if (unit.carrierFleetId === removedFleet.id) delete unit.carrierFleetId;
@@ -318,6 +318,13 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       writeJson(res, 400, { error: "Invalid fleet payload" });
       return;
     }
+    if ((body.name !== undefined && (typeof body.name !== "string" || !body.name.trim()))
+      || (body.morale !== undefined && (!Number.isFinite(body.morale) || body.morale < -100 || body.morale > 100))) {
+      writeJson(res, 400, { error: "Invalid Unit name or morale" }); return;
+    }
+    if ((fleet.formationIds ?? []).length > 0 && (body.combatPower !== undefined || body.health !== undefined)) {
+      writeJson(res, 400, { error: "Formation-derived health and combat power are read-only" }); return;
+    }
 
     if (body.ownerPlayerId !== undefined && !Number.isInteger(body.ownerPlayerId)) {
       writeJson(res, 400, { error: "ownerPlayerId must be an integer" });
@@ -365,10 +372,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
       writeJson(res, 400, { error: "warpVisibility must be -, 0, 1, 2 or 3" });
       return;
     }
-    if (body.unitVariantId !== undefined && body.unitVariantId !== null
-      && (!Number.isInteger(body.unitVariantId) || body.unitVariantId <= 0)) {
-      writeJson(res, 400, { error: "unitVariantId must be a positive integer or null" });
-      return;
+    if (body.unitVariantId != null) {
+      writeJson(res, 400, { error: "unitVariantId is legacy and read-only" }); return;
     }
 
     const parsedInventory =
@@ -401,6 +406,8 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     if (body.ownerPlayerId !== undefined) {
       fleet.ownerPlayerId = body.ownerPlayerId;
     }
+    if (body.name !== undefined) fleet.name = body.name.trim();
+    if (body.morale !== undefined) fleet.morale = body.morale;
 
     fleet.position = nextPosition;
 
@@ -470,7 +477,7 @@ export function createFleetAdminHandlers(deps: AdminHandlerDeps): FleetAdminHand
     if (body.tags !== undefined) {
       fleet.tags = [...new Set(body.tags)];
     }
-    detectObjectsForFleetAtCurrentHex(deps.state, fleet.id);
+    synchronizeUnitProjection(deps.state, fleet.id);
 
     deps.auditAdminMutation(req, {
       operation: "UPDATE_FLEET", entityType: "FLEET", entityId: fleetId,

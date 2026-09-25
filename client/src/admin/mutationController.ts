@@ -42,6 +42,7 @@ export function bindAdminMutationControls(deps: AdminMutationDeps): void {
   const addPlanetR = element<HTMLInputElement>("addPlanetR");
   const addPlanetWorldType = element<HTMLSelectElement>("addPlanetWorldType");
   const addPlanetWorldTags = element<HTMLDivElement>("addPlanetWorldTags");
+  const addPlanetDetectionTags = element<HTMLInputElement>("addPlanetDetectionTags");
   const addPlanetPopulation = element<HTMLInputElement>("addPlanetPopulation");
   const addPlanetMorale = element<HTMLInputElement>("addPlanetMorale");
   const addPlanetMaxTitheLevel = element<HTMLSelectElement>("addPlanetMaxTitheLevel");
@@ -143,6 +144,7 @@ export function bindAdminMutationControls(deps: AdminMutationDeps): void {
           r: Number(addPlanetR.value),
           worldType: addPlanetWorldType.value,
           worldTags: selectedChipValues(addPlanetWorldTags),
+          tags: addPlanetDetectionTags.value.split(",").map((tag) => tag.trim().toUpperCase()).filter(Boolean),
           population: Number(addPlanetPopulation.value),
           morale: Number(addPlanetMorale.value),
           titheLevel: "ADEPTUS_NON",
@@ -183,7 +185,6 @@ export function bindAdminMutationControls(deps: AdminMutationDeps): void {
           maxMovementPoints: Number(addFleetMaxMovement.value),
           isNavigator: addFleetNavigator.checked,
           warpVisibility: warpVisibilityFromSelect(addFleetWarpVisibility),
-          unitVariantId: addFleetVariant.value ? Number(addFleetVariant.value) : null,
           inventory: parseJsonObjectInput(addFleetInventory.value),
         }),
       });
@@ -211,7 +212,6 @@ export function bindAdminMutationControls(deps: AdminMutationDeps): void {
           influence: Number(addArmyInfluence.value),
           visionRange: Number(addArmyVision.value),
           stance: addArmyStance.value,
-          unitVariantId: addArmyVariant.value ? Number(addArmyVariant.value) : null,
         }),
       });
       deps.appendEvent("Army created");

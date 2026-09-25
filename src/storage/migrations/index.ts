@@ -1,6 +1,7 @@
 import { CURRENT_SCHEMA_VERSION, type DocumentSnapshot } from "../snapshot";
 import { migrateV1ToV2, type SchemaV1Snapshot, type SchemaV2Snapshot } from "./v1ToV2";
 import { migrateV2ToV3 } from "./v2ToV3";
+import { migrateV3ToV4 } from "./v3ToV4";
 
 function isBaseSnapshot(value: unknown): value is SchemaV1Snapshot {
   if (!value || typeof value !== "object") return false;
@@ -33,6 +34,10 @@ export function migrateDocumentSnapshot(input: unknown): DocumentSnapshot {
       case 2:
         current = migrateV2ToV3(current as SchemaV2Snapshot);
         currentVersion = 3;
+        break;
+      case 3:
+        current = migrateV3ToV4(current as ReturnType<typeof migrateV2ToV3>);
+        currentVersion = 4;
         break;
       default: {
         const exhaustive: never = currentVersion as never;

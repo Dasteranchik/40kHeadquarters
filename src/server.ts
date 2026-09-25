@@ -11,6 +11,7 @@ import { createProductConversionAdminHandlers } from "./server/admin/productConv
 import { createWorldObjectAdminHandlers } from "./server/admin/worldObjects";
 import { createSystemSettingsAdminHandlers } from "./server/admin/systemSettings";
 import { createUnitVariantAdminHandlers } from "./server/admin/unitVariants";
+import { createNewModelAdminHandlers } from "./server/admin/newModel";
 import { Account, ClientContext, Session } from "./server/contracts";
 import { ensureBootstrapAdmin } from "./server/bootstrapAdmin";
 import { createGracefulShutdownController } from "./server/gracefulShutdown";
@@ -33,7 +34,6 @@ import { DbSession, DocumentDb, type TurnSnapshot, type TurnSnapshotPoint } from
 import { migrateDocumentSnapshot } from "./storage/migrations";
 import { Action } from "./types";
 import { createTurnTimerController, type TurnTimerController } from "./turn/turnTimer";
-import { detectObjectsForFleetAtCurrentHex } from "./systems/detectionSystem";
 import { appendAudit } from "./systems/auditSystem";
 import { captureTurnSnapshotEntry, restorePlanningTurnSnapshot } from "./turn/turnSnapshot";
 
@@ -63,9 +63,6 @@ const state = normalizeGameState(persisted.gameState);
 const configuredTurnDurationMs = Number(process.env.TURN_DURATION_MS);
 if (Number.isFinite(configuredTurnDurationMs) && configuredTurnDurationMs > 0) {
   state.turnTimer.durationMs = Math.trunc(configuredTurnDurationMs);
-}
-for (const fleet of Object.values(state.fleets)) {
-  detectObjectsForFleetAtCurrentHex(state, fleet.id);
 }
 const pendingActions = new Map<string, Action>();
 const pendingAllianceProposals = new Set<string>();
@@ -280,6 +277,7 @@ const productConversionAdmin = createProductConversionAdminHandlers(adminDeps);
 const worldObjectAdmin = createWorldObjectAdminHandlers(adminDeps);
 const systemSettingsAdmin = createSystemSettingsAdminHandlers(adminDeps);
 const unitVariantAdmin = createUnitVariantAdminHandlers(adminDeps);
+const newModelAdmin = createNewModelAdminHandlers(adminDeps);
 
 const publicApi = createPublicApiHandlers({
   accounts,
@@ -288,6 +286,7 @@ const publicApi = createPublicApiHandlers({
 });
 
 const apiHandlers = {
+  newModel: newModelAdmin,
   ...publicApi,
   ...playerAdmin,
   ...factionAdmin,

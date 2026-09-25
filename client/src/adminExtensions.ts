@@ -76,6 +76,7 @@ const artifactsList = byId<HTMLDivElement>("extArtifactsList");
 const anomalyQ = byId<HTMLInputElement>("extAnomalyQ");
 const anomalyR = byId<HTMLInputElement>("extAnomalyR");
 const anomalyInfo = byId<HTMLInputElement>("extAnomalyInfo");
+const anomalyMoraleLoss = byId<HTMLInputElement>("extAnomalyMoraleLoss");
 const anomalyStealth = byId<HTMLInputElement>("extAnomalyStealth");
 const addAnomalyBtn = byId<HTMLButtonElement>("extAddAnomalyBtn");
 const anomaliesList = byId<HTMLPreElement>("extAnomaliesList");
@@ -83,6 +84,7 @@ const shipwrecksList = byId<HTMLPreElement>("extShipwrecksList");
 const shipwreckQ = byId<HTMLInputElement>("extShipwreckQ");
 const shipwreckR = byId<HTMLInputElement>("extShipwreckR");
 const shipwreckSourceUnits = byId<HTMLInputElement>("extShipwreckSourceUnits");
+const shipwreckStealth = byId<HTMLInputElement>("extShipwreckStealth");
 const addShipwreckBtn = byId<HTMLButtonElement>("extAddShipwreckBtn");
 const timerLine = byId<HTMLParagraphElement>("extTimerLine");
 const endTurnBtn = byId<HTMLButtonElement>("extEndTurnBtn");
@@ -560,6 +562,7 @@ addAnomalyBtn.addEventListener("click", () => {
       r: Math.trunc(Number(anomalyR.value)),
       tags: anomalyStealth.checked ? ["STEALTH"] : [],
       informationRef: anomalyInfo.value.trim(),
+      moraleLoss: Math.max(0, Number(anomalyMoraleLoss.value) || 0),
     }),
   });
 });
@@ -579,6 +582,7 @@ addShipwreckBtn.addEventListener("click", () => {
         q: Math.trunc(Number(shipwreckQ.value)),
         r: Math.trunc(Number(shipwreckR.value)),
         sourceUnitIds: [...new Set(sourceUnitIds)],
+        tags: shipwreckStealth.checked ? ["STEALTH"] : [],
       }),
     });
   } catch (error) {

@@ -1,11 +1,10 @@
 export const UNIT_TAGS = ["STEALTH"] as const;
 
-export type UnitTag = (typeof UNIT_TAGS)[number];
-
-const UNIT_TAG_SET = new Set<string>(UNIT_TAGS);
+/** Tag codes are administered; STEALTH is only the built-in compatibility tag. */
+export type UnitTag = string;
 
 export function isUnitTag(value: unknown): value is UnitTag {
-  return typeof value === "string" && UNIT_TAG_SET.has(value);
+  return typeof value === "string" && /^[A-Z][A-Z0-9_:-]{1,79}$/.test(value);
 }
 
 export function hasUnitTag(

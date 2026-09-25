@@ -9,6 +9,7 @@ import {
   VisibleFleet,
 } from "../types";
 import { areMutualAllies } from "../utils/relations";
+import { getDetectionRecord, hasDetectedObject } from "./detectionSystem";
 
 function hashToUnitInterval(value: string): number {
   let hash = 2166136261;
@@ -124,7 +125,7 @@ function collectVisiblePlanets(
   planets: Record<string, Planet>,
 ): Planet[] {
   return Object.values(planets).filter((planet) =>
-    Boolean(state.detection.recordsByPlayerId[String(playerId)]?.[`PLANET:${planet.id}`]),
+    hasDetectedObject(state, playerId, "PLANET", planet.id),
   );
 }
 
@@ -141,13 +142,13 @@ export function recalcVisibility(
     const playerDetections = state.detection.recordsByPlayerId[String(player.id)] ?? {};
     const fleets = allFleets
       .filter((fleet) =>
-        fleet.ownerPlayerId === player.id || Boolean(playerDetections[`FLEET:${fleet.id}`]),
+        fleet.ownerPlayerId === player.id || hasDetectedObject(state, player.id, "FLEET", fleet.id),
       )
       .map((fleet) => visibleFleetForPlayer(
         player.id,
         fleet,
         state.turnNumber,
-        playerDetections[`FLEET:${fleet.id}`]?.confidence,
+        getDetectionRecord(state, player.id, "FLEET", fleet.id)?.confidence,
       ));
 
     result[player.id] = {
@@ -157,13 +158,13 @@ export function recalcVisibility(
       fleets,
       visiblePlanets: collectVisiblePlanets(state, player.id, state.planets),
       visibleStations: Object.values(state.stations).filter((station) =>
-        Boolean(playerDetections[`STATION:${station.id}`]),
+        hasDetectedObject(state, player.id, "STATION", station.id),
       ),
       visibleShipwrecks: Object.values(state.shipwrecks).filter((shipwreck) =>
-        Boolean(playerDetections[`SHIPWRECK:${shipwreck.id}`]),
+        hasDetectedObject(state, player.id, "SHIPWRECK", shipwreck.id),
       ),
       visibleAnomalies: Object.values(state.anomalies).filter((anomaly) =>
-        Boolean(playerDetections[`ANOMALY:${anomaly.id}`]),
+        hasDetectedObject(state, player.id, "ANOMALY", anomaly.id),
       ),
     };
   }

@@ -16,6 +16,7 @@ import { detectObjectsForFleetAtCurrentHex } from "../systems/detectionSystem";
 import type { DetectionResult } from "../detectionDomain";
 import { applyStationGeneration } from "../systems/stationSystem";
 import { resolveAdministratumTitheProposals } from "../systems/administratumSystem";
+import { applyAnomalyMoraleLoss } from "../systems/moraleSystem";
 
 function restoreMovementPoints(state: GameState): void {
   for (const fleet of Object.values(state.fleets)) {
@@ -68,10 +69,17 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
   const combatStart = resolveCombat(state);
 
   const detection: DetectionResult[] = [];
+  const movedFleetIds = new Set<number>();
   const movement = executeMovement(state, validated.moveActions, (fleetId) => {
+    movedFleetIds.add(fleetId);
     const result = detectObjectsForFleetAtCurrentHex(state, fleetId);
     if (result) detection.push(result);
   });
+  for (const fleet of Object.values(state.fleets)) {
+    if (fleet.domain !== "SPACE" || movedFleetIds.has(fleet.id)) continue;
+    const result = detectObjectsForFleetAtCurrentHex(state, fleet.id);
+    if (result) detection.push(result);
+  }
 
   // Movement can bring hostile fleets together, causing a second clash.
   const combatEnd = resolveCombat(state);
@@ -80,9 +88,10 @@ export function resolveTurn(state: GameState, actions: Action[]): TurnResolution
   const administratum = resolveAdministratumTitheProposals(state);
 
   const economy = applyEconomy(state);
-  const visibility = recalcVisibility(state);
 
   state.phase = "UPDATE";
+  applyAnomalyMoraleLoss(state);
+  const visibility = recalcVisibility(state);
   state.turnNumber += 1;
   restoreMovementPoints(state);
   state.phase = "PLANNING";

@@ -671,6 +671,7 @@ function renderPlanets(): void {
     const rInput = createNumberInput(planet.position.r);
     const worldTypeSelect = createSelect(planet.worldType, [...PLANET_WORLD_TYPES]);
     const worldTagsSelector = createChipSelector(PLANET_TAGS, planet.worldTags);
+    const detectionTagsInput = createInput((planet.tags ?? []).join(", "));
     const populationInput = createNumberInput(planet.population);
     const moraleInput = createNumberInput(planet.morale);
     const titheLevelSelect = createSelect(planet.titheLevel, [...TITHE_LEVEL_ORDER]);
@@ -715,6 +716,7 @@ function renderPlanets(): void {
       createLabeledField("R", rInput),
       createLabeledField("World Type", worldTypeSelect),
       createLabeledField("World Tags", worldTagsSelector),
+      createLabeledField("Detection Tag codes (comma)", detectionTagsInput),
       createLabeledField("Population", populationInput),
       createLabeledField("Morale", moraleInput),
       createLabeledField("Tithe Level", titheLevelSelect),
@@ -758,6 +760,7 @@ function renderPlanets(): void {
               r: Number(rInput.value),
               worldType: worldTypeSelect.value,
               worldTags: selectedChipValues(worldTagsSelector),
+              tags: detectionTagsInput.value.split(",").map((tag) => tag.trim().toUpperCase()).filter(Boolean),
               population: Number(populationInput.value),
               morale: Number(moraleInput.value),
               maxTitheLevel: maxTitheLevelSelect.value,
@@ -856,6 +859,11 @@ function renderFleetList(
     const variantSelect = createSelect(fleet.unitVariantId === undefined ? "" : String(fleet.unitVariantId), ["", ...runtime.unitVariants
       .filter((variant) => variant.domain === fleet.domain)
       .map((variant) => String(variant.id))]);
+    variantSelect.disabled = true; // TODO(UNIT-VARIANT-MIGRATION): historical metadata only.
+    if ((fleet.formationIds ?? []).length > 0) {
+      powerInput.disabled = true;
+      healthInput.disabled = true;
+    }
     const stanceSelect = createSelect(fleet.stance, ["ATTACK", "DEFENSE"]);
     const domainSelect = createSelect(fleet.domain as FleetDomain, ["SPACE", "GROUND"]);
     const inventoryInput = createInput(toJsonCompact(fleet.inventory));
@@ -897,8 +905,9 @@ function renderFleetList(
               ownerPlayerId: Number(ownerSelect.value),
               q: Number(qInput.value),
               r: Number(rInput.value),
-              combatPower: Number(powerInput.value),
-              health: Number(healthInput.value),
+              ...((fleet.formationIds ?? []).length > 0 ? {} : {
+                combatPower: Number(powerInput.value), health: Number(healthInput.value),
+              }),
               influence: Number(influenceInput.value),
               movementPoints: Number(apInput.value),
               visionRange: Number(visionInput.value),
@@ -907,7 +916,6 @@ function renderFleetList(
               maxMovementPoints: Number(maxMovementInput.value),
               isNavigator: navigatorInput.checked,
               warpVisibility: warpVisibilitySelect.value === "" ? null : Number(warpVisibilitySelect.value),
-              unitVariantId: variantSelect.value === "" ? null : Number(variantSelect.value),
               domain: domainSelect.value as FleetDomain,
               inventory,
             }),

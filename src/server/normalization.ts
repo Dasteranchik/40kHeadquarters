@@ -60,6 +60,9 @@ import {
   normalizeShop,
   normalizeUnitTags,
 } from "./normalization/inventory";
+import { normalizeNewModelCollections, parseUnitEffects } from "./normalization/newModel";
+import { clampMorale } from "../moraleDomain";
+import { synchronizeUnitProjection } from "../systems/unitEffectSystem";
 
 const DEFAULT_FACTIONS: Array<{ id: string; name: string }> = [
   { id: "astra_militarum", name: "Астра Милитарум" },
@@ -374,8 +377,9 @@ function normalizePlanet(id: string, value: unknown, legacyProductOwnerId?: numb
     position: normalizePosition(planet.position),
     worldType,
     worldTags: worldTags.length > 0 ? worldTags : defaultTagsByWorldType(worldType),
+    tags: normalizeUnitTags(planet.tags),
     population,
-    morale: intOrDefault(planet.morale, 5, 0),
+    morale: clampMorale(typeof planet.morale === "number" && Number.isFinite(planet.morale) ? planet.morale : 5),
     titheLevel,
     maxTitheLevel: isTitheLevel(planet.maxTitheLevel) ? planet.maxTitheLevel : titheLevel,
     titheTarget: intOrDefault(planet.titheTarget, titheValue(titheLevel), 0),
@@ -412,9 +416,19 @@ function normalizeFleet(id: string, value: unknown): Fleet {
   return {
     id: Number(id),
     ownerPlayerId: Number(fleet.ownerPlayerId),
+    name: typeof fleet.name === "string" && fleet.name.trim()
+      ? fleet.name.trim() : `${fleet.domain === "GROUND" ? "Army" : "Fleet"} ${id}`,
     position: normalizePosition(fleet.position),
     combatPower: intOrDefault(fleet.combatPower, 10, 0),
     health: intOrDefault(fleet.health, 100, 1),
+    morale: clampMorale(typeof fleet.morale === "number" && Number.isFinite(fleet.morale) ? fleet.morale : 0),
+    commanderArtifactId: typeof fleet.commanderArtifactId === "string" ? fleet.commanderArtifactId : null,
+    formationIds: Array.isArray(fleet.formationIds)
+      ? [...new Set(fleet.formationIds.filter((entry): entry is string => typeof entry === "string" && !!entry))] : [],
+    attachedArtifactIds: Array.isArray(fleet.attachedArtifactIds)
+      ? [...new Set(fleet.attachedArtifactIds.filter((entry): entry is string => typeof entry === "string" && !!entry))] : [],
+    assignedDoctrineIds: Array.isArray(fleet.assignedDoctrineIds)
+      ? [...new Set(fleet.assignedDoctrineIds.filter((entry): entry is string => typeof entry === "string" && !!entry))] : [],
     influence: intOrDefault(fleet.influence, 5, 0),
     movementPoints,
     maxMovementPoints,
@@ -600,6 +614,7 @@ function normalizeShipwrecks(value: unknown): Record<string, Shipwreck> {
             Number.isInteger(entry) && entry > 0,
           ))]
         : [],
+      tags: normalizeUnitTags(candidate.tags),
     };
   }
   return result;
@@ -620,6 +635,8 @@ function normalizeAnomalies(value: unknown): Record<string, Anomaly> {
       informationRef: typeof candidate.informationRef === "string"
         ? candidate.informationRef
         : "",
+      moraleLoss: typeof candidate.moraleLoss === "number" && Number.isFinite(candidate.moraleLoss)
+        ? Math.max(0, candidate.moraleLoss) : 0,
     };
   }
   return result;
@@ -712,6 +729,8 @@ function normalizeArtifacts(
       : undefined;
     result[id] = {
       id,
+      type: "ARTIFACT",
+      kind: typeof candidate.kind === "string" && candidate.kind ? candidate.kind : candidate.definitionCode ?? id,
       definitionCode: typeof candidate.definitionCode === "string" && candidate.definitionCode
         ? candidate.definitionCode
         : id,
@@ -734,6 +753,10 @@ function normalizeArtifacts(
         ? { cooldownUntilTurn: Number(candidate.cooldownUntilTurn) }
         : {}),
       consumable: candidate.consumable === true,
+      tags: normalizeUnitTags(candidate.tags),
+      ...(candidate.effects !== undefined ? { effects: parseUnitEffects(candidate.effects) } : {}),
+      ...(Number.isInteger(candidate.attachedUnitId) && Number(candidate.attachedUnitId) > 0
+        ? { attachedUnitId: Number(candidate.attachedUnitId) } : {}),
     };
   }
   return result;
@@ -821,6 +844,9 @@ function normalizeDetectionState(value: unknown): DetectionState {
         objectId: Number(candidate.objectId),
         detectedAtTurn: intOrDefault(candidate.detectedAtTurn, 1, 1),
         confidence: candidate.confidence === "EXACT" ? "EXACT" : "ESTIMATED",
+        ...(candidate.detectedHex && Number.isInteger(candidate.detectedHex.q)
+          && Number.isInteger(candidate.detectedHex.r)
+          ? { detectedHex: { q: candidate.detectedHex.q, r: candidate.detectedHex.r } } : {}),
       };
       records[detectionObjectKey(record.objectKind, record.objectId)] = record;
     }
@@ -1045,6 +1071,7 @@ export function normalizeGameState(state: GameState): GameState {
   state.shipwrecks = normalizeShipwrecks(partialState.shipwrecks);
   state.anomalies = normalizeAnomalies(partialState.anomalies);
   state.artifacts = normalizeArtifacts(partialState.artifacts, state.players);
+  normalizeNewModelCollections(state);
   state.unitVariants = normalizeUnitVariants(partialState.unitVariants);
   for (const fleet of Object.values(state.fleets)) {
     if (fleet.unitVariantId === undefined) continue;
@@ -1082,6 +1109,12 @@ export function normalizeGameState(state: GameState): GameState {
       intOrDefault(state.nextIds?.unitVariant, 1, 1),
       ...Object.values(state.unitVariants).map((entry) => entry.id + 1),
     ),
+    formation: Math.max(
+      intOrDefault(state.nextIds?.formation, 1, 1),
+      ...Object.keys(state.formations ?? {}).map((id) => /^formation-(\d+)$/.exec(id))
+        .filter((match): match is RegExpExecArray => match !== null)
+        .map((match) => Number(match[1]) + 1),
+    ),
   };
   state.events = Array.isArray((state as Partial<GameState>).events)
     ? (state as Partial<GameState>).events!.filter((event) =>
@@ -1100,6 +1133,7 @@ export function normalizeGameState(state: GameState): GameState {
     ...state.events.map((event) => event.id + 1),
   );
   reconcileArtifactOwnership(state);
+  for (const unit of Object.values(state.fleets)) synchronizeUnitProjection(state, unit.id);
   for (const planet of Object.values(state.planets)) {
     const progress = calculateTitheProgress(
       planet.maxTitheLevel,

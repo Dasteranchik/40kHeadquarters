@@ -1,5 +1,6 @@
 import type { ResourceKey } from "./planetDomain";
 import type { WarpVisibility } from "./navigationDomain";
+import type { UnitEffect } from "./effectDomain";
 
 export type StackableInventory = Partial<Record<ResourceKey, number>>;
 
@@ -11,9 +12,29 @@ export type SystemKnowledgeCode =
   (typeof SYSTEM_KNOWLEDGE)[keyof typeof SYSTEM_KNOWLEDGE];
 export type KnowledgeCode = string;
 
+export type ItemType = "RAW" | "PRODUCT" | "ARTIFACT" | "KNOWLEDGE";
+
+export interface ItemKindDefinition {
+  id: string;
+  type: ItemType;
+  name: string;
+  description?: string;
+  tags: string[];
+  /** Required for a combat-capable individual PRODUCT. */
+  baseCombatPower?: number;
+  maxHealth?: number;
+  effects?: UnitEffect[];
+  commanderCapable?: boolean;
+  isNavigator?: boolean;
+  warpVisibility?: WarpVisibility;
+  configuration?: Record<string, JsonValue>;
+}
+
 export interface ItemInventory {
   artifactIds: string[];
   knowledge: KnowledgeCode[];
+  /** Individual PRODUCT items; stackable legacy REGIMENTS remain separate. */
+  productIds?: string[];
 }
 
 export type InventoryLocation =
@@ -41,6 +62,8 @@ export interface ArtifactEffect {
 
 export interface ArtifactInstance {
   id: string;
+  type?: "ARTIFACT";
+  kind?: string;
   definitionCode: string;
   name: string;
   owner: InventoryLocation;
@@ -54,12 +77,15 @@ export interface ArtifactInstance {
   cooldownTurns?: number;
   cooldownUntilTurn?: number;
   consumable: boolean;
+  tags?: string[];
+  effects?: UnitEffect[];
+  attachedUnitId?: number;
 }
 
 export type PlayerItemInventories = Record<string, ItemInventory>;
 
 export function createEmptyItemInventory(): ItemInventory {
-  return { artifactIds: [], knowledge: [] };
+  return { artifactIds: [], knowledge: [], productIds: [] };
 }
 
 export function inventoryLocationKey(location: InventoryLocation): string {

@@ -7,6 +7,8 @@ import { isFiniteNumber, isValidId } from "../../utils/validation";
 import { AddPlanetRequest, UpdatePlanetRequest } from "../contracts";
 import { readJsonBody, writeJson } from "../transport";
 import { AdminHandlerDeps, requireAdminPlanning } from "./deps";
+import { isUnitTag } from "../../unitDomain";
+import { clampMorale } from "../../moraleDomain";
 import {
   getTileAt,
   parseIntelFragments,
@@ -71,6 +73,9 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       writeJson(res, 400, { error: "worldTags must be an array of valid tags" });
       return;
     }
+    if (body.tags !== undefined && (!Array.isArray(body.tags) || body.tags.some((tag) => !isUnitTag(tag)))) {
+      writeJson(res, 400, { error: "tags must be valid Tag codes" }); return;
+    }
 
     const numericChecks: Array<[unknown, string]> = [
       [body.population, "population"],
@@ -85,6 +90,9 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
         writeJson(res, 400, { error: `${field} must be a number` });
         return;
       }
+    }
+    if (body.morale !== undefined && (body.morale < -100 || body.morale > 100)) {
+      writeJson(res, 400, { error: "morale must be between -100 and 100" }); return;
     }
 
     if (body.titheLevel !== undefined && !isTitheLevel(body.titheLevel)) {
@@ -153,8 +161,9 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       position: coord,
       worldType: body.worldType ?? "AGRI_WORLD",
       worldTags: body.worldTags ? [...new Set(body.worldTags)] : [],
+      tags: body.tags ? [...new Set(body.tags)] : [],
       population: Math.max(0, Math.trunc(body.population ?? 60)),
-      morale: Math.max(0, Math.trunc(body.morale ?? 5)),
+      morale: Math.max(-100, Math.min(100, body.morale ?? 5)),
       titheLevel,
       maxTitheLevel: body.maxTitheLevel ?? titheLevel,
       titheTarget: titheValue(titheLevel),
@@ -212,6 +221,12 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       ...(planet.secretStorage?.itemInventory.artifactIds ?? []),
     ]);
     for (const artifactId of artifactIds) delete deps.state.artifacts[artifactId];
+    const formationIds = new Set<string>([
+      ...(planet.shop.items.productIds ?? []),
+      ...Object.values(planet.itemStorageByPlayerId).flatMap((items) => items.productIds ?? []),
+      ...(planet.secretStorage?.itemInventory.productIds ?? []),
+    ]);
+    for (const formationId of formationIds) delete deps.state.formations?.[formationId];
 
     const previousPosition = { ...planet.position };
     delete deps.state.planets[planetId];
@@ -296,6 +311,9 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       writeJson(res, 400, { error: "worldTags must be an array of valid tags" });
       return;
     }
+    if (body.tags !== undefined && (!Array.isArray(body.tags) || body.tags.some((tag) => !isUnitTag(tag)))) {
+      writeJson(res, 400, { error: "tags must be valid Tag codes" }); return;
+    }
 
     const numericChecks: Array<[unknown, string]> = [
       [body.population, "population"],
@@ -321,6 +339,9 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       return;
     }
 
+    if (body.morale !== undefined && (body.morale < -100 || body.morale > 100)) {
+      writeJson(res, 400, { error: "morale must be between -100 and 100" }); return;
+    }
     const parsedRawStock =
       body.rawStock === undefined ? undefined : parseResourceStore(body.rawStock, true);
     if (parsedRawStock === null) {
@@ -396,13 +417,14 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
     if (body.worldTags !== undefined) {
       planet.worldTags = [...new Set(body.worldTags)];
     }
+    if (body.tags !== undefined) planet.tags = [...new Set(body.tags)];
 
     if (body.population !== undefined) {
       planet.population = Math.max(0, Math.trunc(body.population));
     }
 
     if (body.morale !== undefined) {
-      planet.morale = Math.max(0, Math.trunc(body.morale));
+      planet.morale = body.morale;
     }
 
     if (body.titheLevel !== undefined) {
@@ -412,7 +434,9 @@ export function createPlanetAdminHandlers(deps: AdminHandlerDeps): PlanetAdminHa
       planet.titheTarget = titheValue(body.titheLevel);
     }
     if (body.maxTitheLevel !== undefined) {
+      const increase = Math.max(0, titheValue(body.maxTitheLevel) - titheValue(planet.maxTitheLevel));
       planet.maxTitheLevel = body.maxTitheLevel;
+      if (increase > 0) planet.morale = clampMorale(planet.morale - increase);
     }
 
     if (body.tithePaid !== undefined) {

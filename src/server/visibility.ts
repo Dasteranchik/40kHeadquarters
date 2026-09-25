@@ -9,6 +9,7 @@ import { createEmptyItemInventory } from "../itemDomain";
 import { collectVisibleWarpTileKeysForPlayer, isEffectiveNavigator } from "../systems/navigatorSystem";
 import { playerIsAdministratum } from "../systems/administratumSystem";
 import type { Station } from "../worldObjectDomain";
+import { getDetectionRecord, hasDetectedObject } from "../systems/detectionSystem";
 
 function canSessionSeeFleetOwner(
   session: Session,
@@ -55,7 +56,7 @@ function canSessionSeeFleet(
   }
 
   const viewerId = session.playerId;
-  return Boolean(viewerId && state.detection.recordsByPlayerId[String(viewerId)]?.[`FLEET:${fleet.id}`]);
+  return Boolean(viewerId && hasDetectedObject(state, viewerId, "FLEET", fleet.id));
 }
 
 function planetForPlayer(planet: Planet, playerId: number): Planet {
@@ -133,9 +134,7 @@ export function filterFleetsForSession(
       }
       const viewerId = session.playerId;
       if (!viewerId) continue;
-      const confidence = state.detection.recordsByPlayerId[String(viewerId)]?.[
-        `FLEET:${fleet.id}`
-      ]?.confidence ?? "ESTIMATED";
+      const confidence = getDetectionRecord(state, viewerId, "FLEET", fleet.id)?.confidence ?? "ESTIMATED";
       const exact = confidence === "EXACT";
       result[fleetId] = {
         ...fleet,
@@ -157,6 +156,12 @@ export function filterFleetsForSession(
         capacity: 0,
         inventory: {},
         itemInventory: createEmptyItemInventory(),
+        morale: 0,
+        commanderArtifactId: null,
+        formationIds: [],
+        attachedArtifactIds: [],
+        assignedDoctrineIds: [],
+        tags: [],
         confidence,
       };
     }
@@ -185,32 +190,41 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
     : new Set<string>();
   const visiblePlanets = Object.fromEntries(
     Object.entries(state.planets)
-      .filter(([, planet]) => Boolean(detections[`PLANET:${planet.id}`]))
+      .filter(([, planet]) => Boolean(playerId && hasDetectedObject(state, playerId, "PLANET", planet.id)))
       .map(([planetId, planet]) => [planetId, planetForPlayer(planet, playerId!)]),
   );
   const visibleStations = Object.fromEntries(
     Object.entries(state.stations)
-      .filter(([, station]) => Boolean(detections[`STATION:${station.id}`]))
+      .filter(([, station]) => Boolean(playerId && hasDetectedObject(state, playerId, "STATION", station.id)))
       .map(([stationId, station]) => [stationId, stationForPlayer(station, playerId!)]),
   );
   const visibleShipwrecks = Object.fromEntries(
     Object.entries(state.shipwrecks).filter(([, shipwreck]) =>
-      Boolean(detections[`SHIPWRECK:${shipwreck.id}`]),
+      Boolean(playerId && hasDetectedObject(state, playerId, "SHIPWRECK", shipwreck.id)),
     ),
   );
   const visibleAnomalies = Object.fromEntries(
     Object.entries(state.anomalies)
-      .filter(([, anomaly]) => Boolean(detections[`ANOMALY:${anomaly.id}`]))
+      .filter(([, anomaly]) => Boolean(playerId && hasDetectedObject(state, playerId, "ANOMALY", anomaly.id)))
       .map(([id, anomaly]) => [id, { ...anomaly, informationRef: "" }]),
   );
   const visibleArtifactIds = new Set<string>();
+  const visibleFormationIds = new Set<string>();
   for (const fleet of Object.values(state.fleets)) {
-    if (fleet.ownerPlayerId === playerId) fleet.itemInventory.artifactIds.forEach((id) => visibleArtifactIds.add(id));
+    if (fleet.ownerPlayerId === playerId) {
+      fleet.itemInventory.artifactIds.forEach((id) => visibleArtifactIds.add(id));
+      fleet.itemInventory.productIds?.forEach((id) => visibleFormationIds.add(id));
+      fleet.formationIds?.forEach((id) => visibleFormationIds.add(id));
+    }
   }
   for (const planet of Object.values(visiblePlanets)) {
     planet.shop.items.artifactIds.forEach((id) => visibleArtifactIds.add(id));
     Object.values(planet.itemStorageByPlayerId).forEach((items) =>
       items.artifactIds.forEach((id) => visibleArtifactIds.add(id)),
+    );
+    planet.shop.items.productIds?.forEach((id) => visibleFormationIds.add(id));
+    Object.values(planet.itemStorageByPlayerId).forEach((items) =>
+      items.productIds?.forEach((id) => visibleFormationIds.add(id)),
     );
   }
   for (const station of Object.values(visibleStations)) {
@@ -218,9 +232,14 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
     Object.values(station.itemStorageByPlayerId).forEach((items) =>
       items.artifactIds.forEach((id) => visibleArtifactIds.add(id)),
     );
+    station.shop.items.productIds?.forEach((id) => visibleFormationIds.add(id));
+    Object.values(station.itemStorageByPlayerId).forEach((items) =>
+      items.productIds?.forEach((id) => visibleFormationIds.add(id)),
+    );
   }
   for (const shipwreck of Object.values(visibleShipwrecks)) {
     shipwreck.inventory.artifactIds.forEach((id) => visibleArtifactIds.add(id));
+    shipwreck.inventory.productIds?.forEach((id) => visibleFormationIds.add(id));
   }
   const { audit: _audit, processedCommands: _processedCommands, ...safeState } = state;
   const administratumAccess = Boolean(playerId && playerIsAdministratum(state, playerId));
@@ -252,6 +271,8 @@ export function buildStateForSession(session: Session, state: GameState): GameSt
       Object.entries(state.artifacts).filter(([artifactId]) => visibleArtifactIds.has(artifactId)),
     ),
     fleets: filterFleetsForSession(session, state, state.fleets),
+    formations: Object.fromEntries(Object.entries(state.formations ?? {}).filter(([id]) =>
+      visibleFormationIds.has(id))),
     players: Object.fromEntries(Object.entries(state.players).map(([id, player]) => [
       id,
       {
@@ -379,7 +400,7 @@ export function buildResolutionForSession(
         canSeeFleetId(fleetId),
       ),
       createdShipwreckIds: resolution.combat.createdShipwreckIds.filter((shipwreckId) =>
-        Boolean(viewerId && state.detection.recordsByPlayerId[String(viewerId)]?.[`SHIPWRECK:${shipwreckId}`]),
+        Boolean(viewerId && hasDetectedObject(state, viewerId, "SHIPWRECK", shipwreckId)),
       ),
     },
     detection: resolution.detection.filter((entry) => entry.playerId === viewerId),

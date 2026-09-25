@@ -24,6 +24,10 @@ import type { Anomaly, Shipwreck, Station } from "./worldObjectDomain";
 import type { SecretStorage } from "./secretStorageDomain";
 import type { UnitVariant } from "./unitVariantDomain";
 import type { WarpVisibility } from "./navigationDomain";
+import type { FormationInstance } from "./formationDomain";
+import type { DoctrineDefinition } from "./doctrineDomain";
+import type { ItemKindDefinition } from "./itemDomain";
+import type { TagDefinition, TagRelation } from "./tagDomain";
 
 export interface HexCoord {
   q: number;
@@ -58,6 +62,7 @@ export interface Planet {
   position: HexCoord;
   worldType: PlanetWorldType;
   worldTags: PlanetTag[];
+  tags?: UnitTag[];
   population: number;
   morale: number;
   titheLevel: TitheLevel;
@@ -118,9 +123,17 @@ export type FleetDomain = "SPACE" | "GROUND";
 export interface Unit {
   id: number;
   ownerPlayerId: EntityId;
+  name?: string;
   position: HexCoord;
+  /** Legacy projection only when individual formations exist. */
   combatPower: number;
+  /** Legacy projection only when individual formations exist. */
   health: number;
+  morale?: number;
+  commanderArtifactId?: string | null;
+  formationIds?: string[];
+  attachedArtifactIds?: string[];
+  assignedDoctrineIds?: string[];
   influence: number;
   movementPoints: number;
   maxMovementPoints: number;
@@ -195,6 +208,11 @@ export interface GameState {
   artifacts: Record<string, ArtifactInstance>;
   factions: Record<string, Faction>;
   unitVariants: Record<string, UnitVariant>;
+  formations?: Record<string, FormationInstance>;
+  itemKinds?: Record<string, ItemKindDefinition>;
+  tags?: Record<string, TagDefinition>;
+  tagRelations?: TagRelation[];
+  doctrines?: Record<string, DoctrineDefinition>;
   nextIds: {
     player: number;
     faction: number;
@@ -207,6 +225,7 @@ export interface GameState {
     artifact: number;
     audit: number;
     unitVariant: number;
+    formation?: number;
   };
   events: GameEvent[];
   audit: AuditEntry[];

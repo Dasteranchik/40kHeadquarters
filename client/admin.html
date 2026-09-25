@@ -142,6 +142,10 @@
               <div id="addPlanetWorldTags" class="chip-selector" role="group"></div>
             </div>
             <div>
+              <label for="addPlanetDetectionTags">Detection Tag codes (comma)</label>
+              <input id="addPlanetDetectionTags" placeholder="STEALTH" />
+            </div>
+            <div>
               <label for="addPlanetPopulation">Population</label>
               <input id="addPlanetPopulation" type="number" placeholder="population" value="60" />
             </div>
@@ -185,6 +189,7 @@
 
         <section id="fleetsPanel" class="panel hidden">
           <h2>Fleets</h2>
+          <p class="hint">Create new Fleets and Armies in Unit Composition.</p>
           <div class="grid add-grid">
             <div>
               <label for="addFleetId">Fleet ID (automatic)</label>
@@ -231,7 +236,7 @@
               </div>
               <div>
                 <label for="addFleetVariant">Вид юнита</label>
-                <select id="addFleetVariant"><option value="">-</option></select>
+                <select id="addFleetVariant" disabled><option value="">-</option></select>
               </div>
             </div>
             <div>
@@ -261,6 +266,7 @@
 
         <section id="armiesPanel" class="panel hidden">
           <h2>Armies</h2>
+          <p class="hint">Create new Fleets and Armies in Unit Composition.</p>
           <div class="grid add-grid">
             <div>
               <label for="addArmyOwner">Owner Player</label>
@@ -307,7 +313,7 @@
         </section>
             <div>
               <label for="addArmyVariant">Вид юнита</label>
-              <select id="addArmyVariant"><option value="">-</option></select>
+              <select id="addArmyVariant" disabled><option value="">-</option></select>
             </div>
 
         <section id="relationsPanel" class="panel hidden">
@@ -466,6 +472,8 @@
             <input id="extAnomalyQ" type="number" placeholder="q" />
             <input id="extAnomalyR" type="number" placeholder="r" />
             <input id="extAnomalyInfo" placeholder="information/content reference" />
+            <label for="extAnomalyMoraleLoss">Morale loss per turn</label>
+            <input id="extAnomalyMoraleLoss" type="number" min="0" step="any" value="0" />
             <label><input id="extAnomalyStealth" type="checkbox" /> STEALTH</label>
           </div>
           <button id="extAddAnomalyBtn">Add Anomaly</button>
@@ -485,6 +493,7 @@
               <label for="extShipwreckSourceUnits">Source Unit IDs (optional, comma-separated)</label>
               <input id="extShipwreckSourceUnits" placeholder="12, 34" />
             </div>
+            <label><input id="extShipwreckStealth" type="checkbox" /> STEALTH</label>
           </div>
           <button id="extAddShipwreckBtn">Create Shipwreck</button>
           <h3>Shipwrecks</h3>
@@ -516,6 +525,94 @@
           <p id="extStatusLine" class="hint"></p>
         </section>
 
+        <section class="panel hidden admin-extension" id="newModelPanel">
+          <h2>Tags, Item Kinds and Doctrines</h2>
+          <p class="hint">Definitions are edited during Planning. Existing individual items keep their own stats.</p>
+          <div class="grid add-grid">
+            <div><label for="modelTagId">Tag code</label><input id="modelTagId" placeholder="INFANTRY" /></div>
+            <div><label for="modelTagName">Tag name</label><input id="modelTagName" /></div>
+            <div><label for="modelTagDescription">Description</label><input id="modelTagDescription" /></div>
+            <div><label for="modelTagParents">Parent Tag codes (comma)</label><input id="modelTagParents" /></div>
+          </div>
+          <button id="modelSaveTag">Save Tag</button>
+          <div id="modelTagsList" class="list"></div>
+          <div class="grid add-grid">
+            <div><label for="modelRelationA">Tag A</label><select id="modelRelationA"></select></div>
+            <div><label for="modelRelationB">Tag B</label><select id="modelRelationB"></select></div>
+            <div><label for="modelRelationKind">Tag relation</label><select id="modelRelationKind"><option>ALLY</option><option>NEUTRAL</option><option>HOSTILE</option></select></div>
+          </div>
+          <button id="modelSaveRelation">Save Tag relation</button>
+          <div id="modelRelationsList" class="list"></div>
+          <h3>Item Kinds</h3>
+          <div class="grid add-grid">
+            <div><label for="modelKindId">Kind code</label><input id="modelKindId" /></div>
+            <div><label for="modelKindType">Type</label><select id="modelKindType"><option>RAW</option><option>PRODUCT</option><option>ARTIFACT</option><option>KNOWLEDGE</option></select></div>
+            <div><label for="modelKindName">Kind name</label><input id="modelKindName" /></div>
+            <div><label for="modelKindDescription">Description</label><input id="modelKindDescription" /></div>
+            <div><label for="modelKindTags">Tag codes (comma)</label><input id="modelKindTags" /></div>
+            <div><label for="modelKindPower">Base combat power</label><input id="modelKindPower" type="number" min="0" step="any" /></div>
+            <div><label for="modelKindHealth">Maximum health</label><input id="modelKindHealth" type="number" min="1" step="any" /></div>
+            <div><label for="modelKindCommander">Commander capable</label><input id="modelKindCommander" type="checkbox" /></div>
+            <div><label for="modelKindNavigator">Navigator trait</label><input id="modelKindNavigator" type="checkbox" /></div>
+            <div><label for="modelKindWarpVisibility">Warp Visibility</label><select id="modelKindWarpVisibility"><option value="">-</option><option>0</option><option>1</option><option>2</option><option>3</option></select></div>
+            <div><label for="modelKindConfiguration">Configuration JSON</label><input id="modelKindConfiguration" value="{}" /></div>
+            <div><label for="modelKindEffects">Effects JSON</label><input id="modelKindEffects" value="[]" /></div>
+          </div>
+          <button id="modelSaveKind">Save Item Kind</button>
+          <div id="modelKindsList" class="list"></div>
+          <h3>Doctrines</h3>
+          <div class="grid add-grid">
+            <div><label for="modelDoctrineId">Doctrine code</label><input id="modelDoctrineId" /></div>
+            <div><label for="modelDoctrineName">Doctrine name</label><input id="modelDoctrineName" /></div>
+            <div><label for="modelDoctrineDescription">Description</label><input id="modelDoctrineDescription" /></div>
+            <div><label for="modelDoctrineRequirements">Tag requirements JSON</label><input id="modelDoctrineRequirements" value='{"requiresAllTags":[],"requiresAnyTags":[],"forbiddenTags":[]}' /></div>
+            <div><label for="modelDoctrineEffects">Effects JSON</label><input id="modelDoctrineEffects" value="[]" /></div>
+          </div>
+          <button id="modelSaveDoctrine">Save Doctrine</button>
+          <div id="modelDoctrinesList" class="list"></div>
+        </section>
+
+        <section class="panel hidden admin-extension" id="modelUnitPanel">
+          <h2>Unit Composition</h2>
+          <h3>Create complete Unit</h3>
+          <div class="grid add-grid">
+            <div><label for="modelNewUnitName">Unit name</label><input id="modelNewUnitName" /></div>
+            <div><label for="modelNewUnitOwner">Owner Player</label><select id="modelNewUnitOwner"></select></div>
+            <div><label for="modelNewUnitDomain">Domain</label><select id="modelNewUnitDomain"><option value="SPACE">SPACE</option><option value="GROUND">GROUND</option></select></div>
+            <div><label for="modelNewUnitQ">Q</label><input id="modelNewUnitQ" type="number" step="1" /></div>
+            <div><label for="modelNewUnitR">R</label><input id="modelNewUnitR" type="number" step="1" /></div>
+            <div><label for="modelNewCommanderKind">Commander Kind</label><select id="modelNewCommanderKind"></select></div>
+            <div><label for="modelNewFormationKinds">Formation Kind codes (comma)</label><input id="modelNewFormationKinds" /></div>
+          </div>
+          <button id="modelCreateUnit">Create Unit</button>
+          <h3>Edit Unit</h3>
+          <label for="modelUnitSelect">Unit</label><select id="modelUnitSelect"></select>
+          <div class="grid add-grid">
+            <div><label for="modelUnitName">Unit name</label><input id="modelUnitName" /></div>
+            <div><label for="modelUnitMorale">Morale</label><input id="modelUnitMorale" type="number" min="-100" max="100" step="any" /></div>
+          </div>
+          <button id="modelSaveUnit">Save Unit</button>
+          <pre id="modelUnitDetails"></pre>
+          <div class="grid add-grid">
+            <div><label for="modelFormationKind">PRODUCT Kind</label><select id="modelFormationKind"></select></div>
+            <div><label for="modelFormationHealth">Current health</label><input id="modelFormationHealth" type="number" min="1" placeholder="full" /></div>
+          </div>
+          <button id="modelCreateFormation">Create Formation in Unit inventory</button>
+          <label for="modelFormationSelect">Formation in Unit inventory</label><select id="modelFormationSelect"></select>
+          <button id="modelAttachFormation">Attach Formation</button>
+          <label for="modelAttachedFormationSelect">Attached Formation</label><select id="modelAttachedFormationSelect"></select>
+          <button id="modelExtractFormation">Extract Formation to Unit inventory</button>
+          <label for="modelArtifactSelect">Artifact in Unit inventory</label><select id="modelArtifactSelect"></select>
+          <div class="row">
+            <button id="modelAttachArtifact">Attach Artifact</button>
+            <button id="modelDetachArtifact">Detach Artifact</button>
+            <button id="modelReplaceCommander">Replace Commander</button>
+          </div>
+          <label for="modelDoctrineSelect">Assigned Doctrine codes (comma)</label><input id="modelDoctrineSelect" />
+          <button id="modelAssignDoctrines">Assign Doctrines</button>
+          <p id="modelStatus" class="hint"></p>
+        </section>
+
         <section class="panel">
           <h2>Events</h2>
           <pre id="eventsLog"></pre>
@@ -525,5 +622,6 @@
 
     <script type="module" src="/src/admin.ts"></script>
     <script type="module" src="/src/adminExtensions.ts"></script>
+    <script type="module" src="/src/adminNewModel.ts"></script>
   </body>
 </html>

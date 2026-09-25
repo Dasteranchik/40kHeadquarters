@@ -1,8 +1,10 @@
 import { IncomingMessage, ServerResponse } from "http";
 
 import { setCorsHeaders, writeJson } from "./transport";
+import type { createNewModelAdminHandlers } from "./admin/newModel";
 
 export interface ApiRouteHandlers {
+  newModel: ReturnType<typeof createNewModelAdminHandlers>;
   handleLogin: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   handleMe: (req: IncomingMessage, res: ServerResponse) => void;
   handleState: (req: IncomingMessage, res: ServerResponse) => void;
@@ -128,6 +130,38 @@ export async function handleApiRequest(
     return;
   }
 
+  const definitionRoutes = {
+    tags: "tags", "item-kinds": "itemKinds", doctrines: "doctrines",
+  } as const;
+  const definitionMatch = path.match(/^\/api\/admin\/(tags|item-kinds|doctrines)(?:\/([^/]+))?$/);
+  if (definitionMatch) {
+    const collection = definitionRoutes[definitionMatch[1] as keyof typeof definitionRoutes];
+    const id = definitionMatch[2] ? decodeURIComponent(definitionMatch[2]) : null;
+    if (!id && method === "GET") { handlers.newModel.list(req, res, collection); return; }
+    if (id && method === "PUT") { await handlers.newModel.put(req, res, collection, id); return; }
+    if (id && method === "DELETE") { handlers.newModel.remove(req, res, collection, id); return; }
+  }
+  if (path === "/api/admin/tag-relations") {
+    if (method === "GET") { handlers.newModel.list(req, res, "tagRelations"); return; }
+    if (method === "PUT") { await handlers.newModel.putTagRelation(req, res); return; }
+    if (method === "DELETE") { await handlers.newModel.deleteTagRelation(req, res); return; }
+  }
+  if (path === "/api/admin/formations" && method === "POST") {
+    await handlers.newModel.createFormation(req, res); return;
+  }
+  if (path === "/api/admin/units" && method === "POST") {
+    await handlers.newModel.createUnit(req, res); return;
+  }
+  const unitDetailMatch = path.match(/^\/api\/admin\/units\/(\d+)(?:\/(attach-formation|extract-formation|attach-artifact|detach-artifact|replace-commander|doctrines))?$/);
+  if (unitDetailMatch) {
+    const unitId = Number(unitDetailMatch[1]);
+    if (!unitDetailMatch[2] && method === "GET") { handlers.newModel.unitDetails(req, res, unitId); return; }
+    if (unitDetailMatch[2] && method === "POST") {
+      await handlers.newModel.composeUnit(req, res, unitId, unitDetailMatch[2] as Parameters<typeof handlers.newModel.composeUnit>[3]);
+      return;
+    }
+  }
+
   if (path === "/api/admin/players" && method === "POST") {
     await handlers.handleAddPlayer(req, res);
     return;
@@ -197,12 +231,12 @@ export async function handleApiRequest(
   }
 
   if (path === "/api/admin/fleets" && method === "POST") {
-    await handlers.handleAddFleet(req, res);
+    writeJson(res, 410, { error: "Legacy Unit creation is disabled; use POST /api/admin/units" });
     return;
   }
 
   if (path === "/api/admin/armies" && method === "POST") {
-    await handlers.handleAddArmy(req, res);
+    writeJson(res, 410, { error: "Legacy Unit creation is disabled; use POST /api/admin/units" });
     return;
   }
   if (path === "/api/admin/unit-variants" && method === "GET") {

@@ -1,6 +1,6 @@
 import type { GameState } from "../types";
 
-export const CURRENT_SCHEMA_VERSION = 3 as const;
+export const CURRENT_SCHEMA_VERSION = 4 as const;
 
 export type DbRole = "admin" | "player";
 
